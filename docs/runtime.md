@@ -1,99 +1,98 @@
-# 最小运行闭环
+# 运行闭环
 
-本版是本机单用户的模型流执行器，固定使用 OpenAI Chat Completions 兼容接口，支持同会话多轮上下文，无模拟运行模式。一个 Session 保存多次 Run；每个 Run 发起一次模型流，一个 Session 同时只允许一个活动 Run。不同 Session 可以独立执行。
+本版面向本机单用户，使用 OpenAI Chat Completions 兼容接口，支持同会话多轮上下文及只读工具循环，无模拟运行模式。一个 Session 保存多次 Run；一个 Run 可包含多次模型请求，每个 Session 同时只允许一个活动 Run。不同 Session 可以独立执行。
 
 ## 调用链
 
 ```text
 Web 提交输入（持有 requestId）
-→ SessionController.submit
-→ DefaultAgentEngine.submit
-→ JdbcSessionStore.submit（事务：Run + 活动执行占位 + QUEUED 事件）
-→ 虚拟线程：RUNNING → contextHistory（QUEUED seq 之前的记录）
-→ ConversationContext.build（过滤、完整轮次裁剪、冻结 ModelRequest）
-→ saveModelRequest（事务：消息快照 + context_summary + CONTEXT 事件）
-→ OpenAiChatCompletionProvider.stream（直接发送冻结消息）
-→ 每次分段回调：事务追加 TEXT 事件并更新输出
+→ SessionController.submit → DefaultAgentEngine.submit
+→ JdbcSessionStore.submit（事务：Run + 活动占位 + QUEUED 事件）
+→ 虚拟线程：RUNNING → 绑定配置工作区
+→ contextHistory → ConversationContext.build（完整轮次过滤、裁剪）
+→ 每个模型步骤：
+    检查取消与上下文容量
+    → saveModelRequest（事务：不可覆盖的步骤快照 + context_summary + CONTEXT 事件）
+    → OpenAiChatCompletionProvider.complete（标准 HTTP/SSE）
+    → 文本回调：事务追加 TEXT 事件并更新输出
+    → 无工具调用：保存完整本轮对话并完成
+    → 有工具调用：保存整批 PENDING + TOOL 事件
+      → 依序 RUNNING → LocalWorkspaceTools.execute → COMPLETED / FAILED
+      → 追加与 tool_call_id 配对的 tool 消息，进入下一步
 → 最终事务：终态 + STATE 事件 + 释放会话占位
 
 EventController → 按 seq 读取数据库事件 → SSE
-→ Web 合并读取一致快照 → 展示输出与状态
+→ Web 读取一致快照，刷新工具卡片及已展开的步骤输入
 ```
 
-每次数据库变化后才可被 SSE 读取。当前 TEXT 分段全部持久化，UI 使用的输出是已提交内容。存储是单进程实例，状态投影和事件表一起提交。H2 设置 WRITE_DELAY=0；未完成事务的文字不属于已提交记录。
+模型 `complete` 必须返回完整本步文本与调用列表，并把文本通过回调分段输出；兼容旧文本适配器的默认实现包装 `stream`。只有接收到完整结束标记，HTTP 适配器才返回调用，分片、无效或提前断开的调用不会交给工具执行器。工具定义由服务端提供，模型不能新增可执行能力。
 
-## 状态
+## 状态与停止
 
 ```text
 QUEUED → RUNNING → COMPLETED / FAILED
 QUEUED 或 RUNNING → CANCELLING → CANCELLED / TIMED_OUT
 任意活动状态在进程异常退出后的启动恢复中 → INTERRUPTED
+工具：PENDING → RUNNING → COMPLETED / FAILED
+超出本步执行预算的工具：PENDING → SKIPPED（结果回传模型，可后续重新请求）
+未完成工具随任务终止 → CANCELLED；异常重启 → INTERRUPTED
 ```
 
-执行器提交失败也可使 QUEUED → FAILED。所有终态不可复活。
+执行器提交失败也可使 QUEUED → FAILED。终态不可复活。用户取消与总超时由同一个协调入口仲裁，先到者确定停止原因：先提交 CANCELLING，再发送中断；工作线程退出后才写最终状态。迟到文本和工具结果丢弃，后续工具及模型请求不再启动。取消生效前已进入的本地读取可能仍在收尾。
 
-用户取消与超时由同一个协调入口仲裁，先到者确定停止原因。停止首先提交 CANCELLING，然后发送中断；只有模型调用返回、退出或抛出后才写最终状态。已取消任务的迟到回调不保存，不会形成 COMPLETED。
-
-关闭页面或 SSE 连接不取消 Run。正常退出服务请求取消并等待收尾；异常退出后不恢复工作线程，只补写 INTERRUPTED 事件并释放活动占位，不重复执行。对于忽略取消的未来第三方模型，不能凭线程中断宣称它已经停止。
+关闭浏览器或 SSE 连接不会停止 Run。正常关闭服务会请求取消，先关闭 SSE 再关闭 Web 服务；异常退出后仅标记 INTERRUPTED、释放占位，不重新请求模型或重跑工具。文件工具在读取与遍历之间检查取消及截止时间，不能把中断等同于强制停止所有操作系统 I/O。
 
 ## API
 
-所有请求和响应为 JSON，SSE 除外。POST 必须携带 `Content-Type: application/json`。当前没有登录体系；API 拒绝非本地 Host 与不允许的浏览器 Origin，允许本地后端端口及 Vite 5173。
+所有请求和响应为 JSON，SSE 除外。POST 必须携带 `Content-Type: application/json`。API 拒绝非本地 Host 与不允许的浏览器 Origin，允许本地后端端口及 Vite 5173，尚无登录体系。
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
-| GET | `/api/model` | `{ provider, model, configured }`；仅配置摘要，不返回 Key / URL，也不代表连接验证成功 |
-| GET | `/api/runs/{id}/model-request` | 200 返回冻结的 ModelRequest；旧记录 / 尚未准备快照返回 204；Run 不存在返回 404 |
+| GET | `/api/model` | `{ provider, model, configured }`，不返回 Key / URL，不代表连接验证成功 |
+| GET | `/api/workspace` | `{ configured, root, tools }`，工具名列表及规范化路径 |
+| GET | `/api/runs/{id}/model-request` | 保留兼容：200 返回第一步快照；尚无快照 204；Run 不存在 404 |
+| GET | `/api/runs/{id}/model-requests` | 按 step 排序的全部 ModelRequest；尚无快照 `[]`；Run 不存在 404 |
+| GET | `/api/runs/{id}/tools` | 按步骤和调用顺序返回 ToolExecution；尚无工具 `[]`；Run 不存在 404 |
 | POST | `/api/sessions` | `{ "title": "新会话" }`，201 返回 Session |
 | GET | `/api/sessions` | 会话列表，创建时间倒序 |
 | GET | `/api/sessions/{id}` | `{ session, runs, lastSeq }` 一致快照 |
 | POST | `/api/sessions/{id}/runs` | 新请求 202；同内容幂等重试 200；会话忙碌 409 |
-| POST | `/api/runs/{id}/cancel` | JSON 空对象；200 返回当前状态，可为 CANCELLING 或既有终态 |
-| GET | `/api/sessions/{id}/events?after=0` | SSE；若有 Last-Event-ID 则优先使用该值 |
+| POST | `/api/runs/{id}/cancel` | JSON 空对象；200 返回 CANCELLING 或既有终态 |
+| GET | `/api/sessions/{id}/events?after=0` | SSE；Last-Event-ID 优先 |
 
-提交示例：
+提交为 `{ "requestId": "标准小写 UUID", "prompt": "分析项目入口" }`。唯一键是 `(session_id, request_id)`；同 ID 同内容返回原 Run，含终态，不重复运行。复用 ID 修改 prompt/scenario 返回 409。prompt 为 1–4000 字符。scenario 仅用于旧记录兼容，新请求省略或使用 NORMAL；FAIL / SLOW 不能创建真实任务。
 
-```json
-{
-  "requestId": "096b0fd5-2c26-4734-8d81-55d7d1d8ef21",
-  "prompt": "你好"
-}
-```
+Run 保存 provider、model、context、workspace；模型及工作区由服务端配置决定，客户端不能选择任意目录。新 provider 为 openai-compatible，不能据此判定实际厂商；旧来源标识保留。ModelRequest 包含 runId、model、scenario、messages、context、step、workspace、tools、instructions、finalAnswerOnly。instructions 以首条 system 消息发送，但不写入历史问答；finalAnswerOnly=true 时发送标准 tool_choice=none。页面展示系统指引及“收尾回答”标记，消息条数包含系统消息。旧 JSON 的新字段默认为空字符串/false，无需额外 SQL 迁移。ToolExecution 包含 runId、step、callId、name、arguments、status、output。快照不含鉴权配置；HTTP 适配器将 toolCalls/toolCallId 映射为标准 tool_calls/tool_call_id。
 
-requestId 必须为标准小写 UUID；唯一键是 `(session_id, request_id)`。重试同 ID 返回原 Run，包含终态 Run；更换 prompt/scenario 却复用 ID 返回 409。prompt 为 1–4000 字符。scenario 仅作为旧记录和待确认请求的兼容字段保留，新请求省略或使用 NORMAL；FAIL / SLOW 不能创建新任务，旧请求同内容重试仍返回原记录。所有输出上限 100000 字符。
+错误返回 `{ code, message }`：无效输入 400，不存在 404，忙碌/状态冲突 409，正在停止/连接容量不足 503。前端持久化待确认 requestId，网络结果不明时以同 ID 重试，避免重复提交。
 
-Run 额外保存 `provider` 和 `model`；由服务配置决定，客户端不提交。新真实调用的 provider 为 openai-compatible，表示适配协议，不能用于判定实际厂商或服务地址；model 为配置的模型名。V2 对 V1 记录补写 simulated / local-simulator，已有 DeepSeek 记录保留原标识。重启切换模型后，既有 requestId 重试仍返回原记录，不再次调用模型。模型名缺失、要求 Key 但未填写或真实模式传入模拟场景返回 400，不创建 Run。
+## 持久化与事件
 
-错误返回 `{ code, message }`；无效输入 400，不存在 404，忙碌或状态冲突 409，正在停止/连接容量不足 503。
+H2 单进程存储采用同步锁与事务；投影、序号和事件一起提交，WRITE_DELAY=0。V1–V3 不改写，V4 增加：
 
-前端先保存待确认请求，再发送。请求结果不明时保留 requestId，重试不会创建新 Run；刷新后如快照中已存在该请求则自动清除待确认项。不能更改待确认请求的内容后复用其 ID。
+- `harness_run.workspace`：任务绑定目录，旧记录为空。
+- `harness_model_step`：后续步骤快照，主键 `(run_id, step)`；第一步继续使用 V3 `harness_model_request`。
+- `harness_tool`：工具参数、状态、结果和顺序，主键 `(run_id, call_id)`。
+- `harness_conversation`：成功任务的完整本轮 user/assistant/tool 对话，与 COMPLETED 一起提交；不重复保存此前历史。
 
-## SSE
+旧 V3 JSON 缺省 step=1、workspace 为空、tools/toolCalls 为空。无快照的旧记录不补造快照；无完整对话记录的旧任务，使用原 prompt/output 恢复普通问答历史。
 
-事件名为 `run-event`，事件 id 是会话内单调 seq。示例：
+SSE 事件名 `run-event`，id 为会话内单调 seq。STATE 携带状态与原因，TEXT 携带已提交文本，CONTEXT 的 text 是上下文计数 JSON；TOOL 通知工具投影变化，前端读取工具 API。终态 STATE 也触发工具刷新，以显示取消/中断。客户端只用大于已应用 seq 的通知刷新，不重复拼接输出；支持数据库补发，断线不会改变任务状态。
 
-```text
-id:3
-event:run-event
-data:{"sessionId":"...","seq":3,"runId":"...","type":"TEXT","status":null,"text":"已收到","createdAt":"..."}
-```
+## 上下文与协议边界
 
-STATE 事件携带 status 与 detail（使用 text 字段），TEXT 事件只携带增量文本，CONTEXT 事件的 text 为上下文计数摘要 JSON，status=null。客户端只处理大于已应用 seq 的通知，再读取完整投影，不重复拼接文本。超出当前 lastSeq、负数或非法游标返回 400。
+历史选取同会话、早于当前提交、COMPLETED、非 simulated、output 非空白且 workspace 为空或匹配当前目录的记录。切换模型/服务不切断合格历史；切换工作区会排除绑定其他目录的记录。按提交事件 seq 排序，按完整问答轮次保留最近后缀，工具调用与结果成对保留。
 
-连接自然结束后 EventSource 自动重连；SSE 消费不改变运行状态。事件轮询从上次游标直接读库，无需在内存消息订阅与数据库补发之间切换，因此不会漏掉补发期间的新事件。
+默认 32000 UTF-16 字符预算包含系统指引、正文、调用 ID、名称、参数和工具结果，配置范围 4000–256000；不计工具定义及协议开销，也不是 token 计数。每步在加入本步系统指引后校验容量，超限则失败，禁止下一次模型请求，不截掉未配对结果。context 的 includedTurns/droppedTurns/excludedTurns 是历史轮数，characters 是本步全部消息字符数。
 
-## 明确边界
+每步调用前保存快照，失败时不请求模型；快照存在不证明上游成功接收。HARNESS_TOOLS_MAX_STEPS 默认 0，不设固定请求轮数；ModelRequest.step 也不再限制为 32，后续步骤按原表逐条持久化。默认系统指引说明可根据证据继续调查，建议 Java 入口直接 search_files、目录树使用 depth=8，不按轮数强制终止或发送 tool_choice=none。
 
-这是一次模型流的执行生命周期，包含历史消息投影，不包含完整 Agent 工具循环、自动重试、工作区操作、审批和插件。会话事件能重建当前文本与状态，但没有引入未来工具调用的可重放副作用。
+显式配置正整数步数上限时，才在最后一步通过 tool_choice=none 关闭调用，要求根据已有结果回答并说明未确认项；成功时 COMPLETED 和探索上限提示与完整对话同事务保存。若返回空白文字或无视 tool_choice 继续请求工具，明确失败；后者调用保存为 SKIPPED，不执行。取消、总超时、上下文和输出限制在两种模式下都生效；不设轮次上限不代表无限时间或无限上下文。
 
-OpenAiChatCompletionProvider 通过 JDK HttpClient 请求基础地址加 `/chat/completions`，保留 `/v1` 及网关前缀。请求仅包含 model、stream=true、messages（冻结的历史 user/assistant 问答 + 当前 user）；不添加厂商扩展、固定 max_tokens 或 max_completion_tokens，使用上游默认生成参数。不保存 reasoning_content。Key 非空时使用 Bearer 鉴权，Key 为空且显式关闭必填要求时不发送 Authorization。模型 SSE 与发往浏览器的会话 SSE 是两个独立协议。
+探索步每步最多实际执行 8 个工具。若模型返回更多调用，前 8 个按索引顺序执行，其余保存为 SKIPPED，不访问文件系统，但仍追加对应 tool_call_id 的结果，说明本步未执行及后续请求方法。工具输入错误作为 FAILED 结果回传；读取行区间超过 200 行会自动限制为前 200 行并提示继续位置。没有自动 HTTP 重试或重启续跑。
 
-历史仅选取同会话、早于当前提交、COMPLETED、非 simulated 且 output 非空白的记录。模型或服务切换不切断会话历史。以 32000 UTF-16 字符的默认正文预算保留合格轮次的最近连续后缀，超限移除完整旧轮次，不切分消息，不自动摘要；当前输入始终保留。该预算不计协议开销，也不是模型 token 窗口。
+HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工作区仅发送 model、stream=true、messages；有工作区额外发送标准函数 tools。支持流式 tool_calls 的 index/id/function.name/function.arguments 分片累积，按 index 排序；索引必须为非负 int，可不连续，其数值不代表调用数量。单步最多累积 32 个不同索引（跨所有分片），超过时失败且不执行该批，避免无限累积。每个 ID 最多 128 字符、名称 64、参数 16384，拒绝重复 ID、非法索引和类型，并分别提示 index、type 或数量上限，避免混淆。工具参数必须是 JSON 对象且只含定义字段。正常文本需要 finish_reason=stop + [DONE]；工具步骤需要非空调用、finish_reason=tool_calls + [DONE]。
 
-Run.context 包含 includedTurns（带入历史轮数）、droppedTurns（预算裁剪轮数）、excludedTurns（状态、模拟或空回答过滤数）、characters、maxCharacters。ModelRequest 包含 runId、model、scenario、messages、context，不含 Key / URL。快照在 RUNNING 阶段、发起网络请求前保存；排队即取消不会创建快照，运行中取消可能已有快照但不代表上游收到。快照写入失败回滚摘要和 CONTEXT 事件，Run 失败且不调用模型。终态或重复写入不能覆盖既有快照。
+支持角色、空内容及 usage-only 分段。EOF、缺失结束标记、非法 JSON、超长事件、HTTP 错误、非 SSE、长度截断、过滤和 refusal 都会失败并保留已提交文本。单事件最大 65536 字符，回答按不拆分代理对的 4096 字符分段入库，总输出最多 100000 字符。不保存 reasoning_content，不附加厂商扩展、固定生成 token 上限或思考配置。
 
-上游需同时返回 `finish_reason=stop` 和 `[DONE]` 才算正常完成。支持角色分段、空内容和 usage-only 分段。意外 EOF、无效 JSON、HTTP 错误、非 SSE 响应、超长事件、长度截断、内容过滤、refusal 和未支持的工具调用均失败并保留已提交文本；空 tool_calls 数组不算工具调用。单个上游事件最多 65536 个 UTF-16 字符；回答按不拆分代理对的 4096 字符分段入库。上游错误正文不进入用户错误信息或日志。
-
-HTTP 响应头等待和响应体等待均可由引擎中断，退出时取消响应体订阅。总时间预算默认 120 秒，覆盖连接、响应等待和生成；单独连接超时 10 秒。客户端结束不代表服务商撤销已发生的推理或计费。
-
-该版本采用单进程串行存储和完整快照读取，尚未实现大规模历史分页、跨进程协调、多用户认证及生产压力验证。
+默认总超时 120 秒覆盖整个循环，HTTP 连接超时 10 秒，单工具默认 5 秒。终止本机请求不能保证撤销上游计费。工具目录、排除规则、读取预算及配置方法见 README“启用只读工作区”。本版没有写文件、Shell、审批、多用户隔离、操作系统沙箱或跨进程协调，不应用于不可信进程可恶意改写的文件系统。

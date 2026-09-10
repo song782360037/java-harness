@@ -143,7 +143,8 @@ class OpenAiChatCompletionTest {
             assertThat(second.output()).isEqualTo(first.output());
             var json = new ObjectMapper();
             assertThat(json.readTree(body.get()).path("messages"))
-                    .isEqualTo(json.valueToTree(store.modelRequest(second.id()).messages()));
+                    .isEqualTo(json.valueToTree(store.modelRequest(second.id()).messages().stream()
+                            .map(message -> java.util.Map.of("role", message.role(), "content", message.content())).toList()));
             assertThat(store.modelRequest(second.id()).messages()).extracting(ModelMessage::content)
                     .containsExactly(first.prompt(), first.output(), second.prompt());
             assertThat(calls).hasValue(2);
@@ -341,5 +342,181 @@ class OpenAiChatCompletionTest {
         Flyway.configure().dataSource(ds).load().migrate();
         assertThat(legacy.queryForMap("SELECT provider,model,output FROM harness_run WHERE id='r'").values())
                 .containsExactlyInAnyOrder("simulated", "local-simulator", "existing output");
+    }
+
+    private static String toolChunk(String tools, String finish) {
+        return "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":" + tools
+                + "},\"finish_reason\":" + (finish == null ? "null" : "\"" + finish + "\"") + "}]}\n\n";
+    }
+
+    private static String toolDelta(int index, String id, String name, String arguments) throws Exception {
+        return new ObjectMapper().writeValueAsString(java.util.Map.of("index", index, "id", id, "type", "function",
+                "function", java.util.Map.of("name", name, "arguments", arguments)));
+    }
+
+    private static com.fasterxml.jackson.databind.node.ArrayNode wireConversation(com.fasterxml.jackson.databind.JsonNode request) {
+        var messages = (com.fasterxml.jackson.databind.node.ArrayNode) request.path("messages").deepCopy();
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("system");
+        assertThat(messages.remove(0).path("content").asText()).contains("search_files", "最后一步");
+        return messages;
+    }
+
+    @Test void fragmentedToolCallsLoopThroughRealHttpAndSendStandardPairedMessages(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        java.nio.file.Files.writeString(directory.resolve("App.java"), "class App {}\n");
+        serve(exchange -> {
+            headers(exchange);
+            var request = new ObjectMapper().readTree(body.get());
+            assertThat(request.path("tools")).hasSize(3);
+            assertThat(request.path("tools").get(0).path("type").asText()).isEqualTo("function");
+            if (calls.get() == 1) {
+                write(exchange, chunk("正在分析", null)
+                        + toolChunk("[" + toolDelta(0, "call_", "read_", "{\"path\":\"") + ","
+                                + toolDelta(1, "list", "list_directory", "{}") + "]", null)
+                        + toolChunk("[" + toolDelta(0, "read", "file", "App.java\"}") + "]", "tool_calls") + "data: [DONE]\n\n");
+            } else {
+                var messages = wireConversation(request);
+                assertThat(messages).hasSize(4);
+                assertThat(messages.get(1).path("tool_calls").get(0).path("function").path("arguments").asText()).isEqualTo("{\"path\":\"App.java\"}");
+                assertThat(messages.get(1).has("toolCalls")).isFalse();
+                assertThat(messages.get(2).path("role").asText()).isEqualTo("tool");
+                assertThat(messages.get(2).path("tool_call_id").asText()).isEqualTo("call_read");
+                assertThat(messages.get(2).path("content").asText()).contains("class App");
+                assertThat(messages.get(3).path("tool_call_id").asText()).isEqualTo("list");
+                write(exchange, chunk("项目只有一个 App 类", "stop") + "data: [DONE]\n\n");
+            }
+        });
+        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(10), 32000,
+                new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(run.output()).isEqualTo("正在分析项目只有一个 App 类");
+            assertThat(calls).hasValue(2);
+            assertThat(store.tools(run.id())).extracting(ToolExecution::status).containsExactly("COMPLETED", "COMPLETED");
+        }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {9, 32})
+    void nineCallsAreParsedAndExcessCallsReturnResultsWithoutAborting(int count, @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            if (calls.get() == 1) {
+                for (int i = 0; i < count; i++) {
+                    write(exchange, toolChunk("[" + toolDelta(i, "call" + i, "list_directory", "{}") + "]", i == count - 1 ? "tool_calls" : null));
+                }
+                write(exchange, "data: [DONE]\n\n");
+            } else {
+                var messages = wireConversation(new ObjectMapper().readTree(body.get()));
+                assertThat(messages).hasSize(count + 2);
+                assertThat(messages.get(count + 1).path("tool_call_id").asText()).isEqualTo("call" + (count - 1));
+                assertThat(messages.get(count + 1).path("content").asText()).contains("未执行", "8");
+                write(exchange, chunk("根据已读取的目录完成分析", "stop") + "data: [DONE]\n\n");
+            }
+        });
+        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(10), 32000,
+                new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(store.tools(run.id())).hasSize(count);
+            assertThat(store.tools(run.id()).stream().filter(tool -> tool.status().equals("COMPLETED"))).hasSize(8);
+            assertThat(store.tools(run.id()).getLast().status()).isEqualTo("SKIPPED");
+            assertThat(calls).hasValue(2);
+        }
+    }
+
+    @Test void finalRequestUsesStandardToolChoiceNoneAndReturnsEvidenceBasedAnswer(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        java.nio.file.Files.writeString(directory.resolve("App.java"), "class App {}\n");
+        serve(exchange -> {
+            headers(exchange);
+            var request = new ObjectMapper().readTree(body.get());
+            var messages = request.path("messages");
+            assertThat(messages.get(0).path("role").asText()).isEqualTo("system");
+            if (calls.get() == 1) {
+                assertThat(request.has("tool_choice")).isFalse();
+                write(exchange, toolChunk("[" + toolDelta(0, "r", "read_file", "{\"path\":\"App.java\"}") + "]", "tool_calls") + "data: [DONE]\n\n");
+            } else {
+                assertThat(calls).hasValue(2);
+                assertThat(request.path("tool_choice").asText()).isEqualTo("none");
+                assertThat(messages.get(0).path("content").asText()).contains("停止工具调用", "不能虚构");
+                assertThat(messages.get(messages.size() - 1).path("content").asText()).contains("class App {}");
+                write(exchange, chunk("已读取 App.java，仅声明 App 类；尚未确认程序入口。", "stop") + "data: [DONE]\n\n");
+            }
+        });
+        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 32000,
+                new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 2)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(run.output()).contains("尚未确认程序入口");
+            assertThat(run.detail()).contains("探索步数上限");
+            var saved = store.modelRequests(run.id());
+            assertThat(saved).hasSize(2);
+            assertThat(saved.getLast().finalAnswerOnly()).isTrue();
+            assertThat(saved.getLast().instructions()).isEqualTo(new ObjectMapper().readTree(body.get()).path("messages").get(0).path("content").asText());
+            assertThat(store.tools(run.id())).hasSize(1);
+        }
+    }
+
+    @Test void sparseIndexesIdentifyCallsAndDoNotConsumeTheExecutionBudget(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            if (calls.get() == 1) {
+                write(exchange, toolChunk("[" + toolDelta(100, "second", "list_directory", "{}") + ","
+                        + toolDelta(10, "first", "list_directory", "{}") + "]", "tool_calls") + "data: [DONE]\n\n");
+            } else write(exchange, chunk("done", "stop") + "data: [DONE]\n\n");
+        });
+        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 32000,
+                new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(store.tools(run.id())).extracting(ToolExecution::callId).containsExactly("first", "second");
+            assertThat(store.tools(run.id())).extracting(ToolExecution::status).containsExactly("COMPLETED", "COMPLETED");
+        }
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void parsingLimitCountsDistinctCallsAcrossChunksAndRejectsBeforeExecution(boolean fragmented, @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            var deltas = new java.util.ArrayList<String>();
+            for (int i = 0; i < 33; i++) deltas.add(toolDelta(i, "call" + i, "list_directory", "{}"));
+            if (fragmented) for (String delta : deltas) write(exchange, toolChunk("[" + delta + "]", null));
+            else write(exchange, toolChunk("[" + String.join(",", deltas) + "]", "tool_calls"));
+            write(exchange, "data: [DONE]\n\n");
+        });
+        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 32000,
+                new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(run.detail()).contains("32", "解析上限");
+            assertThat(store.tools(run.id())).isEmpty();
+            assertThat(calls).hasValue(1);
+        }
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"eof", "stop", "missing-id", "duplicate", "index", "oversize", "type", "missing-done", "wrong-field"})
+    void invalidToolStreamsNeverExecute(String mode, @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            String valid = "{\"index\":0,\"id\":\"a\",\"type\":\"function\",\"function\":{\"name\":\"list_directory\",\"arguments\":\"{}\"}}";
+            String items = switch (mode) {
+                case "missing-id" -> valid.replace("\"id\":\"a\",", "");
+                case "duplicate" -> valid + "," + valid.replace("\"index\":0", "\"index\":1");
+                case "index" -> valid.replace("\"index\":0", "\"index\":-1");
+                case "oversize" -> valid.replace("{}", "x".repeat(16385));
+                case "type" -> valid.replace("\"type\":\"function\"", "\"type\":\"custom\"");
+                case "wrong-field" -> valid.replace("\"arguments\":\"{}\"", "\"arguments\":{}");
+                default -> valid;
+            };
+            write(exchange, toolChunk("[" + items + "]", mode.equals("eof") ? null : mode.equals("stop") ? "stop" : "tool_calls"));
+            if (!mode.equals("eof") && !mode.equals("missing-done")) write(exchange, "data: [DONE]\n\n");
+        });
+        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 32000,
+                new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(store.tools(run.id())).isEmpty();
+            if (mode.equals("index")) assertThat(run.detail()).contains("index", "非负整数");
+            if (mode.equals("type")) assertThat(run.detail()).contains("type", "function");
+            assertThat(calls).hasValue(1);
+        }
     }
 }

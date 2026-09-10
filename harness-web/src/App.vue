@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import ModelRequestDetails from './ModelRequestDetails.vue'
+import ToolDetails from './ToolDetails.vue'
 import { api, ApiError, isActive, type Run, type RunEvent, type RunStatus,
-  type Session, type Snapshot, type Submission, type ModelInfo } from './api'
+  type Session, type Snapshot, type Submission, type ModelInfo, type WorkspaceInfo } from './api'
 
 const sessions = ref<Session[]>([])
 const model = ref<ModelInfo | null>(null)
+const workspace = ref<WorkspaceInfo | null>(null)
+const toolRevisions = ref<Record<string, number>>({})
+const executionRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}`
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
 const prompt = ref('')
@@ -18,7 +22,7 @@ const pending = ref<Submission | null>(null)
 const timeline = ref<HTMLElement>()
 const current = computed(() => snapshot.value?.runs.find(isActive))
 const labels: Record<RunStatus, string> = {
-  QUEUED: '排队中', RUNNING: '正在输出', CANCELLING: '正在停止', COMPLETED: '已完成',
+  QUEUED: '排队中', RUNNING: '正在执行', CANCELLING: '正在停止', COMPLETED: '已完成',
   CANCELLED: '已停止', FAILED: '执行失败', TIMED_OUT: '已超时', INTERRUPTED: '已中断',
 }
 let source: EventSource | null = null
@@ -81,6 +85,9 @@ function follow(id: string, version: number) {
   source.onopen = () => {
     if (version !== revision) return
     connected.value = true
+    void api<WorkspaceInfo>('/workspace').then(value => {
+      if (version === revision) workspace.value = value
+    }).catch(() => { if (version === revision) workspace.value = null })
     void api<ModelInfo>('/model').then(value => {
       if (version === revision) model.value = value
     }).catch(() => { if (version === revision) model.value = null })
@@ -90,6 +97,7 @@ function follow(id: string, version: number) {
   source.addEventListener('run-event', (message: MessageEvent<string>) => {
     if (version !== revision) return
     const event = JSON.parse(message.data) as RunEvent
+    if (event.type === 'TOOL') toolRevisions.value[event.runId] = event.seq
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
 }
@@ -104,6 +112,7 @@ async function selectSession(id: string) {
   connected.value = false
   selectedId.value = id
   snapshot.value = null
+  toolRevisions.value = {}
   error.value = ''
   loading.value = true
   prompt.value = ''
@@ -136,6 +145,7 @@ async function initialize() {
   error.value = ''
   try {
     model.value = await api<ModelInfo>('/model')
+    workspace.value = await api<WorkspaceInfo>('/workspace')
     sessions.value = await api<Session[]>('/sessions')
     const stored = storageGet('harness.session')
     const id = sessions.value.find(session => session.id === stored)?.id || sessions.value[0]?.id
@@ -207,6 +217,11 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer) })
         <template v-if="!model">正在读取模型配置…</template>
         <template v-else>{{ model.model || '未设置模型' }} · {{ model.configured ? '已配置，发送后调用' : '配置不完整，请检查模型名称和 API Key 后重启服务' }}<br>自动携带本会话中已完成的真实问答；新建会话可开始独立对话。</template>
       </div>
+      <div class="model-banner">
+        <template v-if="!workspace">正在读取工作区配置…</template>
+        <template v-else-if="workspace.configured">只读工作区：{{ workspace.root }}<br>支持目录浏览、文件读取和文本搜索；读取的内容会发送给当前模型服务。</template>
+        <template v-else>未配置工作区，当前可进行对话。设置 HARNESS_WORKSPACE_ROOT 并重启服务后，可分析本机代码。</template>
+      </div>
       <div v-if="error" class="error-banner" role="alert">
         {{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button>
       </div>
@@ -227,10 +242,11 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer) })
             <p v-if="run.context" class="run-detail">
               本次携带 {{ run.context.includedTurns }} 轮历史问答
               <span v-if="run.context.droppedTurns"> · 容量限制，已移除最早 {{ run.context.droppedTurns }} 轮</span>
-              <span v-if="run.context.excludedTurns"> · 已跳过 {{ run.context.excludedTurns }} 条模拟、未完成或无回答记录</span>
+              <span v-if="run.context.excludedTurns"> · 已跳过 {{ run.context.excludedTurns }} 条工作区不匹配、模拟、未完成或无回答记录</span>
             </p>
             <p v-if="run.detail" class="run-detail">{{ run.detail }}</p>
-            <ModelRequestDetails v-if="run.context" :run-id="run.id" />
+            <ToolDetails :run-id="run.id" :revision="executionRevision(run)" />
+            <ModelRequestDetails v-if="run.context" :run-id="run.id" :revision="executionRevision(run)" />
           </div>
         </article>
       </div>

@@ -37,6 +37,22 @@ public class SessionController {
         return store.snapshot(id);
     }
 
+    @GetMapping("/runs/{id}/model-request")
+    public ResponseEntity<ModelRequest> modelRequest(@PathVariable String id) {
+        ModelRequest request = store.modelRequest(id);
+        return request == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(request);
+    }
+
+    @GetMapping("/runs/{id}/model-requests")
+    public List<ModelRequest> modelRequests(@PathVariable String id) {
+        return store.modelRequests(id);
+    }
+
+    @GetMapping("/runs/{id}/tools")
+    public List<ToolExecution> tools(@PathVariable String id) {
+        return store.tools(id);
+    }
+
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
         var result = engine.submit(id, request.requestId(), request.prompt(),

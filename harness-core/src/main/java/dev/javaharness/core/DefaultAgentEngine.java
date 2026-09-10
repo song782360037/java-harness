@@ -8,10 +8,14 @@ import java.util.concurrent.*;
 
 /** Single-process coordinator. The gate orders submit, output, cancel and final settlement. */
 public final class DefaultAgentEngine implements AgentEngine {
+    private static final int MAX_TOOLS_PER_STEP = 8;
     private final SessionStore store;
     private final ModelProvider model;
     private final Duration timeout;
     private final ConversationContext context;
+    private final WorkspaceTools tools;
+    private final int maxSteps;
+    private final int maxContextCharacters;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("run-deadline").factory());
@@ -28,11 +32,19 @@ public final class DefaultAgentEngine implements AgentEngine {
     }
 
     public DefaultAgentEngine(SessionStore store, ModelProvider model, Duration timeout, int maxContextCharacters) {
+        this(store, model, timeout, maxContextCharacters, WorkspaceTools.disabled(), 0);
+    }
+
+    public DefaultAgentEngine(SessionStore store, ModelProvider model, Duration timeout, int maxContextCharacters, WorkspaceTools tools, int maxSteps) {
         if (timeout.isNegative() || timeout.isZero()) throw new IllegalArgumentException("timeout must be positive");
         this.store = store;
         this.model = model;
         this.timeout = timeout;
         this.context = new ConversationContext(maxContextCharacters);
+        this.maxContextCharacters = maxContextCharacters;
+        this.tools = tools;
+        if (maxSteps < 0) throw new IllegalArgumentException("maxSteps must be non-negative; 0 means no step limit");
+        this.maxSteps = maxSteps;
         store.recoverInterruptedRuns();
     }
 
@@ -74,30 +86,87 @@ public final class DefaultAgentEngine implements AgentEngine {
     private void execute(Run run, Task task) {
         ScheduledFuture<?> deadline = null;
         String failure = null;
+        String completionDetail = "";
+        java.util.List<ModelMessage> completed = null;
         try {
             ModelRequest request;
             synchronized (this) {
                 task.thread = Thread.currentThread();
                 if (task.stopReason != null) return;
                 store.transition(run.id(), RunStatus.RUNNING, "");
-                deadline = timer.schedule(() -> requestStop(run.id(), task, RunStatus.TIMED_OUT),
+                run = store.bindWorkspace(run.id(), tools.workspace());
+                final String timedRunId = run.id();
+                deadline = timer.schedule(() -> requestStop(timedRunId, task, RunStatus.TIMED_OUT),
                         timeout.toMillis(), TimeUnit.MILLISECONDS);
-                request = context.build(run, store.contextHistory(run.id()));
-                store.saveModelRequest(request);
+                request = context.build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
             }
-            model.stream(request, () -> {
+            final String runId = run.id();
+            ModelProvider.Cancellation cancellation = () -> {
                 synchronized (this) {
                     if (task.stopReason != null || Thread.currentThread().isInterrupted()) {
                         throw new InterruptedException("run stopped");
                     }
                 }
-            }, text -> {
+            };
+            java.util.function.Consumer<String> onText = text -> {
                 synchronized (this) {
                     if (task.stopReason == null && !Thread.currentThread().isInterrupted()) {
-                        store.appendText(run.id(), text);
+                        store.appendText(runId, text);
                     }
                 }
-            });
+            };
+            var messages = new java.util.ArrayList<>(request.messages());
+            int historySize = messages.size() - 1;
+            var callIds = new java.util.HashSet<String>();
+            for (int step = 1; maxSteps == 0 || step <= maxSteps; step = Math.incrementExact(step)) {
+                cancellation.check();
+                boolean toolEnabled = !tools.definitions().isEmpty();
+                boolean finalAnswerOnly = toolEnabled && maxSteps > 0 && step == maxSteps;
+                String instructions = toolEnabled ? AgentInstructions.forStep(step, maxSteps) : "";
+                int characters = instructions.length() + messages.stream().mapToInt(ModelMessage::characters).sum();
+                if (characters > maxContextCharacters) throw new ModelException("工具轮次超过上下文容量，请缩小问题范围或提高字符预算");
+                var summary = new ContextSummary(request.context().includedTurns(), request.context().droppedTurns(),
+                        request.context().excludedTurns(), characters, maxContextCharacters);
+                var next = new ModelRequest(runId, run.model(), run.scenario(), messages, summary, step,
+                        tools.workspace(), tools.definitions(), instructions, finalAnswerOnly);
+                synchronized (this) { cancellation.check(); store.saveModelRequest(next); }
+                ModelTurn turn = model.complete(next, cancellation, onText);
+                cancellation.check();
+                messages.add(new ModelMessage("assistant", turn.text(), turn.calls(), null));
+                if (turn.calls().isEmpty()) {
+                    if (finalAnswerOnly && turn.text().isBlank()) throw new ModelException("模型在收尾阶段未返回文字回答");
+                    if (finalAnswerOnly) completionDetail = "已到达工具探索步数上限，本次回答基于已有证据；请注意回答中的未确认项";
+                    completed = java.util.List.copyOf(messages.subList(historySize, messages.size()));
+                    break;
+                }
+                if (tools.definitions().isEmpty()) throw new ModelException("未配置工作区，无法执行工具");
+                if (turn.calls().size() > ToolCall.MAX_BATCH_SIZE) throw new ModelException("单步模型返回的工具调用超过 32 个解析上限");
+                for (ToolCall call : turn.calls()) if (!callIds.add(call.id())) throw new ModelException("模型返回重复的工具调用 ID");
+                synchronized (this) { cancellation.check(); store.beginTools(runId, step, turn.calls()); }
+                if (finalAnswerOnly) {
+                    for (ToolCall call : turn.calls()) synchronized (this) {
+                        cancellation.check();
+                        store.updateTool(runId, call.id(), "SKIPPED", "本步仅允许输出回答，工具未执行");
+                    }
+                    throw new ModelException("已通过 tool_choice=none 要求收尾，但模型仍返回工具调用；请检查服务的工具协议兼容性");
+                }
+                for (int index = 0; index < turn.calls().size(); index++) {
+                    ToolCall call = turn.calls().get(index);
+                    WorkspaceTools.Result result;
+                    if (index >= MAX_TOOLS_PER_STEP) {
+                        result = new WorkspaceTools.Result(false, "本步最多执行 8 个工具，本调用未执行。请先使用已完成的结果；若仍需此工具，请在下一步重新请求，每步最多请求 8 个工具。");
+                        synchronized (this) { cancellation.check(); store.updateTool(runId, call.id(), "SKIPPED", result.output()); }
+                    } else {
+                        synchronized (this) { cancellation.check(); store.updateTool(runId, call.id(), "RUNNING", ""); }
+                        result = tools.execute(call, cancellation);
+                        synchronized (this) {
+                            cancellation.check();
+                            store.updateTool(runId, call.id(), result.success() ? "COMPLETED" : "FAILED", result.output());
+                        }
+                    }
+                    messages.add(new ModelMessage("tool", result.output(), java.util.List.of(), call.id()));
+                }
+            }
         } catch (InterruptedException error) {
             failure = "执行被中断";
         } catch (ModelException error) {
@@ -119,7 +188,8 @@ public final class DefaultAgentEngine implements AgentEngine {
                         case FAILED -> failure;
                         default -> "";
                     };
-                    store.transition(run.id(), outcome, detail);
+                    if (outcome == RunStatus.COMPLETED) store.completeRun(run.id(), completed, completionDetail);
+                    else store.transition(run.id(), outcome, detail);
                 } finally {
                     tasks.remove(run.id());
                 }

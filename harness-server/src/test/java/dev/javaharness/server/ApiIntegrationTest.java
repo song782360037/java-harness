@@ -26,7 +26,7 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:api-tests;DB_CLOSE_DELAY=-1",
-        "harness.run-timeout=5s"
+        "harness.run-timeout=5s", "harness.workspace.root="
 })
 @Import(ApiIntegrationTest.FixtureConfiguration.class)
 class ApiIntegrationTest {
@@ -63,6 +63,26 @@ class ApiIntegrationTest {
         assertThat(json.readTree(response.body())).isEqualTo(json.readTree("""
                 {"provider":"simulated","model":"local-simulator","configured":true}
                 """));
+    }
+
+    @Test void workspaceAndExecutionReadApisDistinguishEmptyAndMissingRecords() throws Exception {
+        var workspace = client.send(HttpRequest.newBuilder(uri("/workspace")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(workspace.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(workspace.body())).isEqualTo(json.readTree("{\"configured\":false,\"root\":\"\",\"tools\":[]}"));
+        String session = newSession();
+        var submitted = post("/sessions/" + session + "/runs", Map.of("requestId", UUID.randomUUID().toString(), "prompt", "hello"));
+        String id = json.readTree(submitted.body()).path("id").asText();
+        await().atMost(Duration.ofSeconds(5)).until(() -> !store.run(id).status().active());
+        var steps = client.send(HttpRequest.newBuilder(uri("/runs/" + id + "/model-requests")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(steps.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(steps.body())).hasSize(1);
+        assertThat(json.readTree(steps.body()).get(0).path("step").asInt()).isEqualTo(1);
+        var tools = client.send(HttpRequest.newBuilder(uri("/runs/" + id + "/tools")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(tools.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(tools.body())).isEmpty();
+        for (String endpoint : new String[] {"tools", "model-requests"}) {
+            assertThat(client.send(HttpRequest.newBuilder(uri("/runs/missing/" + endpoint)).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(404);
+        }
     }
 
     @Test

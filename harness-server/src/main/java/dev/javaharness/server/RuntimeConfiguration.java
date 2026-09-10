@@ -2,6 +2,7 @@ package dev.javaharness.server;
 
 import dev.javaharness.adapters.JdbcSessionStore;
 import dev.javaharness.adapters.OpenAiChatCompletionProvider;
+import dev.javaharness.adapters.LocalWorkspaceTools;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.spi.*;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,8 +37,15 @@ public class RuntimeConfiguration {
     @Bean(destroyMethod = "close")
     AgentEngine agentEngine(SessionStore store, ModelProvider model,
                             @Value("${harness.run-timeout}") Duration timeout,
-                            @Value("${harness.context.max-characters}") int maxContextCharacters) {
-        return new DefaultAgentEngine(store, model, timeout, maxContextCharacters);
+                            @Value("${harness.context.max-characters}") int maxContextCharacters,
+                            WorkspaceTools tools, @Value("${harness.tools.max-steps}") int maxSteps) {
+        return new DefaultAgentEngine(store, model, timeout, maxContextCharacters, tools, maxSteps);
+    }
+
+    @Bean
+    WorkspaceTools workspaceTools(@Value("${harness.workspace.root}") String root,
+                                  @Value("${harness.tools.timeout}") Duration timeout) throws java.io.IOException {
+        return root.isBlank() ? WorkspaceTools.disabled() : new LocalWorkspaceTools(java.nio.file.Path.of(root), timeout);
     }
 
     @Bean

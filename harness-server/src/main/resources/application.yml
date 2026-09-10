@@ -30,6 +30,11 @@ management:
       show-details: never
 
 harness:
+  workspace:
+    root: ${HARNESS_WORKSPACE_ROOT:}
+  tools:
+    max-steps: ${HARNESS_TOOLS_MAX_STEPS:0}
+    timeout: ${HARNESS_TOOL_TIMEOUT:5s}
   run-timeout: ${HARNESS_RUN_TIMEOUT:120s}
   context:
     max-characters: ${HARNESS_CONTEXT_MAX_CHARACTERS:32000}

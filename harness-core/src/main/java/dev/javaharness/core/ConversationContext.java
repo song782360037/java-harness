@@ -17,23 +17,27 @@ public final class ConversationContext {
     }
 
     public ModelRequest build(Run current, List<Run> history) {
+        return build(current, history, run -> List.of(new ModelMessage("user", run.prompt()), new ModelMessage("assistant", run.output())));
+    }
+
+    public ModelRequest build(Run current, List<Run> history, java.util.function.Function<Run, List<ModelMessage>> transcript) {
         var eligible = history.stream().filter(run -> run.sessionId().equals(current.sessionId())
                 && !run.id().equals(current.id()) && run.status() == RunStatus.COMPLETED
-                && !run.provider().equals("simulated") && !run.output().isBlank()).toList();
+                && !run.provider().equals("simulated") && !run.output().isBlank()
+                && (run.workspace().isEmpty() || run.workspace().equals(current.workspace()))).toList();
+        var turns = eligible.stream().map(transcript).toList();
         int characters = current.prompt().length();
         if (characters > maxCharacters) throw new IllegalArgumentException("Current input exceeds context budget");
         int first = eligible.size();
         while (first > 0) {
-            Run prior = eligible.get(first - 1);
-            int size = prior.prompt().length() + prior.output().length();
+            int size = turns.get(first - 1).stream().mapToInt(ModelMessage::characters).sum();
             if (size > maxCharacters - characters) break;
             characters += size;
             first--;
         }
         var messages = new ArrayList<ModelMessage>();
         for (int i = first; i < eligible.size(); i++) {
-            messages.add(new ModelMessage("user", eligible.get(i).prompt()));
-            messages.add(new ModelMessage("assistant", eligible.get(i).output()));
+            messages.addAll(turns.get(i));
         }
         messages.add(new ModelMessage("user", current.prompt()));
         return new ModelRequest(current.id(), current.model(), current.scenario(), messages,
