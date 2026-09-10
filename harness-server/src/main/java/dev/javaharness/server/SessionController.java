@@ -1,0 +1,51 @@
+package dev.javaharness.server;
+
+import dev.javaharness.spi.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api")
+public class SessionController {
+    private final SessionStore store;
+    private final AgentEngine engine;
+
+    public SessionController(SessionStore store, AgentEngine engine) {
+        this.store = store;
+        this.engine = engine;
+    }
+
+    public record CreateSession(String title) {}
+    public record SubmitRun(String requestId, String prompt, String scenario) {}
+
+    @GetMapping("/sessions")
+    public List<Session> sessions() {
+        return store.sessions();
+    }
+
+    @PostMapping(value = "/sessions", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public Session create(@RequestBody CreateSession request) {
+        return store.createSession(request.title());
+    }
+
+    @GetMapping("/sessions/{id}")
+    public SessionSnapshot snapshot(@PathVariable String id) {
+        return store.snapshot(id);
+    }
+
+    @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
+        var result = engine.submit(id, request.requestId(), request.prompt(),
+                request.scenario() == null ? "NORMAL" : request.scenario());
+        return ResponseEntity.status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK).body(result.run());
+    }
+
+    @PostMapping(value = "/runs/{id}/cancel", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Run cancel(@PathVariable String id) {
+        return engine.cancel(id);
+    }
+}

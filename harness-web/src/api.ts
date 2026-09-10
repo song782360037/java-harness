@@ -1,0 +1,24 @@
+export type RunStatus = 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED'
+  | 'CANCELLED' | 'FAILED' | 'TIMED_OUT' | 'INTERRUPTED'
+export interface Session { id: string; title: string; createdAt: string }
+export interface Run {
+  id: string; sessionId: string; requestId: string; prompt: string; scenario: string
+  status: RunStatus; output: string; detail: string; createdAt: string
+}
+export interface Snapshot { session: Session; runs: Run[]; lastSeq: number }
+export interface Submission { requestId: string; prompt: string; scenario: string }
+export interface RunEvent { sessionId: string; seq: number; runId: string; type: string }
+export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includes(run.status)
+export class ApiError extends Error {
+  constructor(message: string, public status: number) { super(message) }
+}
+export async function api<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`/api${path}`, body === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { message?: string }
+    throw new ApiError(error.message || `请求失败（${response.status}）`, response.status)
+  }
+  return response.json() as Promise<T>
+}

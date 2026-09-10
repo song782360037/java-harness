@@ -1,0 +1,38 @@
+name: Build scaffold
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: harness-web/package-lock.json
+      - name: Install frontend dependencies
+        run: npm --prefix harness-web ci
+      - name: Check and build frontend
+        run: npm --prefix harness-web run build
+      - name: Build JAR with frontend (Linux)
+        if: runner.os != 'Windows'
+        run: sh ./mvnw -B -ntp -Pweb clean verify
+      - name: Build JAR with frontend (Windows)
+        if: runner.os == 'Windows'
+        run: .\mvnw.cmd -B -ntp -Pweb clean verify

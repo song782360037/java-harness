@@ -1,0 +1,24 @@
+# Java / Maven
+**/target/
+*.class
+
+# Frontend
+**/node_modules/
+**/dist/
+*.tsbuildinfo
+
+# Local settings and runtime files
+.env
+.env.*
+!.env.example
+*.log
+/data/
+/logs/
+/workspaces/
+
+# Editors and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
