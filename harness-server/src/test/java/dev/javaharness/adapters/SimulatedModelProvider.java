@@ -1,11 +1,11 @@
 package dev.javaharness.adapters;
 
-import dev.javaharness.spi.ModelProvider;
-import dev.javaharness.spi.Run;
+import dev.javaharness.server.TestModelProvider;
+import dev.javaharness.spi.ModelRequest;
 import java.util.function.Consumer;
 
-/** Deterministic local provider; no network calls and no code/file execution. */
-public final class SimulatedModelProvider implements ModelProvider {
+/** Test fixture only; never packaged in the application or selectable through configuration. */
+public final class SimulatedModelProvider implements TestModelProvider {
     private final long chunkDelayMillis;
 
     public SimulatedModelProvider(long chunkDelayMillis) {
@@ -13,8 +13,8 @@ public final class SimulatedModelProvider implements ModelProvider {
     }
 
     @Override
-    public void stream(Run request, Cancellation cancellation, Consumer<String> onText) throws Exception {
-        emit("已收到你的输入：\n\n" + request.prompt() + "\n\n", cancellation, onText);
+    public void stream(ModelRequest request, Cancellation cancellation, Consumer<String> onText) throws Exception {
+        emit("已收到你的输入：\n\n" + request.messages().getLast().content() + "\n\n", cancellation, onText);
         if ("FAIL".equals(request.scenario())) throw new IllegalStateException("Simulated model failure");
         if ("SLOW".equals(request.scenario())) {
             while (true) {

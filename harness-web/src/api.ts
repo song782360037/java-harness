@@ -1,9 +1,14 @@
 export type RunStatus = 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED'
   | 'CANCELLED' | 'FAILED' | 'TIMED_OUT' | 'INTERRUPTED'
 export interface Session { id: string; title: string; createdAt: string }
+export interface ModelInfo { provider: string; model: string; configured: boolean }
+export interface ContextSummary {
+  includedTurns: number; droppedTurns: number; excludedTurns: number; characters: number; maxCharacters: number
+}
 export interface Run {
   id: string; sessionId: string; requestId: string; prompt: string; scenario: string
-  status: RunStatus; output: string; detail: string; createdAt: string
+  status: RunStatus; output: string; detail: string; createdAt: string; provider: string; model: string
+  context: ContextSummary | null
 }
 export interface Snapshot { session: Session; runs: Run[]; lastSeq: number }
 export interface Submission { requestId: string; prompt: string; scenario: string }

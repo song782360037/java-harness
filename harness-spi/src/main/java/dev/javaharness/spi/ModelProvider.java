@@ -7,9 +7,11 @@ import java.util.function.Consumer;
  * Implementations must cooperate with interruption and cancellation.
  */
 public interface ModelProvider {
+    ModelInfo info();
+
     interface Cancellation {
         void check() throws InterruptedException;
     }
 
-    void stream(Run request, Cancellation cancellation, Consumer<String> onText) throws Exception;
+    void stream(ModelRequest request, Cancellation cancellation, Consumer<String> onText) throws Exception;
 }

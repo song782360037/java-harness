@@ -3,9 +3,14 @@ package dev.javaharness.server;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.spi.*;
+import dev.javaharness.adapters.SimulatedModelProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -21,9 +26,16 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:api-tests;DB_CLOSE_DELAY=-1",
-        "harness.simulated-chunk-delay=20", "harness.run-timeout=5s"
+        "harness.run-timeout=5s"
 })
+@Import(ApiIntegrationTest.FixtureConfiguration.class)
 class ApiIntegrationTest {
+    @TestConfiguration(proxyBeanMethods = false)
+    static class FixtureConfiguration {
+        @Bean @Primary
+        ModelProvider testProvider() { return new SimulatedModelProvider(20); }
+    }
+
     @LocalServerPort int port;
     @Autowired ObjectMapper json;
     @Autowired SessionStore store;
@@ -42,6 +54,15 @@ class ApiIntegrationTest {
         var response = post("/sessions", Map.of("title", "API 验证"));
         assertThat(response.statusCode()).isEqualTo(201);
         return json.readTree(response.body()).get("id").asText();
+    }
+
+    @Test
+    void modelMetadataContainsOnlyPublicConfiguration() throws Exception {
+        var response = client.send(HttpRequest.newBuilder(uri("/model")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(response.body())).isEqualTo(json.readTree("""
+                {"provider":"simulated","model":"local-simulator","configured":true}
+                """));
     }
 
     @Test
@@ -64,6 +85,24 @@ class ApiIntegrationTest {
         assertThat(post("/sessions/" + id + "/runs", Map.of("requestId", "bad", "prompt", "x")).statusCode())
                 .isEqualTo(400);
         assertThat(post("/sessions/missing/runs", body).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void modelRequestEndpointReturnsFrozenMessagesAndDistinguishesAbsentSnapshots() throws Exception {
+        String id = newSession();
+        var submitted = post("/sessions/" + id + "/runs", Map.of("requestId", UUID.randomUUID().toString(), "prompt", "你好 🌱"));
+        String runId = json.readTree(submitted.body()).path("id").asText();
+        await().atMost(Duration.ofSeconds(5)).until(() -> !store.run(runId).status().active());
+        var response = client.send(HttpRequest.newBuilder(uri("/runs/" + runId + "/model-request")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(response.body()).path("messages").get(0).path("content").asText()).isEqualTo("你好 🌱");
+        assertThat(response.body()).doesNotContain("apiKey", "Authorization");
+        var legacy = store.submit(id, UUID.randomUUID().toString(), "legacy", "NORMAL", TestModelProvider.INFO).run();
+        store.transition(legacy.id(), RunStatus.INTERRUPTED, "");
+        assertThat(client.send(HttpRequest.newBuilder(uri("/runs/" + legacy.id() + "/model-request")).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(204);
+        assertThat(client.send(HttpRequest.newBuilder(uri("/runs/missing/model-request")).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(404);
     }
 
     @Test

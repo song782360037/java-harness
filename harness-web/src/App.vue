@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import ModelRequestDetails from './ModelRequestDetails.vue'
 import { api, ApiError, isActive, type Run, type RunEvent, type RunStatus,
-  type Session, type Snapshot, type Submission } from './api'
+  type Session, type Snapshot, type Submission, type ModelInfo } from './api'
 
 const sessions = ref<Session[]>([])
+const model = ref<ModelInfo | null>(null)
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
 const prompt = ref('')
-const scenario = ref('NORMAL')
 const error = ref('')
 const connected = ref(false)
 const loading = ref(false)
@@ -80,6 +81,9 @@ function follow(id: string, version: number) {
   source.onopen = () => {
     if (version !== revision) return
     connected.value = true
+    void api<ModelInfo>('/model').then(value => {
+      if (version === revision) model.value = value
+    }).catch(() => { if (version === revision) model.value = null })
     scheduleRefresh(id, version)
   }
   source.onerror = () => { if (version === revision) connected.value = false }
@@ -108,7 +112,7 @@ async function selectSession(id: string) {
     const saved = storageGet(`harness.pending.${id}`)
     if (saved) pending.value = JSON.parse(saved) as Submission
   } catch { storageSet(`harness.pending.${id}`, null) }
-  if (pending.value) { prompt.value = pending.value.prompt; scenario.value = pending.value.scenario }
+  if (pending.value) prompt.value = pending.value.prompt
   storageSet('harness.session', id)
   try {
     await refresh(id, version)
@@ -131,6 +135,7 @@ async function initialize() {
   loading.value = true
   error.value = ''
   try {
+    model.value = await api<ModelInfo>('/model')
     sessions.value = await api<Session[]>('/sessions')
     const stored = storageGet('harness.session')
     const id = sessions.value.find(session => session.id === stored)?.id || sessions.value[0]?.id
@@ -139,10 +144,11 @@ async function initialize() {
   finally { loading.value = false }
 }
 async function submit() {
-  if (submitting.value || !snapshot.value || (!pending.value && (current.value || !prompt.value.trim()))) return
+  if (submitting.value || !snapshot.value || (!pending.value && (!model.value?.configured || current.value || !prompt.value.trim()))) return
   const id = selectedId.value
   const version = revision
-  const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: prompt.value, scenario: scenario.value }
+  const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: prompt.value,
+    scenario: 'NORMAL' }
   setPending(request)
   submitting.value = true
   error.value = ''
@@ -197,7 +203,10 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer) })
         <div><p class="section-label">工作台</p><h1>{{ snapshot?.session.title || '开始一个新会话' }}</h1></div>
         <span class="connection" :class="{ online: connected }">{{ selectedId ? (connected ? '实时连接' : '正在连接…') : '本地服务' }}</span>
       </header>
-      <div class="simulation-banner">模拟模式：用于体验流式输出和任务控制，尚未连接真实模型。</div>
+      <div class="model-banner">
+        <template v-if="!model">正在读取模型配置…</template>
+        <template v-else>{{ model.model || '未设置模型' }} · {{ model.configured ? '已配置，发送后调用' : '配置不完整，请检查模型名称和 API Key 后重启服务' }}<br>自动携带本会话中已完成的真实问答；新建会话可开始独立对话。</template>
+      </div>
       <div v-if="error" class="error-banner" role="alert">
         {{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button>
       </div>
@@ -213,27 +222,28 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer) })
           <div class="message-heading"><strong>你</strong><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN') }}</time></div>
           <p class="user-message">{{ run.prompt }}</p>
           <div class="response">
-            <div class="message-heading"><strong>模拟助手</strong><span class="status" :class="run.status.toLowerCase()">{{ labels[run.status] }}</span></div>
+            <div class="message-heading"><strong>{{ run.provider === 'simulated' ? '模拟助手' : run.model }}</strong><span class="status" :class="run.status.toLowerCase()">{{ labels[run.status] }}</span></div>
             <div class="output">{{ run.output || (isActive(run) ? '等待输出…' : '没有文本输出') }}</div>
+            <p v-if="run.context" class="run-detail">
+              本次携带 {{ run.context.includedTurns }} 轮历史问答
+              <span v-if="run.context.droppedTurns"> · 容量限制，已移除最早 {{ run.context.droppedTurns }} 轮</span>
+              <span v-if="run.context.excludedTurns"> · 已跳过 {{ run.context.excludedTurns }} 条模拟、未完成或无回答记录</span>
+            </p>
             <p v-if="run.detail" class="run-detail">{{ run.detail }}</p>
+            <ModelRequestDetails v-if="run.context" :run-id="run.id" />
           </div>
         </article>
       </div>
       <form v-if="snapshot" class="composer" @submit.prevent="submit">
         <label class="sr-only" for="prompt">输入内容</label>
-        <textarea id="prompt" v-model="prompt" placeholder="输入一句话，体验执行过程…" maxlength="4000"
+        <textarea id="prompt" v-model="prompt" placeholder="输入你的问题…" maxlength="4000"
           :disabled="!!pending || submitting" rows="3" @keydown.ctrl.enter.prevent="submit" @keydown.meta.enter.prevent="submit" />
         <div v-if="pending" class="pending-note">正在确认上次提交。重试会复用同一请求，不会重复创建任务。</div>
         <div class="composer-actions">
-          <label>模拟场景
-            <select v-model="scenario" :disabled="!!pending || submitting || !!current">
-              <option value="NORMAL">正常输出</option><option value="FAIL">中途失败</option><option value="SLOW">等待超时 / 手动停止</option>
-            </select>
-          </label>
           <div class="action-group">
             <span class="character-count">{{ prompt.length }} / 4000</span>
             <button v-if="current" type="button" class="stop" :disabled="cancelling || current.status === 'CANCELLING'" @click="cancel">{{ current.status === 'CANCELLING' ? '正在停止…' : '停止任务' }}</button>
-            <button type="submit" class="primary" :disabled="submitting || (!pending && (!!current || !prompt.trim()))">{{ submitting ? '提交中…' : pending ? '重试提交' : '发送' }}</button>
+            <button type="submit" class="primary" :disabled="submitting || (!pending && (!model?.configured || !!current || !prompt.trim()))">{{ submitting ? '提交中…' : pending ? '重试提交' : '发送' }}</button>
           </div>
         </div>
         <p class="composer-note">Ctrl / ⌘ + Enter 发送 · 刷新页面不会停止任务</p>

@@ -1,6 +1,8 @@
 package dev.javaharness.adapters;
 
 import dev.javaharness.spi.*;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -19,10 +21,12 @@ import java.util.UUID;
 public final class JdbcSessionStore implements SessionStore {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final RowMapper<Run> RUN_MAPPER = (rs, row) -> new Run(
             rs.getString("id"), rs.getString("session_id"), rs.getString("request_id"),
             rs.getString("prompt"), rs.getString("scenario"), RunStatus.valueOf(rs.getString("status")),
-            rs.getString("output"), rs.getString("detail"), instant(rs, "created_at"));
+            rs.getString("output"), rs.getString("detail"), instant(rs, "created_at"),
+            rs.getString("provider"), rs.getString("model"), decode(rs.getString("context_summary"), ContextSummary.class));
     private static final RowMapper<Session> SESSION_MAPPER = (rs, row) ->
             new Session(rs.getString("id"), rs.getString("title"), instant(rs, "created_at"));
 
@@ -77,8 +81,54 @@ public final class JdbcSessionStore implements SessionStore {
         return rows.getFirst();
     }
 
+    private static <T> T decode(String value, Class<T> type) {
+        if (value == null) return null;
+        try { return JSON.readValue(value, type); }
+        catch (JsonProcessingException error) { throw new IllegalStateException("Invalid stored context data"); }
+    }
+
+    private static String encode(Object value) {
+        try { return JSON.writeValueAsString(value); }
+        catch (JsonProcessingException error) { throw new IllegalStateException("Cannot encode context data"); }
+    }
+
     @Override
-    public synchronized Submission submit(String sessionId, String requestId, String prompt, String scenario) {
+    public synchronized List<Run> contextHistory(String runId) {
+        Run current = run(runId);
+        return jdbc.query("""
+                SELECT r.* FROM harness_run r
+                JOIN harness_event e ON e.run_id=r.id AND e.event_type='STATE' AND e.status='QUEUED'
+                WHERE r.session_id=? AND e.seq < (
+                    SELECT seq FROM harness_event WHERE run_id=? AND event_type='STATE' AND status='QUEUED')
+                ORDER BY e.seq
+                """, RUN_MAPPER, current.sessionId(), runId);
+    }
+
+    @Override
+    public synchronized void saveModelRequest(ModelRequest request) {
+        tx.executeWithoutResult(status -> {
+            Run run = run(request.runId());
+            if (run.status() != RunStatus.RUNNING || !run.model().equals(request.model())
+                    || !run.scenario().equals(request.scenario())
+                    || !run.prompt().equals(request.messages().getLast().content())) {
+                throw new HarnessException("CONFLICT", "请求快照与当前任务不匹配");
+            }
+            jdbc.update("INSERT INTO harness_model_request(run_id,request_json) VALUES (?,?)", run.id(), encode(request));
+            jdbc.update("UPDATE harness_run SET context_summary=? WHERE id=?", encode(request.context()), run.id());
+            appendEvent(run.sessionId(), run.id(), "CONTEXT", null, encode(request.context()));
+        });
+    }
+
+    @Override
+    public synchronized ModelRequest modelRequest(String runId) {
+        run(runId);
+        var rows = jdbc.query("SELECT request_json FROM harness_model_request WHERE run_id=?",
+                (rs, row) -> decode(rs.getString(1), ModelRequest.class), runId);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    @Override
+    public synchronized Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model) {
         session(sessionId);
         try {
             if (!UUID.fromString(requestId).toString().equals(requestId)) throw new IllegalArgumentException();
@@ -101,14 +151,18 @@ public final class JdbcSessionStore implements SessionStore {
                 }
                 return new Submission(run, false);
             }
+            if (!model.provider().equals("simulated") && !scenario.equals("NORMAL")) {
+                throw new HarnessException("INVALID", "真实模型仅支持 NORMAL 场景");
+            }
+            if (!model.configured()) throw new HarnessException("INVALID", "请检查 HARNESS_MODEL_NAME 和 HARNESS_MODEL_API_KEY 配置并重启服务");
             String active = jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?",
                     String.class, sessionId);
             if (active != null) throw new HarnessException("BUSY", "此会话已有正在执行的任务");
             String id = UUID.randomUUID().toString();
             jdbc.update("""
-                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at)
-                    VALUES (?,?,?,?,?,'QUEUED','','',?)
-                    """, id, sessionId, requestId, prompt, scenario, now());
+                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model)
+                    VALUES (?,?,?,?,?,'QUEUED','','',?,?,?)
+                    """, id, sessionId, requestId, prompt, scenario, now(), model.provider(), model.model());
             jdbc.update("UPDATE harness_session SET active_run_id=? WHERE id=?", id, sessionId);
             appendEvent(sessionId, id, "STATE", RunStatus.QUEUED, "");
             return new Submission(run(id), true);

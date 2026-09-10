@@ -30,5 +30,12 @@ management:
       show-details: never
 
 harness:
-  run-timeout: 15s
-  simulated-chunk-delay: 100
+  run-timeout: ${HARNESS_RUN_TIMEOUT:120s}
+  context:
+    max-characters: ${HARNESS_CONTEXT_MAX_CHARACTERS:32000}
+  model:
+    base-url: ${HARNESS_MODEL_BASE_URL:https://api.openai.com/v1}
+    api-key: ${HARNESS_MODEL_API_KEY:}
+    api-key-required: ${HARNESS_MODEL_API_KEY_REQUIRED:true}
+    name: ${HARNESS_MODEL_NAME:}
+    connect-timeout: 10s

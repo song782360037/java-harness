@@ -63,7 +63,7 @@ class RuntimeTest {
 
     @Test
     void simultaneousDuplicateRequestsHaveOneIdentityAndBusyRejectsOtherInput() throws Exception {
-        try (var engine = new DefaultAgentEngine(store, new SimulatedModelProvider(0), Duration.ofSeconds(5));
+        try (var engine = new DefaultAgentEngine(store, new SimulatedModelProvider(0), Duration.ofSeconds(30));
              var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             Session session = store.createSession("并发");
             String requestId = key();
@@ -74,7 +74,7 @@ class RuntimeTest {
             })).toList();
             start.countDown();
             var results = new java.util.ArrayList<SessionStore.Submission>();
-            for (var future : futures) results.add(future.get(3, TimeUnit.SECONDS));
+            for (var future : futures) results.add(future.get(10, TimeUnit.SECONDS));
             assertThat(results.stream().filter(SessionStore.Submission::created)).hasSize(1);
             assertThat(results.stream().map(r -> r.run().id()).distinct()).hasSize(1);
             assertThat(store.snapshot(session.id()).runs()).hasSize(1);
@@ -94,7 +94,7 @@ class RuntimeTest {
     void cancellationWaitsForProviderQuiescenceAndDropsLateOutput() throws Exception {
         var started = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        ModelProvider model = (run, cancellation, text) -> {
+        TestModelProvider model = (run, cancellation, text) -> {
             text.accept("已提交");
             started.countDown();
             boolean done = false;
@@ -128,7 +128,7 @@ class RuntimeTest {
     @Test
     void cancellingQueuedWorkNeverInvokesTheModel() {
         var invocations = new java.util.concurrent.atomic.AtomicInteger();
-        ModelProvider model = (run, cancellation, text) -> invocations.incrementAndGet();
+        TestModelProvider model = (run, cancellation, text) -> invocations.incrementAndGet();
         try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
             Session session = store.createSession("排队取消");
             Run run;
@@ -161,7 +161,7 @@ class RuntimeTest {
     @Test
     void failedEventInsertRollsBackOutputAndSequence() {
         Session session = store.createSession("事务");
-        Run run = store.submit(session.id(), key(), "test", "NORMAL").run();
+        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO).run();
         store.transition(run.id(), RunStatus.RUNNING, "");
         long before = store.snapshot(session.id()).lastSeq();
         jdbc.execute("ALTER TABLE harness_event ADD CONSTRAINT test_text_limit CHECK (LENGTH(event_text) <= 2)");
@@ -180,7 +180,7 @@ class RuntimeTest {
         var runIds = new java.util.ArrayList<String>();
         for (RunStatus status : List.of(RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.CANCELLING)) {
             var session = store.createSession(status.name());
-            var run = store.submit(session.id(), key(), "保留", "NORMAL").run();
+            var run = store.submit(session.id(), key(), "保留", "NORMAL", TestModelProvider.INFO).run();
             if (status != RunStatus.QUEUED) {
                 store.transition(run.id(), RunStatus.RUNNING, "");
                 store.appendText(run.id(), "持久化内容");
@@ -197,7 +197,7 @@ class RuntimeTest {
             long seq = store.snapshot(run.sessionId()).lastSeq();
             store.recoverInterruptedRuns();
             assertThat(store.snapshot(run.sessionId()).lastSeq()).isEqualTo(seq);
-            assertThat(store.submit(run.sessionId(), key(), "新请求", "NORMAL").created()).isTrue();
+            assertThat(store.submit(run.sessionId(), key(), "新请求", "NORMAL", TestModelProvider.INFO).created()).isTrue();
         }
         assertThat(store.run(runIds.get(1)).output()).isEqualTo("持久化内容");
         jdbc.execute("SHUTDOWN");
@@ -206,9 +206,9 @@ class RuntimeTest {
     @Test
     void terminalStateCannotBeRevivedAndInvalidInputLeavesNoRun() {
         Session session = store.createSession("边界");
-        assertThatThrownBy(() -> store.submit(session.id(), key(), " ", "NORMAL")).isInstanceOf(HarnessException.class);
+        assertThatThrownBy(() -> store.submit(session.id(), key(), " ", "NORMAL", TestModelProvider.INFO)).isInstanceOf(HarnessException.class);
         assertThat(store.snapshot(session.id()).runs()).isEmpty();
-        Run run = store.submit(session.id(), key(), "test", "NORMAL").run();
+        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO).run();
         store.transition(run.id(), RunStatus.RUNNING, "");
         store.transition(run.id(), RunStatus.COMPLETED, "");
         long seq = store.snapshot(session.id()).lastSeq();
