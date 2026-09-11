@@ -2,12 +2,66 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import ModelRequestDetails from './ModelRequestDetails.vue'
 import ToolDetails from './ToolDetails.vue'
-import { api, ApiError, isActive, type Run, type RunEvent, type RunStatus,
-  type Session, type Snapshot, type Submission, type ModelInfo, type WorkspaceInfo } from './api'
+import SettingsPage from './SettingsPage.vue'
+import ComposerSelectors from './ComposerSelectors.vue'
+import UiIcon from './UiIcon.vue'
+import MarkdownContent from './MarkdownContent.vue'
+import { api, ApiError, isActive, effortLabel, type Run, type RunEvent, type RunStatus,
+  type Session, type Snapshot, type Submission, type ModelProfile } from './api'
 
 const sessions = ref<Session[]>([])
-const model = ref<ModelInfo | null>(null)
-const workspace = ref<WorkspaceInfo | null>(null)
+const profiles = ref<ModelProfile[]>([])
+const selectedProfileId = ref('default')
+const reasoningEffort = ref('')
+const selectedProfile = computed(() => profiles.value.find(profile => profile.id === selectedProfileId.value))
+const model = computed(() => selectedProfile.value?.model)
+const showSettings = ref(false)
+const settingsSection = ref<'models' | 'workspace'>('models')
+const creatingWorkspace = ref(false)
+const settingsBusy = ref(false)
+const sidebarCollapsed = ref(window.innerWidth <= 780)
+const mobileLayout = window.matchMedia('(max-width: 780px)')
+const isMobile = ref(mobileLayout.matches)
+function onLayoutChange() { isMobile.value = mobileLayout.matches; if (isMobile.value) sidebarCollapsed.value = true }
+function closeSidebarOnEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape' && !event.defaultPrevented && isMobile.value) sidebarCollapsed.value = true
+}
+const sessionSearch = ref('')
+const promptInput = ref<HTMLTextAreaElement>()
+const copiedRun = ref('')
+const copyError = ref('')
+let copyTimer: ReturnType<typeof setTimeout> | undefined
+const sessionGroups = computed(() => {
+  const groups = new Map<string, { label: string; sessions: Session[] }>()
+  for (const session of sessions.value) {
+    if (!`${session.title} ${session.workspace}`.toLowerCase().includes(sessionSearch.value.toLowerCase())) continue
+    const key = session.workspace || ''
+    if (!groups.has(key)) groups.set(key, { label: key.split(/[\\/]/).filter(Boolean).pop() || '最近会话', sessions: [] })
+    groups.get(key)!.sessions.push(session)
+  }
+  return [...groups.entries()]
+})
+const suggestions = [
+  { icon: 'folder', title: '了解项目', prompt: '查看项目结构，读取构建配置，并结合源码解释程序入口。' },
+  { icon: 'scan', title: '定位问题', prompt: '请帮我定位一个问题，先告诉我需要提供哪些错误信息和复现步骤。' },
+  { icon: 'branch', title: '梳理调用链', prompt: '分析项目的核心模块和调用关系，标明关键类与方法。' },
+]
+function useSuggestion(value: string) { prompt.value = value; promptInput.value?.focus() }
+async function copyAnswer(run: Run) {
+  try { await navigator.clipboard.writeText(run.output); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
+  catch { copyError.value = '复制失败，请选择回答内容手动复制。' }
+}
+function openSettings(section: 'models' | 'workspace' = 'models', creating = false) {
+  settingsSection.value = section
+  creatingWorkspace.value = creating
+  showSettings.value = true
+}
+function closeSettings() { showSettings.value = false; settingsBusy.value = false }
+function navigateSession(id: string) {
+  if (isMobile.value) sidebarCollapsed.value = true
+  if (id === selectedId.value && snapshot.value && !loading.value) closeSettings()
+  else void selectSession(id)
+}
 const toolRevisions = ref<Record<string, number>>({})
 const executionRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}`
 const snapshot = ref<Snapshot | null>(null)
@@ -30,6 +84,13 @@ let revision = 0
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 let refreshing = false
 let dirty = false
+let profileRevision = 0
+async function loadProfiles() {
+  const version = ++profileRevision
+  const values = await api<ModelProfile[]>('/model-profiles')
+  if (version === profileRevision) profiles.value = values
+}
+function chooseProfile(id: string) { selectedProfileId.value = id; reasoningEffort.value = selectedProfile.value?.reasoningEffort || '' }
 
 function storageGet(key: string) {
   try { return localStorage.getItem(key) } catch { return null }
@@ -50,6 +111,7 @@ async function refresh(id: string, version: number) {
   const node = timeline.value
   const scroll = !node || node.scrollHeight - node.scrollTop - node.clientHeight < 100
   snapshot.value = value
+  sessions.value = sessions.value.map(session => session.id === value.session.id ? value.session : session)
   if (error.value === '读取记录失败，正在重试。') error.value = ''
   if (pending.value && value.runs.some(run => run.requestId === pending.value?.requestId)) {
     setPending(null)
@@ -59,6 +121,7 @@ async function refresh(id: string, version: number) {
     await nextTick()
     timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
   }
+  return value
 }
 function scheduleRefresh(id: string, version: number, delay = 200) {
   dirty = true
@@ -85,23 +148,19 @@ function follow(id: string, version: number) {
   source.onopen = () => {
     if (version !== revision) return
     connected.value = true
-    void api<WorkspaceInfo>('/workspace').then(value => {
-      if (version === revision) workspace.value = value
-    }).catch(() => { if (version === revision) workspace.value = null })
-    void api<ModelInfo>('/model').then(value => {
-      if (version === revision) model.value = value
-    }).catch(() => { if (version === revision) model.value = null })
+    void loadProfiles().catch(() => { /* Keep known profiles during temporary connection loss. */ })
     scheduleRefresh(id, version)
   }
   source.onerror = () => { if (version === revision) connected.value = false }
   source.addEventListener('run-event', (message: MessageEvent<string>) => {
     if (version !== revision) return
     const event = JSON.parse(message.data) as RunEvent
-    if (event.type === 'TOOL') toolRevisions.value[event.runId] = event.seq
+    if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
 }
 async function selectSession(id: string) {
+  closeSettings()
   const version = ++revision
   source?.close()
   source = null
@@ -124,28 +183,79 @@ async function selectSession(id: string) {
   if (pending.value) prompt.value = pending.value.prompt
   storageSet('harness.session', id)
   try {
-    await refresh(id, version)
-    if (version === revision) follow(id, version)
+    const loaded = await refresh(id, version)
+    if (version === revision) {
+      const session = loaded?.session
+      selectedProfileId.value = pending.value?.modelProfileId || session?.modelProfileId || 'default'
+      reasoningEffort.value = pending.value?.reasoningEffort ?? (loaded?.runs.length ? session?.reasoningEffort || '' : selectedProfile.value?.reasoningEffort || '')
+      follow(id, version)
+    }
   } catch (cause) {
     if (version === revision) error.value = cause instanceof Error ? cause.message : '加载失败'
   } finally { if (version === revision) loading.value = false }
 }
+async function addSession(title: string, workspace: string) {
+  const profile = selectedProfileId.value
+  const effort = reasoningEffort.value
+  const session = await api<Session>('/sessions', { title, workspace })
+  sessions.value = [session, ...sessions.value]
+  await selectSession(session.id)
+  selectedProfileId.value = profile; reasoningEffort.value = effort
+  if (isMobile.value) sidebarCollapsed.value = true
+  await nextTick()
+  promptInput.value?.focus()
+  return snapshot.value?.session.id === session.id
+}
 async function createSession() {
   if (loading.value || submitting.value) return
-  loading.value = true
-  try {
-    const session = await api<Session>('/sessions', { title: '新会话' })
-    sessions.value = [session, ...sessions.value]
-    await selectSession(session.id)
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '创建失败' }
+  loading.value = true; error.value = ''
+  try { await addSession('新会话', snapshot.value?.session.workspace || '') }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { loading.value = false }
+}
+async function send() {
+  if (snapshot.value) { await submit(); return }
+  if (loading.value || submitting.value || selectedId.value || !model.value?.configured || !prompt.value.trim()) return
+  const draft = prompt.value
+  let ready = false
+  submitting.value = true; error.value = ''
+  try { ready = await addSession(draft.trim().slice(0, 40), '') }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
+  finally { prompt.value = draft; submitting.value = false }
+  if (ready) await submit()
+}
+function settingsSaved(value: ModelProfile) {
+  profileRevision++
+  profiles.value = [...profiles.value.filter(profile => profile.id !== value.id), value]
+  if (!pending.value && !submitting.value) {
+    selectedProfileId.value = value.id
+    reasoningEffort.value = value.reasoningEffort
+  }
+}
+async function profileDeleted(id: string) {
+  profileRevision++
+  profiles.value = profiles.value.filter(profile => profile.id !== id)
+}
+async function workspaceSaved(session: Session) {
+  const creating = creatingWorkspace.value || !snapshot.value
+  const draft = prompt.value
+  const profile = selectedProfileId.value
+  const effort = reasoningEffort.value
+  closeSettings()
+  sessions.value = creating ? [session, ...sessions.value] : sessions.value.map(value => value.id === session.id ? session : value)
+  try {
+    if (creating) {
+      await selectSession(session.id)
+      prompt.value = draft; selectedProfileId.value = profile; reasoningEffort.value = effort
+    }
+    else if (selectedId.value === session.id) await refresh(session.id, revision)
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '刷新会话失败' }
 }
 async function initialize() {
   loading.value = true
   error.value = ''
   try {
-    model.value = await api<ModelInfo>('/model')
-    workspace.value = await api<WorkspaceInfo>('/workspace')
+    await loadProfiles()
     sessions.value = await api<Session[]>('/sessions')
     const stored = storageGet('harness.session')
     const id = sessions.value.find(session => session.id === stored)?.id || sessions.value[0]?.id
@@ -158,7 +268,7 @@ async function submit() {
   const id = selectedId.value
   const version = revision
   const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: prompt.value,
-    scenario: 'NORMAL' }
+    scenario: 'NORMAL', modelProfileId: selectedProfileId.value, reasoningEffort: reasoningEffort.value }
   setPending(request)
   submitting.value = true
   error.value = ''
@@ -188,82 +298,77 @@ async function cancel() {
   } catch (cause) { if (version === revision) error.value = cause instanceof Error ? cause.message : '停止失败' }
   finally { cancelling.value = false }
 }
-onMounted(initialize)
-onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer) })
+onMounted(() => { void initialize(); mobileLayout.addEventListener('change', onLayoutChange); document.addEventListener('keydown', closeSidebarOnEscape) })
+onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer); clearTimeout(copyTimer); mobileLayout.removeEventListener('change', onLayoutChange); document.removeEventListener('keydown', closeSidebarOnEscape) })
 </script>
 
 <template>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand"><span class="brand-mark">JH</span><strong>Java Harness</strong></div>
-      <button class="new-session" :disabled="loading || submitting" @click="createSession">＋ 新建会话</button>
-      <p class="section-label">会话记录</p>
-      <nav aria-label="会话列表">
-        <button v-for="session in sessions" :key="session.id" class="session-item"
-          :class="{ selected: session.id === selectedId }" :disabled="submitting"
-          :aria-current="session.id === selectedId ? 'page' : undefined" @click="selectSession(session.id)">
-          <span>{{ session.title }}</span>
-          <small>{{ new Date(session.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) }}</small>
-        </button>
+  <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
+    <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
+      <div class="brand"><UiIcon name="code" :size="23" /><strong>Harness</strong><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" /></button></div>
+      <button class="new-session" :disabled="loading || submitting || settingsBusy" @click="createSession"><UiIcon name="compose" /><span>新对话</span><UiIcon name="plus" :size="15" /></button>
+      <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索会话" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
+      <nav class="session-navigation" aria-label="会话列表">
+        <section v-for="[path, group] in sessionGroups" :key="path" class="session-group">
+          <h2 :title="path"><UiIcon v-if="path" name="folder" :size="15" /><span>{{ group.label }}</span><small>{{ group.sessions.length }}</small></h2>
+          <button v-for="session in group.sessions" :key="session.id" class="session-item" :class="{ selected: session.id === selectedId }" :disabled="submitting || loading || settingsBusy" :aria-current="session.id === selectedId ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
+        </section>
+        <p v-if="!sessionGroups.length" class="sidebar-empty">{{ sessionSearch ? '没有匹配的会话' : '你的对话将保存在这里' }}</p>
       </nav>
-      <div class="sidebar-note">本地运行 · 自动保存</div>
+      <div class="sidebar-footer"><button class="settings-entry" :disabled="settingsBusy" @click="openSettings()"><UiIcon name="settings" /><span>设置</span></button><div class="local-identity"><span class="identity-avatar"><UiIcon name="code" :size="16" /></span><span><strong>本地工作台</strong><small>Java Harness</small></span><span class="local-dot" title="在本机运行"></span></div></div>
     </aside>
-    <main class="main-panel">
+    <main v-show="!showSettings" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
-        <div><p class="section-label">工作台</p><h1>{{ snapshot?.session.title || '开始一个新会话' }}</h1></div>
-        <span class="connection" :class="{ online: connected }">{{ selectedId ? (connected ? '实时连接' : '正在连接…') : '本地服务' }}</span>
+        <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><UiIcon name="folder" :size="17" /><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
+        <div class="header-meta"><span v-if="snapshot?.session.workspace" class="readonly-label">只读工作区</span><span class="connection" :class="{ online: connected }" :title="selectedId ? (connected ? '实时连接正常' : '正在重新连接') : '本地服务'">{{ selectedId && !connected ? '连接中' : '本地' }}</span></div>
       </header>
-      <div class="model-banner">
-        <template v-if="!model">正在读取模型配置…</template>
-        <template v-else>{{ model.model || '未设置模型' }} · {{ model.configured ? '已配置，发送后调用' : '配置不完整，请检查模型名称和 API Key 后重启服务' }}<br>自动携带本会话中已完成的真实问答；新建会话可开始独立对话。</template>
-      </div>
-      <div class="model-banner">
-        <template v-if="!workspace">正在读取工作区配置…</template>
-        <template v-else-if="workspace.configured">只读工作区：{{ workspace.root }}<br>支持目录浏览、文件读取和文本搜索；读取的内容会发送给当前模型服务。</template>
-        <template v-else>未配置工作区，当前可进行对话。设置 HARNESS_WORKSPACE_ROOT 并重启服务后，可分析本机代码。</template>
-      </div>
-      <div v-if="error" class="error-banner" role="alert">
-        {{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button>
-      </div>
-      <div ref="timeline" class="timeline" aria-label="执行记录" :aria-busy="loading">
-        <div v-if="loading" class="empty-state">正在读取会话…</div>
-        <div v-else-if="!snapshot" class="empty-state">
-          <div class="empty-icon" aria-hidden="true">↗</div>
-          <h2>从一句话开始</h2><p>新建会话，查看输出过程，或随时停止任务。</p>
-          <button class="primary" @click="createSession">新建会话</button>
+      <div v-if="error" class="error-banner" role="alert">{{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button></div>
+      <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading">
+        <div v-if="loading" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
+        <div v-else-if="!snapshot?.runs.length" class="welcome">
+          <div class="welcome-symbol"><UiIcon name="code" :size="32" /></div>
+          <p class="welcome-eyebrow">你的本地编程助手</p>
+          <h2>{{ snapshot?.session.workspace ? '一起读懂这个项目。' : '今天，从哪里开始？' }}</h2>
+          <p class="welcome-description">{{ snapshot?.session.workspace ? '探索结构、追踪调用，用代码回答问题。' : '提出问题，或选择一个工作区开始探索。' }}</p>
         </div>
-        <div v-else-if="!snapshot.runs.length" class="empty-state"><h2>准备好了</h2><p>在下方输入内容，开始第一次执行。</p></div>
         <article v-for="run in snapshot?.runs" :key="run.id" class="run-card">
-          <div class="message-heading"><strong>你</strong><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN') }}</time></div>
-          <p class="user-message">{{ run.prompt }}</p>
-          <div class="response">
-            <div class="message-heading"><strong>{{ run.provider === 'simulated' ? '模拟助手' : run.model }}</strong><span class="status" :class="run.status.toLowerCase()">{{ labels[run.status] }}</span></div>
-            <div class="output">{{ run.output || (isActive(run) ? '等待输出…' : '没有文本输出') }}</div>
-            <p v-if="run.context" class="run-detail">
-              本次携带 {{ run.context.includedTurns }} 轮历史问答
-              <span v-if="run.context.droppedTurns"> · 容量限制，已移除最早 {{ run.context.droppedTurns }} 轮</span>
-              <span v-if="run.context.excludedTurns"> · 已跳过 {{ run.context.excludedTurns }} 条工作区不匹配、模拟、未完成或无回答记录</span>
-            </p>
-            <p v-if="run.detail" class="run-detail">{{ run.detail }}</p>
-            <ToolDetails :run-id="run.id" :revision="executionRevision(run)" />
-            <ModelRequestDetails v-if="run.context" :run-id="run.id" :revision="executionRevision(run)" />
-          </div>
+          <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>
+          <section class="response" :aria-label="run.model + ' 的回答'">
+            <div class="assistant-heading"><UiIcon name="code" :size="19" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ labels[run.status] }}</span></div>
+            <details class="execution-details">
+              <summary><UiIcon name="chevron" :size="13" /><span>{{ isActive(run) ? '查看执行过程' : '执行详情' }}</span><span class="execution-summary">{{ labels[run.status] }}</span></summary>
+              <div class="execution-body">
+                <p v-if="run.context" class="run-detail">携带 {{ run.context.includedTurns }} 轮历史<span v-if="run.context.droppedTurns"> · 已裁剪 {{ run.context.droppedTurns }} 轮</span><span v-if="run.context.excludedTurns"> · 已跳过 {{ run.context.excludedTurns }} 条不适用记录</span></p>
+                <p class="run-detail">{{ run.model }} · {{ effortLabel(run.reasoningEffort) }}</p>
+                <p v-if="run.workspace" class="run-detail">{{ run.workspace }}</p>
+                <ToolDetails :run-id="run.id" :revision="executionRevision(run)" />
+                <ModelRequestDetails v-if="run.context" :run-id="run.id" :revision="executionRevision(run)" />
+              </div>
+            </details>
+            <MarkdownContent v-if="run.output" :content="run.output" />
+            <p v-else class="output-placeholder">{{ isActive(run) ? '正在分析你的问题…' : '本次没有生成回答。' }}</p>
+            <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
+            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!run.output" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span>{{ run.model }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
+          </section>
         </article>
+        <p v-if="copyError" role="status" class="run-notice">{{ copyError }}</p>
       </div>
-      <form v-if="snapshot" class="composer" @submit.prevent="submit">
-        <label class="sr-only" for="prompt">输入内容</label>
-        <textarea id="prompt" v-model="prompt" placeholder="输入你的问题…" maxlength="4000"
-          :disabled="!!pending || submitting" rows="3" @keydown.ctrl.enter.prevent="submit" @keydown.meta.enter.prevent="submit" />
-        <div v-if="pending" class="pending-note">正在确认上次提交。重试会复用同一请求，不会重复创建任务。</div>
-        <div class="composer-actions">
-          <div class="action-group">
-            <span class="character-count">{{ prompt.length }} / 4000</span>
-            <button v-if="current" type="button" class="stop" :disabled="cancelling || current.status === 'CANCELLING'" @click="cancel">{{ current.status === 'CANCELLING' ? '正在停止…' : '停止任务' }}</button>
-            <button type="submit" class="primary" :disabled="submitting || (!pending && (!model?.configured || !!current || !prompt.trim()))">{{ submitting ? '提交中…' : pending ? '重试提交' : '发送' }}</button>
+      <div class="composer-dock">
+        <form class="composer" @submit.prevent="send">
+          <label class="sr-only" for="prompt">输入问题</label>
+          <textarea id="prompt" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题…' : '描述你的问题，开始一起探索…'" maxlength="4000" :disabled="!!pending || submitting || loading" rows="3" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
+          <div v-if="pending" class="pending-note">上次提交结果待确认，重试不会重复创建任务。</div>
+          <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
+          <div class="composer-actions">
+            <button type="button" class="workspace-chip" :title="snapshot?.session.workspace || '选择本机代码目录'" :disabled="loading || submitting || !!pending" @click="openSettings('workspace', !snapshot)"><UiIcon name="folder" :size="16" /><span>{{ snapshot?.session.workspace?.split(/[\\/]/).filter(Boolean).pop() || '选择工作区' }}</span><UiIcon name="down" :size="12" /></button>
+            <div class="composer-right"><ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :disabled="submitting || !!pending || loading" @model="chooseProfile" @effort="reasoningEffort = $event" @settings="openSettings('models')" /><button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="17" /></button><button v-else type="submit" class="send-button" :disabled="loading || submitting || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : '发送 · Ctrl / ⌘ + Enter'"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="19" /></button></div>
           </div>
-        </div>
-        <p class="composer-note">Ctrl / ⌘ + Enter 发送 · 刷新页面不会停止任务</p>
-      </form>
+        </form>
+        <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="15" />{{ item.title }}</button></div>
+        <div class="composer-caption"><span>{{ snapshot?.session.workspace ? '仅在所选工作区内读取文件' : '在本机管理对话与工作区' }}</span><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>Ctrl / ⌘ + Enter 发送</span></div>
+      </div>
     </main>
+    <SettingsPage v-if="showSettings" :initial-profile-id="selectedProfileId" :initial-section="settingsSection" :session="snapshot?.session" :creating-workspace="creatingWorkspace" :workspace-disabled="!!current || submitting || !!pending || loading" @close="closeSettings" @busy="settingsBusy = $event" @saved="settingsSaved" @deleted="profileDeleted" @changed="loadProfiles().catch(() => {})" @workspace-saved="workspaceSaved" />
   </div>
 </template>

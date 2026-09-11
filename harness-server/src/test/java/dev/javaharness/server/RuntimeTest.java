@@ -42,6 +42,54 @@ class RuntimeTest {
         await().atMost(Duration.ofSeconds(5)).until(() -> !store.run(id).status().active());
     }
 
+    @Test void queuedRunCapturesSettingsAtSubmissionAndRetriesDoNotReopenResources() {
+        var opened = new java.util.concurrent.atomic.AtomicInteger();
+        var released = new java.util.concurrent.atomic.AtomicInteger();
+        TestModelProvider provider = (request, cancellation, text) -> text.accept(request.model());
+        RunConfiguration.ResourceFactory factory = workspace -> {
+            opened.incrementAndGet();
+            return new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), released::incrementAndGet);
+        };
+        var old = new RunConfiguration(new ModelInfo("openai-compatible", "old", true), Duration.ofSeconds(5), 32000, 0, factory);
+        var changed = new RunConfiguration(new ModelInfo("openai-compatible", "new", true), Duration.ofSeconds(5), 64000, 2, factory);
+        var source = new java.util.concurrent.atomic.AtomicReference<>(old);
+        try (var engine = new DefaultAgentEngine(store, source::get)) {
+            String session = store.createSession("snapshot").id();
+            String requestId = key();
+            Run first;
+            synchronized (engine) {
+                first = engine.submit(session, requestId, "hello", "NORMAL").run();
+                source.set(changed);
+            }
+            settled(first.id());
+            assertThat(store.run(first.id()).output()).isEqualTo("old");
+            assertThat(store.run(first.id()).context().maxCharacters()).isEqualTo(32000);
+            assertThat(engine.submit(session, requestId, "hello", "NORMAL").created()).isFalse();
+            Run next = engine.submit(session, key(), "next", "NORMAL").run();
+            settled(next.id());
+            assertThat(store.run(next.id()).output()).isEqualTo("new");
+            assertThat(store.run(next.id()).context().maxCharacters()).isEqualTo(64000);
+            assertThat(opened).hasValue(2);
+            assertThat(released).hasValue(2);
+        }
+    }
+
+    @Test void cancellationClosesPerRunResourcesBeforeReleasingTheSession() throws Exception {
+        var entered = new CountDownLatch(1);
+        var released = new java.util.concurrent.atomic.AtomicInteger();
+        TestModelProvider provider = (request, cancellation, text) -> { entered.countDown(); new CountDownLatch(1).await(); };
+        var config = new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 0,
+                workspace -> new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), released::incrementAndGet));
+        try (var engine = new DefaultAgentEngine(store, () -> config)) {
+            var run = engine.submit(store.createSession("cancel").id(), key(), "hello", "NORMAL").run();
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            engine.cancel(run.id());
+            settled(run.id());
+            assertThat(store.run(run.id()).status()).isEqualTo(RunStatus.CANCELLED);
+            assertThat(released).hasValue(1);
+        }
+    }
+
     @Test
     void completesAndReconstructsOutputFromOrderedEvents() {
         try (var engine = new DefaultAgentEngine(store, new SimulatedModelProvider(0), Duration.ofSeconds(5))) {

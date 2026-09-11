@@ -30,6 +30,8 @@ jobs:
         run: npm --prefix harness-web ci
       - name: Check and build frontend
         run: npm --prefix harness-web run build
+      - name: Check frontend behavior
+        run: npm --prefix harness-web test
       - name: Build JAR with frontend (Linux)
         if: runner.os != 'Windows'
         run: sh ./mvnw -B -ntp -Pweb clean verify

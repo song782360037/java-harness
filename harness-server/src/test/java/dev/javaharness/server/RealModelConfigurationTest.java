@@ -18,21 +18,23 @@ import static org.assertj.core.api.Assertions.*;
 })
 class RealModelConfigurationTest {
     @Autowired ApplicationContext context;
-    @Autowired ModelProvider model;
+    @Autowired RunConfigurationSource configurations;
     @Autowired AgentEngine engine;
     @Autowired SessionStore store;
 
-    @Test void realAdapterIsTheOnlyRuntimeProviderDespiteLegacySettings() {
-        assertThat(context.getBeansOfType(ModelProvider.class)).hasSize(1);
-        assertThat(model).isInstanceOf(OpenAiChatCompletionProvider.class);
-        assertThat(model.info().provider()).isEqualTo("openai-compatible");
+    @Test void realAdapterIsTheOnlyRuntimeProviderDespiteLegacySettings() throws Exception {
+        assertThat(context.getBeansOfType(ModelProvider.class)).isEmpty();
+        try (var resources = configurations.snapshot().resources().open("")) {
+            assertThat(resources.model()).isInstanceOf(OpenAiChatCompletionProvider.class);
+            assertThat(resources.model().info().provider()).isEqualTo("openai-compatible");
+        }
     }
 
     @Test void missingConfigurationDisablesExecutionWithoutCreatingAFakeResponse() {
         var session = store.createSession("尚未配置模型");
-        assertThat(model.info().configured()).isFalse();
+        assertThat(configurations.snapshot().modelInfo().configured()).isFalse();
         assertThatThrownBy(() -> engine.submit(session.id(), UUID.randomUUID().toString(), "hello", "NORMAL"))
-                .isInstanceOf(HarnessException.class).hasMessageContaining("HARNESS_MODEL_NAME");
+                .isInstanceOf(HarnessException.class).hasMessageContaining("模型配置");
         assertThat(store.snapshot(session.id()).runs()).isEmpty();
     }
 }

@@ -30,7 +30,7 @@ watch(() => props.revision, load)
 </template>
 <style scoped>
 .tool-list { margin-top: 16px; font-size: 12px; }
-.tool-card { margin-top: 8px; padding: 12px; border-radius: 8px; background: #f3f6fc; border: 1px solid #e0e7f1; }
+.tool-card { margin-top: 8px; padding: 12px; border-radius: 8px; background: var(--subtle); border: 1px solid var(--border); }
 summary { cursor: pointer; overflow-wrap: anywhere; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font: inherit; }
 </style>

@@ -282,7 +282,7 @@ class OpenAiChatCompletionTest {
                 false, Duration.ofSeconds(2));
              var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(2))) {
             assertThat(model.info().configured()).isFalse();
-            assertThatThrownBy(() -> submit(engine)).isInstanceOf(HarnessException.class).hasMessageContaining("HARNESS_MODEL_NAME");
+            assertThatThrownBy(() -> submit(engine)).isInstanceOf(HarnessException.class).hasMessageContaining("模型配置");
             assertThat(calls).hasValue(0);
         }
     }
@@ -324,7 +324,7 @@ class OpenAiChatCompletionTest {
         var missing = new ModelInfo("openai-compatible", "org/example-model:latest", false);
         assertThat(store.submit(session.id(), original.requestId(), original.prompt(), "SLOW", missing).created()).isFalse();
         assertThatThrownBy(() -> store.submit(session.id(), UUID.randomUUID().toString(), "新输入", "NORMAL", missing))
-                .isInstanceOf(HarnessException.class).hasMessageContaining("API_KEY");
+                    .isInstanceOf(HarnessException.class).hasMessageContaining("API Key");
         assertThatThrownBy(() -> store.submit(session.id(), UUID.randomUUID().toString(), "新输入", "FAIL",
                 new ModelInfo("openai-compatible", "org/example-model:latest", true))).isInstanceOf(HarnessException.class);
         assertThat(store.snapshot(session.id()).runs()).hasSize(1);

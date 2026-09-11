@@ -1,8 +1,6 @@
 package dev.javaharness.server;
 
-import dev.javaharness.adapters.JdbcSessionStore;
-import dev.javaharness.adapters.OpenAiChatCompletionProvider;
-import dev.javaharness.adapters.LocalWorkspaceTools;
+import dev.javaharness.adapters.*;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.spi.*;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,8 +12,8 @@ import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import java.nio.file.Path;
 import java.time.Duration;
-import java.net.URI;
 
 @Configuration
 public class RuntimeConfiguration {
@@ -26,34 +24,30 @@ public class RuntimeConfiguration {
     }
 
     @Bean
-    ModelProvider modelProvider(@Value("${harness.model.base-url}") URI baseUrl,
+    @DependsOnDatabaseInitialization
+    SettingsService settingsService(JdbcTemplate jdbc,
+            @Value("${harness.settings.key-file}") String keyFile,
+            @Value("${harness.model.base-url}") String baseUrl,
             @Value("${harness.model.api-key}") String apiKey,
+            @Value("${harness.model.name}") String modelName,
             @Value("${harness.model.api-key-required}") boolean apiKeyRequired,
-            @Value("${harness.model.name}") String model,
-            @Value("${harness.model.connect-timeout}") Duration connectTimeout) {
-        return new OpenAiChatCompletionProvider(baseUrl, apiKey, model, apiKeyRequired, connectTimeout);
+            @Value("${harness.model.connect-timeout}") Duration connectTimeout,
+            @Value("${harness.run-timeout}") Duration runTimeout,
+            @Value("${harness.context.max-characters}") int maxCharacters,
+            @Value("${harness.tools.max-steps}") int maxSteps,
+            @Value("${harness.tools.timeout}") Duration toolTimeout) {
+        var storage = new JdbcSettingsStore(jdbc, new LocalSecretCipher(Path.of(keyFile)));
+        return new SettingsService(storage, new HarnessSettings(1, baseUrl, apiKey, modelName, apiKeyRequired,
+                (int) connectTimeout.toSeconds(), (int) runTimeout.toSeconds(), maxCharacters, maxSteps, (int) toolTimeout.toSeconds()));
     }
 
     @Bean(destroyMethod = "close")
-    AgentEngine agentEngine(SessionStore store, ModelProvider model,
-                            @Value("${harness.run-timeout}") Duration timeout,
-                            @Value("${harness.context.max-characters}") int maxContextCharacters,
-                            WorkspaceTools tools, @Value("${harness.tools.max-steps}") int maxSteps) {
-        return new DefaultAgentEngine(store, model, timeout, maxContextCharacters, tools, maxSteps);
-    }
-
-    @Bean
-    WorkspaceTools workspaceTools(@Value("${harness.workspace.root}") String root,
-                                  @Value("${harness.tools.timeout}") Duration timeout) throws java.io.IOException {
-        return root.isBlank() ? WorkspaceTools.disabled() : new LocalWorkspaceTools(java.nio.file.Path.of(root), timeout);
+    AgentEngine agentEngine(SessionStore store, RunConfigurationSource configurations) {
+        return new DefaultAgentEngine(store, configurations);
     }
 
     @Bean
     ApplicationListener<ContextClosedEvent> stopRuntime(AgentEngine engine, EventController events) {
-        return event -> {
-            // Close long-lived SSE requests before Tomcat's graceful-shutdown phase begins.
-            events.close();
-            engine.close();
-        };
+        return event -> { events.close(); engine.close(); };
     }
 }

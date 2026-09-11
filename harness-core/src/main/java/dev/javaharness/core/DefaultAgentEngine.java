@@ -10,12 +10,7 @@ import java.util.concurrent.*;
 public final class DefaultAgentEngine implements AgentEngine {
     private static final int MAX_TOOLS_PER_STEP = 8;
     private final SessionStore store;
-    private final ModelProvider model;
-    private final Duration timeout;
-    private final ConversationContext context;
-    private final WorkspaceTools tools;
-    private final int maxSteps;
-    private final int maxContextCharacters;
+    private final RunConfigurationSource configurations;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("run-deadline").factory());
@@ -36,28 +31,39 @@ public final class DefaultAgentEngine implements AgentEngine {
     }
 
     public DefaultAgentEngine(SessionStore store, ModelProvider model, Duration timeout, int maxContextCharacters, WorkspaceTools tools, int maxSteps) {
-        if (timeout.isNegative() || timeout.isZero()) throw new IllegalArgumentException("timeout must be positive");
+        this(store, fixedConfiguration(model, timeout, maxContextCharacters, tools, maxSteps));
+    }
+
+    private static RunConfigurationSource fixedConfiguration(ModelProvider model, Duration timeout, int maxCharacters, WorkspaceTools tools, int maxSteps) {
+        var fixed = new RunConfiguration(model.info(), timeout, maxCharacters, maxSteps,
+                workspace -> new RunConfiguration.Resources(model, tools, () -> {}));
+        return () -> fixed;
+    }
+
+    public DefaultAgentEngine(SessionStore store, RunConfigurationSource configurations) {
         this.store = store;
-        this.model = model;
-        this.timeout = timeout;
-        this.context = new ConversationContext(maxContextCharacters);
-        this.maxContextCharacters = maxContextCharacters;
-        this.tools = tools;
-        if (maxSteps < 0) throw new IllegalArgumentException("maxSteps must be non-negative; 0 means no step limit");
-        this.maxSteps = maxSteps;
+        this.configurations = configurations;
         store.recoverInterruptedRuns();
     }
 
     @Override
     public synchronized SessionStore.Submission submit(String sessionId, String requestId,
                                                        String prompt, String scenario) {
+        return submit(sessionId, requestId, prompt, scenario, ModelSelection.DEFAULT);
+    }
+
+    @Override public synchronized SessionStore.Submission submit(String sessionId, String requestId, String prompt,
+                                                                String scenario, ModelSelection selection) {
         if (closed) throw new HarnessException("UNAVAILABLE", "服务正在停止");
-        var submission = store.submit(sessionId, requestId, prompt, scenario, model.info());
+        var retry = store.retry(sessionId, requestId, prompt, scenario, selection);
+        if (retry != null) return retry;
+        RunConfiguration configuration = configurations.snapshot(selection);
+        var submission = store.submit(sessionId, requestId, prompt, scenario, configuration.modelInfo(), selection, configuration.selection());
         if (!submission.created()) return submission;
         var task = new Task();
         tasks.put(submission.run().id(), task);
         try {
-            workers.execute(() -> execute(submission.run(), task));
+            workers.execute(() -> execute(submission.run(), task, configuration));
         } catch (RejectedExecutionException error) {
             tasks.remove(submission.run().id());
             store.transition(submission.run().id(), RunStatus.FAILED, "执行器不可用");
@@ -83,8 +89,9 @@ public final class DefaultAgentEngine implements AgentEngine {
         if (task.thread != null) task.thread.interrupt();
     }
 
-    private void execute(Run run, Task task) {
+    private void execute(Run run, Task task, RunConfiguration configuration) {
         ScheduledFuture<?> deadline = null;
+        RunConfiguration.Resources resources = null;
         String failure = null;
         String completionDetail = "";
         java.util.List<ModelMessage> completed = null;
@@ -94,11 +101,19 @@ public final class DefaultAgentEngine implements AgentEngine {
                 task.thread = Thread.currentThread();
                 if (task.stopReason != null) return;
                 store.transition(run.id(), RunStatus.RUNNING, "");
-                run = store.bindWorkspace(run.id(), tools.workspace());
                 final String timedRunId = run.id();
                 deadline = timer.schedule(() -> requestStop(timedRunId, task, RunStatus.TIMED_OUT),
-                        timeout.toMillis(), TimeUnit.MILLISECONDS);
-                request = context.build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
+                        configuration.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            }
+            resources = configuration.resources().open(run.workspace());
+            ModelProvider model = resources.model();
+            WorkspaceTools tools = resources.tools();
+            int maxSteps = configuration.maxSteps();
+            int maxContextCharacters = configuration.contextMaxCharacters();
+            synchronized (this) {
+                if (task.stopReason != null) return;
+                run = store.bindWorkspace(run.id(), tools.workspace());
+                request = new ConversationContext(maxContextCharacters).build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
             }
             final String runId = run.id();
             ModelProvider.Cancellation cancellation = () -> {
@@ -128,7 +143,7 @@ public final class DefaultAgentEngine implements AgentEngine {
                 var summary = new ContextSummary(request.context().includedTurns(), request.context().droppedTurns(),
                         request.context().excludedTurns(), characters, maxContextCharacters);
                 var next = new ModelRequest(runId, run.model(), run.scenario(), messages, summary, step,
-                        tools.workspace(), tools.definitions(), instructions, finalAnswerOnly);
+                        tools.workspace(), tools.definitions(), instructions, finalAnswerOnly, configuration.selection().reasoningEffort());
                 synchronized (this) { cancellation.check(); store.saveModelRequest(next); }
                 ModelTurn turn = model.complete(next, cancellation, onText);
                 cancellation.check();
@@ -176,6 +191,10 @@ public final class DefaultAgentEngine implements AgentEngine {
             System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING, "Run " + run.id() + " failed", error);
         } finally {
             if (deadline != null) deadline.cancel(false);
+            if (resources != null) {
+                try { resources.close(); }
+                catch (RuntimeException error) { if (failure == null) failure = "释放模型连接失败"; }
+            }
             synchronized (this) {
                 // A cancellation racing with settlement must not interrupt its database transaction.
                 Thread.interrupted();

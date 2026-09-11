@@ -26,14 +26,19 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:api-tests;DB_CLOSE_DELAY=-1",
-        "harness.run-timeout=5s", "harness.workspace.root="
+        "harness.run-timeout=5s", "harness.model.api-key=", "harness.model.name=",
+        "harness.model.base-url=https://api.openai.com/v1"
 })
 @Import(ApiIntegrationTest.FixtureConfiguration.class)
 class ApiIntegrationTest {
     @TestConfiguration(proxyBeanMethods = false)
     static class FixtureConfiguration {
         @Bean @Primary
-        ModelProvider testProvider() { return new SimulatedModelProvider(20); }
+        RunConfigurationSource testConfiguration() {
+            var provider = new SimulatedModelProvider(20);
+            return () -> new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 0,
+                    workspace -> new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), () -> {}));
+        }
     }
 
     @LocalServerPort int port;

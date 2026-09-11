@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { api, type ModelRequest } from './api'
+import { api, effortLabel, type ModelRequest } from './api'
 
 const props = defineProps<{ runId: string; revision: string }>()
 const requests = ref<ModelRequest[]>([])
@@ -37,6 +37,7 @@ watch(() => props.revision, load)
     <details v-for="request in requests" :key="request.step" class="request-message">
       <summary>第 {{ request.step }} 步 · {{ request.messages.length + (request.instructions ? 1 : 0) }} 条消息{{ request.finalAnswerOnly ? ' · 收尾回答' : '' }}</summary>
       <p>工作区：{{ request.workspace || '未配置' }} · {{ request.finalAnswerOnly ? '工具调用已关闭' : `可用工具：${request.tools.map(tool => tool.name).join('、') || '无'}` }}</p>
+      <p>思考强度：{{ effortLabel(request.reasoningEffort) }}</p>
       <div v-if="request.instructions" class="request-message"><strong>系统指引</strong><pre>{{ request.instructions }}</pre></div>
       <div v-for="(message, index) in request.messages" :key="index" class="request-message">
         <strong>{{ message.role === 'tool' ? '工具结果' : message.role === 'user' ? '用户' : '助手' }}</strong>
@@ -51,8 +52,8 @@ watch(() => props.revision, load)
 </template>
 
 <style scoped>
-.request-details { margin-top: 12px; font-size: 12px; color: #56657b; }
+.request-details { margin-top: 12px; font-size: 12px; color: var(--muted); }
 summary { cursor: pointer; }
-.request-message { margin-top: 12px; padding: 10px; border: 1px solid #e9eef8; border-radius: 8px; }
+.request-message { margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 220px; overflow-y: auto; }
 </style>

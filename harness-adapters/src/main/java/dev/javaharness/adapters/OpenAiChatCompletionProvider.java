@@ -57,12 +57,13 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
 
     @Override
     public ModelTurn complete(ModelRequest request, Cancellation cancellation, Consumer<String> onText) throws Exception {
-        if (!info.configured()) throw new ModelException("请检查 HARNESS_MODEL_NAME 和 HARNESS_MODEL_API_KEY 配置并重启服务");
+        if (!info.configured()) throw new ModelException("请在页面的模型配置中设置模型名称和 API Key");
         if (!request.scenario().equals("NORMAL")) throw new ModelException("真实模型不支持模拟场景");
         cancellation.check();
         var payload = new LinkedHashMap<String, Object>();
         payload.put("model", request.model());
         payload.put("stream", true);
+        if (!request.reasoningEffort().isEmpty()) payload.put("reasoning_effort", request.reasoningEffort());
         var messages = new ArrayList<Map<String, Object>>();
         if (!request.instructions().isBlank()) messages.add(Map.of("role", "system", "content", request.instructions()));
         messages.addAll(request.messages().stream().map(OpenAiChatCompletionProvider::wireMessage).toList());

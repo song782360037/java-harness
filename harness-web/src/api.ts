@@ -1,12 +1,31 @@
 export type RunStatus = 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED'
   | 'CANCELLED' | 'FAILED' | 'TIMED_OUT' | 'INTERRUPTED'
-export interface Session { id: string; title: string; createdAt: string }
+export interface Session { id: string; title: string; createdAt: string; workspace: string; modelProfileId: string; reasoningEffort: string }
+export const reasoningOptions = [
+  { value: '', label: '服务默认' }, { value: 'none', label: '关闭 · none' },
+  { value: 'minimal', label: '最低 · minimal' }, { value: 'low', label: '低 · low' },
+  { value: 'medium', label: '中 · medium' }, { value: 'high', label: '高 · high' }, { value: 'xhigh', label: '最高 · xhigh' },
+]
+export const effortLabel = (value: string) => reasoningOptions.find(option => option.value === value)?.label || '服务默认'
+export interface ModelProfile {
+  id: string; displayName: string; reasoningEffort: string; revision: number; providerId: string; providerName: string
+  modelName: string; runTimeoutSeconds: number; contextMaxCharacters: number; maxSteps: number; toolTimeoutSeconds: number; model: ModelInfo
+}
+export interface ProviderView {
+  id: string; revision: number; displayName: string; baseUrl: string; apiKeyConfigured: boolean; apiKeyRequired: boolean; connectTimeoutSeconds: number
+}
+export interface SettingsView {
+  revision: number; baseUrl: string; modelName: string; apiKeyConfigured: boolean; apiKeyRequired: boolean
+  connectTimeoutSeconds: number; runTimeoutSeconds: number; contextMaxCharacters: number; maxSteps: number; toolTimeoutSeconds: number
+  model: ModelInfo
+}
+export interface DirectoryListing { path: string; parent: string; directories: { name: string; path: string }[]; truncated: boolean }
 export interface ModelInfo { provider: string; model: string; configured: boolean }
 export interface WorkspaceInfo { configured: boolean; root: string; tools: string[] }
 export interface ToolCall { id: string; name: string; arguments: string }
 export interface ToolExecution { runId: string; step: number; callId: string; name: string; arguments: string; status: string; output: string }
 export interface ModelRequest {
-  instructions: string; finalAnswerOnly: boolean
+  instructions: string; finalAnswerOnly: boolean; reasoningEffort: string
   step: number; workspace: string; tools: { name: string }[]
   messages: { role: string; content: string; toolCalls: ToolCall[]; toolCallId: string | null }[]
 }
@@ -16,11 +35,11 @@ export interface ContextSummary {
 export interface Run {
   id: string; sessionId: string; requestId: string; prompt: string; scenario: string
   status: RunStatus; output: string; detail: string; createdAt: string; provider: string; model: string
-  context: ContextSummary | null; workspace: string
+  context: ContextSummary | null; workspace: string; modelProfileId: string; reasoningEffort: string
 }
 export interface Snapshot { session: Session; runs: Run[]; lastSeq: number }
-export interface Submission { requestId: string; prompt: string; scenario: string }
-export interface RunEvent { sessionId: string; seq: number; runId: string; type: string }
+export interface Submission { requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string }
+export interface RunEvent { sessionId: string; seq: number; runId: string | null; type: string }
 export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includes(run.status)
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message) }

@@ -6,6 +6,8 @@ public interface SessionStore {
     record Submission(Run run, boolean created) {}
 
     Session createSession(String title);
+    Session createSession(String title, String workspace);
+    Session updateWorkspace(String sessionId, String workspace);
     List<Session> sessions();
     SessionSnapshot snapshot(String sessionId);
     Run run(String runId);
@@ -23,6 +25,10 @@ public interface SessionStore {
     void updateTool(String runId, String callId, String status, String output);
     List<ToolExecution> tools(String runId);
     Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model);
+    Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model,
+                      ModelSelection requested, ModelSelection selected);
+    /** Validate an exact retry before resolving a profile that may have changed or been deleted. */
+    Submission retry(String sessionId, String requestId, String prompt, String scenario, ModelSelection requested);
     Run transition(String runId, RunStatus status, String detail);
     void appendText(String runId, String text);
     List<RunEvent> events(String sessionId, long after, int limit);

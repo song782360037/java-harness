@@ -12,14 +12,17 @@ import java.util.List;
 public class SessionController {
     private final SessionStore store;
     private final AgentEngine engine;
+    private final WorkspaceDirectories directories;
 
-    public SessionController(SessionStore store, AgentEngine engine) {
+    public SessionController(SessionStore store, AgentEngine engine, WorkspaceDirectories directories) {
         this.store = store;
         this.engine = engine;
+        this.directories = directories;
     }
 
-    public record CreateSession(String title) {}
-    public record SubmitRun(String requestId, String prompt, String scenario) {}
+    public record CreateSession(String title, String workspace) {}
+    public record ChangeWorkspace(String workspace) {}
+    public record SubmitRun(String requestId, String prompt, String scenario, String modelProfileId, String reasoningEffort) {}
 
     @GetMapping("/sessions")
     public List<Session> sessions() {
@@ -29,7 +32,12 @@ public class SessionController {
     @PostMapping(value = "/sessions", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public Session create(@RequestBody CreateSession request) {
-        return store.createSession(request.title());
+        return store.createSession(request.title(), directories.normalize(request.workspace()));
+    }
+
+    @PostMapping(value = "/sessions/{id}/workspace", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Session workspace(@PathVariable String id, @RequestBody ChangeWorkspace request) {
+        return store.updateWorkspace(id, directories.normalize(request.workspace()));
     }
 
     @GetMapping("/sessions/{id}")
@@ -56,7 +64,7 @@ public class SessionController {
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
         var result = engine.submit(id, request.requestId(), request.prompt(),
-                request.scenario() == null ? "NORMAL" : request.scenario());
+                request.scenario() == null ? "NORMAL" : request.scenario(), new ModelSelection(request.modelProfileId(), request.reasoningEffort()));
         return ResponseEntity.status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK).body(result.run());
     }
 

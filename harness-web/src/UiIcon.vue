@@ -1,0 +1,25 @@
+<script setup lang="ts">
+defineProps<{ name: string; size?: number }>()
+const paths: Record<string, string> = {
+  panel: 'M9 4v16M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z',
+  compose: 'M12 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-6M16 4l4 4M10 14l1-4 8-8 4 4-8 8-5 1Z',
+  search: 'M20 20l-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z',
+  folder: 'M3 8V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8h18',
+  chat: 'M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z',
+  settings: 'M9 4l1-2h4l1 2 2 1 2-.2 2 3-1 2v3l1 2-2 3-2-.2-2 1-1 2h-4l-1-2-2-1-2 .2-2-3 1-2v-3l-1-2 2-3 2 .2 2-1ZM15.5 11.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z',
+  chevron: 'm9 5 7 7-7 7', down: 'm6 9 6 6 6-6', arrow: 'M12 19V5m-6 6 6-6 6 6', back: 'M19 12H5m6-6-6 6 6 6',
+  plus: 'M12 5v14M5 12h14', close: 'm6 6 12 12M6 18 18 6', check: 'm5 12 4 4L19 6',
+  code: 'm8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16',
+  branch: 'M7 6v12M17 6v4a3 3 0 0 1-3 3h-4M9 4a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM19 4a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM9 20a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z',
+  scan: 'M8 3H4v4m12-4h4v4M4 17v4h4m8 0h4v-4M7 12h10M12 7v10',
+  copy: 'M8 8h12v12H8zM16 4H4v12', stop: 'M7 7h10v10H7z',
+  cube: 'm12 3 9 5v9l-9 5-9-5V8l9-5ZM3 8l9 5 9-5m-9 5v9M7.5 5.5l9 5',
+  palette: 'M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 0-4 2 2 0 0 1 0-4h4a4 4 0 0 0 4-4c0-4-5-6-9-6ZM7 9h.01M10 6h.01M15 6h.01M6 13h.01',
+  edit: 'm15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',
+  refresh: 'M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6',
+  eye: 'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
+  sun: 'M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
+}
+</script>
+<template><svg class="ui-icon" :width="size || 18" :height="size || 18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="paths[name] || paths.code" /></svg></template>

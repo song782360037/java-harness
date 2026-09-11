@@ -1,0 +1,94 @@
+.reference-settings { background: var(--sidebar); color: var(--text); }
+.reference-settings .settings-nav { display: flex; flex-direction: column; width: 252px; padding: 18px 14px; background: var(--sidebar); border-right: 0; }
+.settings-brand { display: flex; gap: 10px; align-items: center; padding: 0 10px; margin-bottom: 34px; font-size: 13px; color: var(--muted); }
+.settings-brand strong { font-size: 18px; font-weight: 600; letter-spacing: -.6px; color: var(--text); }
+.settings-brand .brand-mark { width: 27px; height: 27px; border-radius: 6px; font-size: 10px; }
+.reference-settings .settings-nav .back-button { color: var(--muted); margin-bottom: 20px; font-weight: 400; }
+.reference-settings .settings-nav .nav-group-label { color: var(--faint); font-size: 11px; margin: 4px 14px 12px; }
+.reference-settings .settings-nav button { color: var(--text); }
+.reference-settings .settings-nav button.selected { background: var(--selected); color: var(--hover); font-weight: 500; border-radius: 10px; }
+.settings-local-note { margin: auto 12px 0; padding-top: 30px; font-size: 11px; color: var(--faint); }
+.reference-settings .settings-content { padding: 48px 44px; background: var(--page); border: 1px solid var(--border); border-radius: 14px; }
+.reference-settings .settings-content-inner { max-width: 1000px; }
+.reference-title { font-size: 28px; line-height: 1.3; margin: 0 0 34px; font-weight: 650; letter-spacing: -.04em; }
+.reference-settings .settings-section-heading { margin-bottom: 18px; gap: 12px; }
+.reference-settings .settings-section-heading p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.8; }
+.reference-settings .icon-button { border: 0; background: transparent; color: var(--muted); padding: 5px; width: 30px; height: 30px; flex-shrink: 0; display: inline-grid; place-items: center; font-size: 19px; border-radius: 6px; }
+.reference-settings .icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.reference-settings .icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.provider-console { display: grid; grid-template-columns: 210px minmax(0, 1fr); border: 1px solid var(--border); background: var(--surface); border-radius: 12px; min-height: 540px; overflow: hidden; }
+.provider-rail { padding: 20px 10px; border-right: 1px solid var(--border); }
+.provider-rail h2 { font-size: 12px; font-weight: 500; color: var(--faint); margin: 0 10px 18px; }
+.provider-rail button { display: flex; align-items: center; gap: 9px; width: 100%; border: 1px solid transparent; background: transparent; text-align: left; padding: 10px; margin: 3px 0; border-radius: 8px; }
+.provider-rail .provider-item.selected { border-color: var(--border-strong); background: var(--selected); }
+.provider-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.provider-count { font-size: 11px; color: var(--faint); min-width: 18px; text-align: center; }
+.provider-rail .add-provider { color: var(--text); }
+.provider-detail { padding: 24px 26px 28px; min-width: 0; }
+.provider-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.provider-heading h2 { font-size: 18px; font-weight: 600; margin: 0; overflow-wrap: anywhere; min-width: 0; }
+.provider-heading .provider-delete { margin-left: auto; }
+.connection-badge { flex-shrink: 0; font-size: 10px; border-radius: 20px; background: var(--selected); color: var(--muted); padding: 5px 9px; }
+.connection-badge.ready { color: var(--success); background: var(--success-bg); }
+.reference-settings label { color: var(--muted); font-size: 13px; margin: 16px 0 7px; }
+.reference-settings input:not([type=checkbox]), .reference-settings select { border-color: var(--border-strong); background: var(--surface); color: var(--text); font-size: 13px; padding: 9px 11px; border-radius: 8px; }
+.reference-settings input::placeholder { color: var(--placeholder); }
+.reference-settings .readonly-field { color: var(--muted); cursor: default; }
+.key-status { color: var(--faint); font-size: 11px; margin-left: 6px; }
+.key-input { position: relative; }
+.reference-settings .key-input input { padding-right: 42px; }
+.key-input .icon-button { position: absolute; top: 4px; right: 5px; }
+.connection-options { margin-top: 14px; }
+.connection-options summary, .reference-settings .advanced-settings summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+.provider-save { display: flex; justify-content: flex-end; margin-top: 16px; }
+.provider-save button { font-size: 12px; padding: 6px 12px; background: var(--subtle); }
+.model-list-heading { display: flex; align-items: center; justify-content: space-between; margin: 22px 0 8px; }
+.model-list-heading h3 { font-size: 13px; font-weight: 400; color: var(--muted); margin: 0; }
+.model-list-heading > span { color: var(--faint); font-size: 11px; }
+.model-rows { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.model-row { display: flex; align-items: center; gap: 7px; padding: 10px 9px; border-bottom: 1px solid var(--border); }
+.model-row:last-child { border-bottom: 0; }
+.model-row.editing { background: var(--selected); }
+.model-row-info { min-width: 0; flex: 1; padding-left: 5px; }
+.model-row-info strong { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.model-row-info small { display: block; font-size: 10px; color: var(--faint); margin-top: 4px; overflow-wrap: anywhere; }
+.model-effort { color: var(--muted); border: 1px solid var(--border-strong); border-radius: 12px; padding: 2px 6px; font-size: 10px; white-space: nowrap; }
+.reference-settings .add-model { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; background: var(--subtle); border: 0; padding: 8px 12px; font-size: 12px; }
+.models-empty { font-size: 12px; line-height: 1.8; color: var(--muted); padding: 18px 0; margin: 0; }
+.inline-model-editor { border: 1px solid var(--border-strong); border-radius: 10px; padding: 18px; margin-top: 20px; background: var(--subtle); }
+.inline-model-editor .card-heading { padding-bottom: 10px; }
+.inline-model-editor h3 { margin: 0; font-size: 14px; font-weight: 500; }
+.inline-model-editor select { width: 100%; }
+.reference-settings .primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.reference-settings .settings-card { background: var(--surface); }
+.reference-settings .directory-list button { background: transparent; }
+.reference-settings .configuration-icon { background: var(--surface); }
+.reference-settings .dialog-error { background: var(--danger-bg); color: var(--danger); border-radius: 8px; line-height: 1.8; }
+.reference-settings .dialog-error button { margin-left: 8px; padding: 4px 8px; }
+.reference-settings .saved-note { color: var(--success); }
+@media (max-width: 1120px) {
+  .reference-settings .settings-nav { width: 190px; }
+  .reference-settings .settings-content { padding: 38px 24px; }
+  .provider-console { grid-template-columns: 180px minmax(0, 1fr); }
+  .provider-detail { padding: 22px 18px; }
+}
+@media (max-width: 780px) {
+  .reference-settings .settings-nav { flex-direction: row; width: 100%; align-items: center; padding: 12px; gap: 6px; }
+  .settings-brand, .settings-local-note, .reference-settings .settings-nav .nav-group-label { display: none; }
+  .reference-settings .settings-nav .back-button { margin: 0 auto 0 0; }
+  .reference-settings .settings-nav button { width: auto; margin: 0; }
+  .reference-settings .settings-content { padding: 28px 20px; }
+  .reference-settings .settings-content { border: 0; border-radius: 0; }
+  .reference-title { font-size: 25px; margin-bottom: 24px; }
+}
+@media (max-width: 620px) {
+  .provider-console { grid-template-columns: 1fr; }
+  .provider-rail { border-right: 0; border-bottom: 1px solid var(--border); padding: 14px; }
+  .provider-rail h2 { margin: 0 8px 8px; }
+  .provider-detail { padding: 18px 14px; }
+  .provider-heading { flex-wrap: wrap; }
+  .model-effort { display: none; }
+  .reference-settings .settings-content { padding: 26px 12px; }
+  .reference-settings .settings-nav button { padding: 8px; font-size: 12px; gap: 5px; }
+  .reference-settings .settings-nav .back-button span { display: none; }
+}

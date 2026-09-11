@@ -30,8 +30,8 @@ management:
       show-details: never
 
 harness:
-  workspace:
-    root: ${HARNESS_WORKSPACE_ROOT:}
+  settings:
+    key-file: ${HARNESS_SETTINGS_KEY_FILE:./data/settings.key}
   tools:
     max-steps: ${HARNESS_TOOLS_MAX_STEPS:0}
     timeout: ${HARNESS_TOOL_TIMEOUT:5s}
