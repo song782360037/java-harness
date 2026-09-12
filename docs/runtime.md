@@ -124,6 +124,16 @@ HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工�
 
 支持角色、空内容及 usage-only 分段。EOF、缺失结束标记、非法 JSON、超长事件、HTTP 错误、非 SSE、长度截断、过滤和 refusal 都会失败并保留已提交文本。单事件最大 65536 字符，回答按不拆分代理对的 4096 字符分段入库，总输出最多 100000 字符。不保存 reasoning_content，不附加厂商扩展或固定生成 token 上限；仅在用户选择具体强度时发送标准 reasoning_effort。
 
-默认总超时 120 秒覆盖整个循环，HTTP 连接超时 10 秒，单工具默认 5 秒。终止本机请求不能保证撤销上游计费。读取工具在操作之间检查截止时间；文件提案在进入持久化前检查取消、并在存储锁内再次校验 RUNNING，不保证强行中断磁盘或数据库 I/O。工具目录、排除规则、预算及配置方法见 README“启用工作区”。本版支持文件修改审核，没有 Shell、通用审批、多用户隔离、操作系统沙箱或跨进程协调，不应用于不可信进程可恶意改写的文件系统。
+默认总超时 120 秒覆盖整个循环，HTTP 连接超时 10 秒，单工具默认 5 秒。终止本机请求不能保证撤销上游计费。读取工具在操作之间检查截止时间；文件提案在进入持久化前检查取消、并在存储锁内再次校验 RUNNING，不保证强行中断磁盘或数据库 I/O。工具目录、排除规则、预算及配置方法见 README“启用工作区”。本版支持文件修改审核与命令审批，没有通用审批扩展、多用户隔离、操作系统沙箱或跨进程协调，不应用于不可信进程可恶意改写的文件系统。
 
 文件提案独立于 Run 终态保存。ReviewWorkspaceTools 的 propose_file_change 只创建 PENDING 记录并回传提案 ID；Run 继续回答，不等待用户审批，也不因应用动作自动续跑。审核 API 通过 FileChangeService 校验 Run 正常完成、会话空闲及工作区一致。每次提案/处理变化提交 FILE_CHANGE 事件；恢复连接及刷新页面可重新读取完整记录。文件被改动时 CONFLICT 是持久化审核结果，不是成功写入；UNCERTAIN 需要检查文件并重新生成提案。模型下次使用工具重新读取磁盘，不将历史待审核提案视为已应用。
+
+## 命令生命周期
+
+V9 的 harness_command 固定保存命令、用途、规范化目录、shell、时限与调用 ID。`propose_command` 在工具线程内等待审批，不持有引擎或存储锁等待；Run 保持 RUNNING，因此仍占据会话并可被取消。审批等待计入 Run 总时限。
+
+状态为 PENDING → APPROVED → RUNNING → COMPLETED / FAILED / TIMED_OUT / OUTPUT_LIMIT。PENDING 可 REJECTED；运行中停止先 STOPPING，实际结束后 CANCELLED。任务取消/超时会中断等待或执行，清理进程后结算命令；故障无法确认结果时 INTERRUPTED。启动时将所有 PENDING / APPROVED / RUNNING / STOPPING 统一标记 INTERRUPTED，保留输出，不恢复审批或重新执行。
+
+只有持有原始工具调用的线程能消费批准，启动进程前先提交 RUNNING 意图；重复批准 API 不启动进程。SQL 与进程启动不是单一事务，崩溃窗口的状态不代表命令一定已启动或未执行。stdout/stderr 由独立线程读取，合计限 32000 UTF-16 字符，每约 150 ms 有变化时持久化并提交 COMMAND 事件。页面根据事件拉取快照，恢复连接和刷新时重新获取；输出按文本显示，不执行 HTML。
+
+API 为 GET `/api/runs/{id}/commands`，以及 POST JSON `/api/commands/{id}/approve`、`reject`、`stop`。沿用本机 Host/Origin 保护，不提供模型侧批准工具。命令可操作服务账户可访问的资源，不属于文件工具的排除路径沙箱；环境不会主动注入模型 Key，并移除继承的 HARNESS_MODEL_API_KEY，但不能隔离账户本来可访问的其他凭据。

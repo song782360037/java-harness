@@ -18,7 +18,7 @@ harness-web        → Web API：Vue 工作台
 
 core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。SettingsService 实现 SPI 的 RunConfigurationSource，提交时捕获不可变配置；新任务执行时按捕获的配置创建 OpenAiChatCompletionProvider 和会话专属 LocalWorkspaceTools，结束时关闭该任务的 HTTP 客户端，幂等重试不创建资源。固定 provider 构造器供测试或嵌入场景使用，资源仍由调用者管理。厂商通过页面地址、Key、模型名切换。模拟器仅存在于 server 的 test 目录，不进入应用 JAR。ModelProvider 必须显式提供模型身份，并遵守取消和资源归属约定：stream 返回意味着本机的流消费已结束，不能在返回后继续回调；不代表远端推理或计费已经撤销。ModelException 只允许固定的用户可见消息，不能带上游正文或敏感异常原因。
 
-目前 Run 可包含多步模型与工作区工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每步先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本步完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 增加携带 runId 的默认执行入口，core 只依赖契约。ReviewWorkspaceTools 包装只读工具并增加文件修改提案能力，真正写文件仅在独立审核 API 中执行。尚无 Shell 或自动重试。
+目前 Run 可包含多步模型与工作区工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每步先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本步完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 增加携带 runId 的默认执行入口，core 只依赖契约。ReviewWorkspaceTools 包装只读工具并增加文件修改提案能力，真正写文件仅在独立审核 API 中执行。CommandWorkspaceTools 在外层增加等待审批的命令调用；没有自动重试。
 
 ## 文件审核
 

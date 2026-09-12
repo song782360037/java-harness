@@ -28,6 +28,10 @@ export interface FileChange {
   id: string; runId: string; path: string; operation: 'replace' | 'create'; beforeContent: string | null
   afterContent: string; status: string; detail: string; createdAt: string
 }
+export interface CommandExecution {
+  id: string; runId: string; command: string; directory: string; shell: string; purpose: string
+  timeoutSeconds: number; status: string; stdout: string; stderr: string; exitCode: number | null; detail: string; createdAt: string
+}
 export interface ModelRequest {
   instructions: string; finalAnswerOnly: boolean; reasoningEffort: string
   step: number; workspace: string; tools: { name: string }[]

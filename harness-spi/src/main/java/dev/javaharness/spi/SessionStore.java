@@ -34,4 +34,5 @@ public interface SessionStore {
     List<RunEvent> events(String sessionId, long after, int limit);
     void recoverInterruptedRuns();
     void fileChangesUpdated(String runId);
+    void commandsUpdated(String runId);
 }

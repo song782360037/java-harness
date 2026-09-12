@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import ModelRequestDetails from './ModelRequestDetails.vue'
 import ToolDetails from './ToolDetails.vue'
 import FileChanges from './FileChanges.vue'
+import Commands from './Commands.vue'
 import SettingsPage from './SettingsPage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
 import UiIcon from './UiIcon.vue'
@@ -65,6 +66,9 @@ function navigateSession(id: string) {
 }
 const toolRevisions = ref<Record<string, number>>({})
 const changeRevisions = ref<Record<string, number>>({})
+const commandRevisions = ref<Record<string, number>>({})
+const commandActivity = ref<Record<string, string>>({})
+const activityLabel = (run: Run) => run.status === 'RUNNING' && commandActivity.value[run.id] ? commandActivity.value[run.id] : labels[run.status]
 const executionRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}`
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
@@ -82,6 +86,7 @@ const labels: Record<RunStatus, string> = {
   CANCELLED: '已停止', FAILED: '执行失败', TIMED_OUT: '已超时', INTERRUPTED: '已中断',
 }
 let source: EventSource | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 let revision = 0
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 let refreshing = false
@@ -146,19 +151,32 @@ function scheduleRefresh(id: string, version: number, delay = 200) {
   }, delay)
 }
 function follow(id: string, version: number) {
-  source = new EventSource(`/api/sessions/${id}/events?after=${snapshot.value?.lastSeq ?? 0}`)
-  source.onopen = () => {
-    if (version !== revision) return
+  const stream = new EventSource(`/api/sessions/${id}/events?after=${snapshot.value?.lastSeq ?? 0}`)
+  source = stream
+  stream.onopen = () => {
+    if (version !== revision || source !== stream) return
     connected.value = true
     void loadProfiles().catch(() => { /* Keep known profiles during temporary connection loss. */ })
     scheduleRefresh(id, version)
   }
-  source.onerror = () => { if (version === revision) connected.value = false }
-  source.addEventListener('run-event', (message: MessageEvent<string>) => {
-    if (version !== revision) return
+  stream.onerror = () => {
+    if (version !== revision || source !== stream) return
+    connected.value = false
+    // A proxy 500/invalid SSE response can permanently close native EventSource retries.
+    // Recreate explicitly and resume from the last committed snapshot cursor.
+    stream.close()
+    clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = undefined
+      if (version === revision && source === stream) follow(id, version)
+    }, 1500)
+  }
+  stream.addEventListener('run-event', (message: MessageEvent<string>) => {
+    if (version !== revision || source !== stream) return
     const event = JSON.parse(message.data) as RunEvent
     if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
     if (event.type === 'FILE_CHANGE' && event.runId) changeRevisions.value[event.runId] = event.seq
+    if (event.type === 'COMMAND' && event.runId) commandRevisions.value[event.runId] = event.seq
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
 }
@@ -167,6 +185,7 @@ async function selectSession(id: string) {
   const version = ++revision
   source?.close()
   source = null
+  clearTimeout(reconnectTimer)
   clearTimeout(refreshTimer)
   refreshTimer = undefined
   refreshing = false
@@ -176,6 +195,8 @@ async function selectSession(id: string) {
   snapshot.value = null
   toolRevisions.value = {}
   changeRevisions.value = {}
+  commandRevisions.value = {}
+  commandActivity.value = {}
   error.value = ''
   loading.value = true
   prompt.value = ''
@@ -303,7 +324,7 @@ async function cancel() {
   finally { cancelling.value = false }
 }
 onMounted(() => { void initialize(); mobileLayout.addEventListener('change', onLayoutChange); document.addEventListener('keydown', closeSidebarOnEscape) })
-onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer); clearTimeout(copyTimer); mobileLayout.removeEventListener('change', onLayoutChange); document.removeEventListener('keydown', closeSidebarOnEscape) })
+onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer); mobileLayout.removeEventListener('change', onLayoutChange); document.removeEventListener('keydown', closeSidebarOnEscape) })
 </script>
 
 <template>
@@ -339,9 +360,9 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer); cle
         <article v-for="run in snapshot?.runs" :key="run.id" class="run-card">
           <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>
           <section class="response" :aria-label="run.model + ' 的回答'">
-            <div class="assistant-heading"><UiIcon name="code" :size="19" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ labels[run.status] }}</span></div>
+            <div class="assistant-heading"><UiIcon name="code" :size="19" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
             <details class="execution-details">
-              <summary><UiIcon name="chevron" :size="13" /><span>{{ isActive(run) ? '查看执行过程' : '执行详情' }}</span><span class="execution-summary">{{ labels[run.status] }}</span></summary>
+              <summary><UiIcon name="chevron" :size="13" /><span>{{ isActive(run) ? '查看执行过程' : '执行详情' }}</span><span class="execution-summary">{{ activityLabel(run) }}</span></summary>
               <div class="execution-body">
                 <p v-if="run.context" class="run-detail">携带 {{ run.context.includedTurns }} 轮历史<span v-if="run.context.droppedTurns"> · 已裁剪 {{ run.context.droppedTurns }} 轮</span><span v-if="run.context.excludedTurns"> · 已跳过 {{ run.context.excludedTurns }} 条不适用记录</span></p>
                 <p class="run-detail">{{ run.model }} · {{ effortLabel(run.reasoningEffort) }}</p>
@@ -351,9 +372,10 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer); cle
               </div>
             </details>
             <MarkdownContent v-if="run.output" :content="run.output" />
-            <p v-else class="output-placeholder">{{ isActive(run) ? '正在分析你的问题…' : '本次没有生成回答。' }}</p>
+            <p v-else class="output-placeholder">{{ isActive(run) ? (commandActivity[run.id] ? `${activityLabel(run)}，请查看下方终端卡片。` : '正在分析你的问题…') : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
             <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
+            <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
             <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!run.output" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span>{{ run.model }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
           </section>
         </article>

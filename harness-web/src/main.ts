@@ -7,5 +7,6 @@ import './styles/model-settings.css'
 import './styles/appearance.css'
 import './styles/markdown.css'
 import './styles/file-changes.css'
+import './styles/commands.css'
 
 createApp(App).mount('#app')

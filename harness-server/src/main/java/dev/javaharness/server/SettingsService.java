@@ -9,12 +9,17 @@ import java.time.Duration;
 public final class SettingsService implements RunConfigurationSource {
     private final JdbcSettingsStore store;
     private final FileChangeService changes;
+    private final CommandService commands;
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial) {
         this(store, initial, null);
     }
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial, FileChangeService changes) {
+        this(store, initial, changes, null);
+    }
+    public SettingsService(JdbcSettingsStore store, HarnessSettings initial, FileChangeService changes, CommandService commands) {
         this.store = store;
         this.changes = changes;
+        this.commands = commands;
         if (store.current() == null) { validate(initial); store.initialize(initial); }
     }
 
@@ -109,6 +114,7 @@ public final class SettingsService implements RunConfigurationSource {
             try {
                 WorkspaceTools tools = workspace.isEmpty() ? WorkspaceTools.disabled() : new LocalWorkspaceTools(Path.of(workspace), Duration.ofSeconds(captured.toolTimeoutSeconds()));
                 if (!workspace.isEmpty() && changes != null) tools = new ReviewWorkspaceTools(tools, changes);
+                if (!workspace.isEmpty() && commands != null) tools = new CommandWorkspaceTools(tools, commands);
                 return new RunConfiguration.Resources(model, tools, model::close);
             } catch (Exception error) {
                 model.close();

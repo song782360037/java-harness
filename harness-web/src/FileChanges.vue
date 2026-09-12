@@ -13,7 +13,10 @@ async function load() {
   const current = version
   try {
     const values = await api<FileChange[]>(`/runs/${props.runId}/file-changes`)
-    if (!disposed && current === version) changes.value = values
+    if (!disposed && current === version) {
+      changes.value = values
+      if (error.value === '文件修改记录读取失败，请重试。') error.value = ''
+    }
   } catch { if (!disposed) error.value = '文件修改记录读取失败，请重试。' }
   finally { loading = false; if (dirty && !disposed) { dirty = false; void load() } }
 }

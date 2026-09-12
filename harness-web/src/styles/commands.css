@@ -1,0 +1,24 @@
+.command-reviews { margin-top: 24px; min-width: 0; }
+.command-reviews h3 { margin: 0 0 12px; font-size: 14px; }
+.command-reviews h3 > span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.command-card { margin: 10px 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.command-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--hover); font-size: 12px; }
+.command-status { color: var(--muted); }
+.command-status[data-status="PENDING"], .command-status[data-status="TIMED_OUT"], .command-status[data-status="OUTPUT_LIMIT"] { color: var(--warning); }
+.command-status[data-status="COMPLETED"] { color: var(--success); }
+.command-status[data-status="FAILED"], .command-status[data-status="INTERRUPTED"] { color: var(--danger); }
+.command-purpose { margin: 12px 14px; font-size: 13px; overflow-wrap: anywhere; }
+.command-source { margin: 0 14px 12px; padding: 12px; border-radius: 8px; background: var(--subtle); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; font-size: 12px; }
+.command-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; padding: 0 14px 12px; font-size: 11px; color: var(--muted); }
+.command-meta > span { overflow-wrap: anywhere; min-width: 0; }
+.command-notice { padding: 0 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.command-output { border-top: 1px solid var(--border); }
+.command-output summary { padding: 10px 14px; color: var(--muted); cursor: pointer; font-size: 12px; }
+.command-output > div > span { padding: 0 14px; font-size: 10px; color: var(--muted); }
+.command-output pre { margin: 6px 0 12px; padding: 8px 14px; max-height: 280px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre; color: var(--text); background: var(--subtle); }
+.command-card footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--border); }
+.command-card footer > span { color: var(--muted); font-size: 12px; flex: 1 1 200px; overflow-wrap: anywhere; }
+.command-card footer > div { display: flex; gap: 8px; }
+.command-card button { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 12px; cursor: pointer; }
+.command-card button.primary { background: var(--text); color: var(--surface); border-color: var(--text); }
+.command-card button:disabled { opacity: .45; cursor: default; }
