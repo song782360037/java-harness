@@ -8,8 +8,13 @@ import java.time.Duration;
 
 public final class SettingsService implements RunConfigurationSource {
     private final JdbcSettingsStore store;
+    private final FileChangeService changes;
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial) {
+        this(store, initial, null);
+    }
+    public SettingsService(JdbcSettingsStore store, HarnessSettings initial, FileChangeService changes) {
         this.store = store;
+        this.changes = changes;
         if (store.current() == null) { validate(initial); store.initialize(initial); }
     }
 
@@ -103,6 +108,7 @@ public final class SettingsService implements RunConfigurationSource {
             var model = provider(captured);
             try {
                 WorkspaceTools tools = workspace.isEmpty() ? WorkspaceTools.disabled() : new LocalWorkspaceTools(Path.of(workspace), Duration.ofSeconds(captured.toolTimeoutSeconds()));
+                if (!workspace.isEmpty() && changes != null) tools = new ReviewWorkspaceTools(tools, changes);
                 return new RunConfiguration.Resources(model, tools, model::close);
             } catch (Exception error) {
                 model.close();

@@ -25,7 +25,13 @@ public class RuntimeConfiguration {
 
     @Bean
     @DependsOnDatabaseInitialization
-    SettingsService settingsService(JdbcTemplate jdbc,
+    FileChangeService fileChangeService(JdbcTemplate jdbc, PlatformTransactionManager transactions, SessionStore sessions) {
+        return new FileChangeService(jdbc, new TransactionTemplate(transactions), sessions);
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    SettingsService settingsService(JdbcTemplate jdbc, FileChangeService changes,
             @Value("${harness.settings.key-file}") String keyFile,
             @Value("${harness.model.base-url}") String baseUrl,
             @Value("${harness.model.api-key}") String apiKey,
@@ -38,7 +44,7 @@ public class RuntimeConfiguration {
             @Value("${harness.tools.timeout}") Duration toolTimeout) {
         var storage = new JdbcSettingsStore(jdbc, new LocalSecretCipher(Path.of(keyFile)));
         return new SettingsService(storage, new HarnessSettings(1, baseUrl, apiKey, modelName, apiKeyRequired,
-                (int) connectTimeout.toSeconds(), (int) runTimeout.toSeconds(), maxCharacters, maxSteps, (int) toolTimeout.toSeconds()));
+                (int) connectTimeout.toSeconds(), (int) runTimeout.toSeconds(), maxCharacters, maxSteps, (int) toolTimeout.toSeconds()), changes);
     }
 
     @Bean(destroyMethod = "close")

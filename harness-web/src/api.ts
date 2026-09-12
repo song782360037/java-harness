@@ -24,6 +24,10 @@ export interface ModelInfo { provider: string; model: string; configured: boolea
 export interface WorkspaceInfo { configured: boolean; root: string; tools: string[] }
 export interface ToolCall { id: string; name: string; arguments: string }
 export interface ToolExecution { runId: string; step: number; callId: string; name: string; arguments: string; status: string; output: string }
+export interface FileChange {
+  id: string; runId: string; path: string; operation: 'replace' | 'create'; beforeContent: string | null
+  afterContent: string; status: string; detail: string; createdAt: string
+}
 export interface ModelRequest {
   instructions: string; finalAnswerOnly: boolean; reasoningEffort: string
   step: number; workspace: string; tools: { name: string }[]

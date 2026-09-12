@@ -33,4 +33,5 @@ public interface SessionStore {
     void appendText(String runId, String text);
     List<RunEvent> events(String sessionId, long after, int limit);
     void recoverInterruptedRuns();
+    void fileChangesUpdated(String runId);
 }

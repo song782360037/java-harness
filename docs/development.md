@@ -18,7 +18,15 @@ harness-web        → Web API：Vue 工作台
 
 core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。SettingsService 实现 SPI 的 RunConfigurationSource，提交时捕获不可变配置；新任务执行时按捕获的配置创建 OpenAiChatCompletionProvider 和会话专属 LocalWorkspaceTools，结束时关闭该任务的 HTTP 客户端，幂等重试不创建资源。固定 provider 构造器供测试或嵌入场景使用，资源仍由调用者管理。厂商通过页面地址、Key、模型名切换。模拟器仅存在于 server 的 test 目录，不进入应用 JAR。ModelProvider 必须显式提供模型身份，并遵守取消和资源归属约定：stream 返回意味着本机的流消费已结束，不能在返回后继续回调；不代表远端推理或计费已经撤销。ModelException 只允许固定的用户可见消息，不能带上游正文或敏感异常原因。
 
-目前 Run 可包含多步模型与只读工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每步先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本步完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 负责限定目录的读取，core 只依赖该契约，不直接访问文件系统。尚无写文件、Shell 或自动重试。
+目前 Run 可包含多步模型与工作区工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每步先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本步完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 增加携带 runId 的默认执行入口，core 只依赖契约。ReviewWorkspaceTools 包装只读工具并增加文件修改提案能力，真正写文件仅在独立审核 API 中执行。尚无 Shell 或自动重试。
+
+## 文件审核
+
+`FileChangeService` 在单例 SessionStore 的协调锁内校验任务/工作区、保存 V8 提案和审核结果；提案内容不可编辑，审批只能引用固定 ID。数据库变更与 FILE_CHANGE 事件同事务提交，页面据此重新读取卡片。应用按 PENDING → APPLYING（先提交意图）→ APPLIED / CONFLICT / UNCERTAIN 处理，拒绝为 PENDING → REJECTED；启动将遗留 APPLYING 标记为 UNCERTAIN，不猜测、不重放外部副作用。SessionStore 的锁序与引擎一致，文件服务持锁期间不反调引擎取消检查，避免锁反转。
+
+`WorkspaceFileEditor` 限定相对路径、UTF-8 与文件大小，拒绝链接、排除目录、Windows 路径别名及不存在的父目录。比对完整原文件后才发布同目录临时文件；既有文件原子替换、新文件原子创建硬链接，保留 POSIX 权限/Windows ACL。不提供跨文件事务，也不保证任意外部进程与本服务之间的原子 CAS；此限制与磁盘/数据库提交分离必须在验收中明确。
+
+`FileChanges.vue` 负责独立获取及处理审核记录，`FileChangeCard.vue` 在展开时计算差异；`fileDiff.ts` 使用固定版本 diff，设置计算时间及展示行数边界，超出时改用完整原文/结果供审核。所有代码以 Vue 文本插值展示，不执行 HTML。
 
 ## 配置
 

@@ -13,7 +13,7 @@ import java.util.*;
 /** Bounded read-only access to one configured root. No subprocesses or following symbolic links. */
 public final class LocalWorkspaceTools implements WorkspaceTools {
     private static final int FILE_LIMIT = 1_048_576;
-    private static final Set<String> EXCLUDED = Set.of(".git", ".idea", "node_modules", "target", "dist", ".ssh", ".aws", ".azure");
+    static final Set<String> EXCLUDED = Set.of(".git", ".idea", "node_modules", "target", "dist", ".ssh", ".aws", ".azure");
     private final Path root;
     private final long timeoutNanos;
     private final ObjectMapper json = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);

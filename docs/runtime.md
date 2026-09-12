@@ -1,6 +1,6 @@
 # 运行闭环
 
-本版面向本机单用户，使用 OpenAI Chat Completions 兼容接口，支持同会话多轮上下文及只读工具循环，无模拟运行模式。一个 Session 保存多次 Run；一个 Run 可包含多次模型请求，每个 Session 同时只允许一个活动 Run。不同 Session 可以独立执行。
+本版面向本机单用户，使用 OpenAI Chat Completions 兼容接口，支持同会话多轮上下文、工作区工具循环及文件修改审核，无模拟运行模式。一个 Session 保存多次 Run；一个 Run 可包含多次模型请求，每个 Session 同时只允许一个活动 Run。不同 Session 可以独立执行。
 
 ## 调用链
 
@@ -66,6 +66,9 @@ QUEUED 或 RUNNING → CANCELLING → CANCELLED / TIMED_OUT
 | GET | `/api/runs/{id}/model-request` | 保留兼容：200 返回第一步快照；尚无快照 204；Run 不存在 404 |
 | GET | `/api/runs/{id}/model-requests` | 按 step 排序的全部 ModelRequest；尚无快照 `[]`；Run 不存在 404 |
 | GET | `/api/runs/{id}/tools` | 按步骤和调用顺序返回 ToolExecution；尚无工具 `[]`；Run 不存在 404 |
+| GET | `/api/runs/{id}/file-changes` | 文件修改提案，包含原内容、新内容、路径及状态；未知 Run 404 |
+| POST | `/api/file-changes/{id}/apply` | JSON 空对象；正常完成且原工作区空闲时应用；200 返回 APPLIED/CONFLICT/UNCERTAIN，前端必须检查状态；不可操作的记录或会话返回 409 |
+| POST | `/api/file-changes/{id}/reject` | JSON 空对象；PENDING → REJECTED，重复拒绝幂等；已处理为其他状态时 409 |
 | POST | `/api/sessions` | `{ "title": "新会话", "workspace": "绝对路径或空字符串" }`，201 返回 Session；省略 workspace 为仅聊天 |
 | POST | `/api/sessions/{id}/workspace` | `{ "workspace": "绝对路径或空字符串" }`，返回更新后 Session；会话有活动任务时 409 |
 | GET | `/api/sessions` | 会话列表，创建时间倒序 |
@@ -121,4 +124,6 @@ HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工�
 
 支持角色、空内容及 usage-only 分段。EOF、缺失结束标记、非法 JSON、超长事件、HTTP 错误、非 SSE、长度截断、过滤和 refusal 都会失败并保留已提交文本。单事件最大 65536 字符，回答按不拆分代理对的 4096 字符分段入库，总输出最多 100000 字符。不保存 reasoning_content，不附加厂商扩展或固定生成 token 上限；仅在用户选择具体强度时发送标准 reasoning_effort。
 
-默认总超时 120 秒覆盖整个循环，HTTP 连接超时 10 秒，单工具默认 5 秒。终止本机请求不能保证撤销上游计费。工具目录、排除规则、读取预算及配置方法见 README“启用只读工作区”。本版没有写文件、Shell、审批、多用户隔离、操作系统沙箱或跨进程协调，不应用于不可信进程可恶意改写的文件系统。
+默认总超时 120 秒覆盖整个循环，HTTP 连接超时 10 秒，单工具默认 5 秒。终止本机请求不能保证撤销上游计费。读取工具在操作之间检查截止时间；文件提案在进入持久化前检查取消、并在存储锁内再次校验 RUNNING，不保证强行中断磁盘或数据库 I/O。工具目录、排除规则、预算及配置方法见 README“启用工作区”。本版支持文件修改审核，没有 Shell、通用审批、多用户隔离、操作系统沙箱或跨进程协调，不应用于不可信进程可恶意改写的文件系统。
+
+文件提案独立于 Run 终态保存。ReviewWorkspaceTools 的 propose_file_change 只创建 PENDING 记录并回传提案 ID；Run 继续回答，不等待用户审批，也不因应用动作自动续跑。审核 API 通过 FileChangeService 校验 Run 正常完成、会话空闲及工作区一致。每次提案/处理变化提交 FILE_CHANGE 事件；恢复连接及刷新页面可重新读取完整记录。文件被改动时 CONFLICT 是持久化审核结果，不是成功写入；UNCERTAIN 需要检查文件并重新生成提案。模型下次使用工具重新读取磁盘，不将历史待审核提案视为已应用。

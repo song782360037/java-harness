@@ -173,7 +173,7 @@ public final class DefaultAgentEngine implements AgentEngine {
                         synchronized (this) { cancellation.check(); store.updateTool(runId, call.id(), "SKIPPED", result.output()); }
                     } else {
                         synchronized (this) { cancellation.check(); store.updateTool(runId, call.id(), "RUNNING", ""); }
-                        result = tools.execute(call, cancellation);
+                        result = tools.execute(runId, call, cancellation);
                         synchronized (this) {
                             cancellation.check();
                             store.updateTool(runId, call.id(), result.success() ? "COMPLETED" : "FAILED", result.output());

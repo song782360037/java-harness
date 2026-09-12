@@ -7,6 +7,9 @@ public interface WorkspaceTools {
     String workspace();
     List<ToolDefinition> definitions();
     Result execute(ToolCall call, ModelProvider.Cancellation cancellation) throws Exception;
+    default Result execute(String runId, ToolCall call, ModelProvider.Cancellation cancellation) throws Exception {
+        return execute(call, cancellation);
+    }
 
     static WorkspaceTools disabled() {
         return new WorkspaceTools() {

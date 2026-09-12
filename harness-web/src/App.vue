@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import ModelRequestDetails from './ModelRequestDetails.vue'
 import ToolDetails from './ToolDetails.vue'
+import FileChanges from './FileChanges.vue'
 import SettingsPage from './SettingsPage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
 import UiIcon from './UiIcon.vue'
@@ -63,6 +64,7 @@ function navigateSession(id: string) {
   else void selectSession(id)
 }
 const toolRevisions = ref<Record<string, number>>({})
+const changeRevisions = ref<Record<string, number>>({})
 const executionRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}`
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
@@ -156,6 +158,7 @@ function follow(id: string, version: number) {
     if (version !== revision) return
     const event = JSON.parse(message.data) as RunEvent
     if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
+    if (event.type === 'FILE_CHANGE' && event.runId) changeRevisions.value[event.runId] = event.seq
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
 }
@@ -172,6 +175,7 @@ async function selectSession(id: string) {
   selectedId.value = id
   snapshot.value = null
   toolRevisions.value = {}
+  changeRevisions.value = {}
   error.value = ''
   loading.value = true
   prompt.value = ''
@@ -321,7 +325,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer); cle
     <main v-show="!showSettings" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><UiIcon name="folder" :size="17" /><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
-        <div class="header-meta"><span v-if="snapshot?.session.workspace" class="readonly-label">只读工作区</span><span class="connection" :class="{ online: connected }" :title="selectedId ? (connected ? '实时连接正常' : '正在重新连接') : '本地服务'">{{ selectedId && !connected ? '连接中' : '本地' }}</span></div>
+        <div class="header-meta"><span v-if="snapshot?.session.workspace" class="readonly-label">修改需审核</span><span class="connection" :class="{ online: connected }" :title="selectedId ? (connected ? '实时连接正常' : '正在重新连接') : '本地服务'">{{ selectedId && !connected ? '连接中' : '本地' }}</span></div>
       </header>
       <div v-if="error" class="error-banner" role="alert">{{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button></div>
       <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading">
@@ -349,6 +353,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer); cle
             <MarkdownContent v-if="run.output" :content="run.output" />
             <p v-else class="output-placeholder">{{ isActive(run) ? '正在分析你的问题…' : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
+            <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
             <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!run.output" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span>{{ run.model }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
           </section>
         </article>
@@ -366,7 +371,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(refreshTimer); cle
           </div>
         </form>
         <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="15" />{{ item.title }}</button></div>
-        <div class="composer-caption"><span>{{ snapshot?.session.workspace ? '仅在所选工作区内读取文件' : '在本机管理对话与工作区' }}</span><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>Ctrl / ⌘ + Enter 发送</span></div>
+        <div class="composer-caption"><span>{{ snapshot?.session.workspace ? '文件修改经你审核后应用' : '在本机管理对话与工作区' }}</span><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>Ctrl / ⌘ + Enter 发送</span></div>
       </div>
     </main>
     <SettingsPage v-if="showSettings" :initial-profile-id="selectedProfileId" :initial-section="settingsSection" :session="snapshot?.session" :creating-workspace="creatingWorkspace" :workspace-disabled="!!current || submitting || !!pending || loading" @close="closeSettings" @busy="settingsBusy = $event" @saved="settingsSaved" @deleted="profileDeleted" @changed="loadProfiles().catch(() => {})" @workspace-saved="workspaceSaved" />
