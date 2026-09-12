@@ -49,7 +49,7 @@
 .effort-chip { color: var(--muted); }
 .chevron { color: var(--faint); font-size: 14px; flex-shrink: 0; }
 .selector-divider { height: 12px; border-left: 1px solid var(--border); margin: 0 2px; }
-.selector-popover { position: absolute; z-index: 20; bottom: calc(100% + 12px); left: 0; width: 312px; max-width: calc(100vw - 56px); max-height: min(480px, 65dvh); overflow: auto; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--popover-shadow); border-radius: 14px; padding: 8px; }
+.selector-popover { position: absolute; z-index: 20; bottom: calc(100% + 12px); left: auto; right: 0; width: 312px; max-width: calc(100vw - 56px); max-height: min(480px, 65dvh); overflow: auto; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--popover-shadow); border-radius: 14px; padding: 8px; }
 .popover-heading { font-size: 12px; font-weight: 600; padding: 8px 9px; }
 .model-search { width: calc(100% - 12px); margin: 3px 6px 8px; border: 1px solid var(--border); border-radius: 7px; padding: 9px; font-size: 12px; }
 .model-options-scroll { max-height: 260px; overflow: auto; }
@@ -73,8 +73,6 @@
   .settings-section-heading { flex-wrap: wrap; gap: 12px; }
   .settings-card { padding: 18px; }
   .composer-chip { max-width: 145px; }
-  .model-popover { left: auto; right: 0; }
-  .effort-popover { left: auto; right: 0; }
 }
 @media (max-width: 520px) {
   .settings-page { min-height: 0; }
