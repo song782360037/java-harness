@@ -1,8 +1,20 @@
 # 验证记录
 
-日期：2026-09-12。
+日期：2026-09-14。
 
-## 最新实现与验收：命令审批、执行和结果回传
+## 当前实现：只读 Git 工具
+
+- 新增 `GitWorkspaceTools`，在只读文件工具之上提供 `git_status`（分支与已暂存、未暂存、未跟踪路径）和 `git_diff`（单文件补丁，可选 `staged`）。仅当工作区根等于仓库根时提供工具；目录不是仓库根或本机无 git 时不出现，调用返回明确说明，不影响其他工具。只读：不 add、commit、checkout，不写仓库。
+- 实现前用本机 git 2.48.1 实测确认协议细节：`-z` 下重命名占两个 NUL 字段且顺序反转（目标在前、来源在后，git-status 文档明确“field order is reversed”），路径不做转义；`## No commits yet on main` 为无提交仓库的分支行；目录 pathspec 会展开为目录内全部文件。据此 `git_diff` 拒绝目录与通配符路径，并用 `--numstat -z` 预检该 pathspec 实际涉及的文件集合。
+- 实测发现并封闭两个执行风险：`--no-staged` 并非合法选项（exit 129），改用“仅暂存时传 `--staged`”；`.gitattributes` 的 textconv 与外部 diff 驱动可执行任意命令（实测 textconv 命令确实被调用），调用固定附加 `--no-textconv --no-ext-diff`，并加 `--literal-pathspecs`、`core.fsmonitor=false`、`GIT_OPTIONAL_LOCKS=0`，清除 GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY 等继承变量，且进程环境不传递 `HARNESS_MODEL_API_KEY`。取消与截止时间到达时终止子进程。
+- 复用文件工具的路径与排除规则：`WorkspacePaths`、`BoundedOutput` 由 `LocalWorkspaceTools` 与 `GitWorkspaceTools` 共用，避免两套规则漂移。状态与差异输出中被排除路径（`.env*`、`*.pem`、`*.key`、`target` 等）不出现，并有测试断言秘密内容不外泄。
+- 新增 `GitWorkspaceToolsTest` 12 项与 `GitToolAssemblyTest` 1 项，全部通过。装配测试直接使用 `SettingsService` 产出的工具链（含 FileChangeService 与 CommandService 包装），确认 git 调用可穿透包装到达内层实现，且非仓库目录下仍保留文件工具、仅隐藏 git 工具；同时断言初始化密钥文件 `settings.key` 不会出现在状态输出中。
+- 最终全量 `.\mvnw.cmd -B -ntp clean verify`：157 项，155 通过、1 项因 Windows 符号链接权限跳过，0 失败、0 错误，含前端资源的可运行 JAR 构建成功。前端 `npm --prefix harness-web test` 18 项通过（本次未改前端，作回归确认）。
+- 测试暴露一个真实缺陷并已修复：解析输出最初复用 11000 字符显示上限，导致 900 个未跟踪文件的统计只计到约 200 个。现解析使用独立上限（256000），显示另行受限，计数基于完整输出。
+- 已重构的 `LocalWorkspaceTools` 原有 17 项测试与 `FileChangeServiceTest` 14 项、`CommandServiceTest` 12 项继续通过。
+- 尚未执行：真实模型端到端验收（以本仓库为工作区让模型调用 git 工具）。上述结果为协议级与单元级验证，不代表实际模型使用质量。
+
+## 当前实现：命令审批、执行和结果回传
 
 - 新增 V9 `harness_command`、`propose_command`、本机进程执行器及独立批准/拒绝/停止 API。命令提案在原工具线程等待审批，批准后才启动；stdout/stderr、退出码、终态持久化并通过 COMMAND 事件更新页面，结果配对回传下一次模型请求。刷新不重复执行；服务重启不恢复未完成命令。命令卡片沿用全局主题。
 - 首次全量 Maven `verify`：142 项，141 通过、1 项因 Windows 符号链接权限跳过，0 失败/错误。随后针对浏览器发现的 Windows 输出及引号问题新增 2 项回归用例，最终运行 CommandServiceTest 12 项及 CommandApiIntegrationTest 1 项，全部通过。最终测试报告合计 144 项、143 通过、1 跳过；这是全量运行与后续针对性复验的合并记录，不是第二次全量运行。

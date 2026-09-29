@@ -6,21 +6,23 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.*;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.*;
 
 /** Bounded read-only access to one configured root. No subprocesses or following symbolic links. */
 public final class LocalWorkspaceTools implements WorkspaceTools {
     private static final int FILE_LIMIT = 1_048_576;
-    static final Set<String> EXCLUDED = Set.of(".git", ".idea", "node_modules", "target", "dist", ".ssh", ".aws", ".azure");
+    /** Retained for the file editor, which applies the same name policy while writing. */
+    static final Set<String> EXCLUDED = WorkspacePaths.EXCLUDED;
     private final Path root;
+    private final WorkspacePaths paths;
     private final long timeoutNanos;
     private final ObjectMapper json = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     public LocalWorkspaceTools(Path root, Duration timeout) throws IOException {
         this.root = root.toRealPath();
         if (!Files.isDirectory(this.root) || timeout.isZero() || timeout.isNegative()) throw new IllegalArgumentException("Invalid workspace or tool timeout");
+        this.paths = new WorkspacePaths(this.root);
         this.timeoutNanos = timeout.toNanos();
     }
 
@@ -91,55 +93,16 @@ public final class LocalWorkspaceTools implements WorkspaceTools {
         return args.get(key).asInt();
     }
 
-    private boolean excluded(Path path) {
-        for (Path part : root.relativize(path)) {
-            String name = part.toString().toLowerCase(Locale.ROOT);
-            if (EXCLUDED.contains(name) || name.startsWith(".env") || name.endsWith(".pem") || name.endsWith(".key")
-                    || name.endsWith(".p12") || name.endsWith(".pfx") || name.endsWith(".jks")) return true;
-        }
-        return false;
-    }
+    private Path resolve(String relative) throws IOException { return paths.resolve(relative); }
 
-    private Path resolve(String relative) throws IOException {
-        if (relative.length() > 2048 || relative.contains(":") || relative.contains("\\") || relative.startsWith("/")
-                || relative.indexOf('\0') >= 0) throw new IllegalArgumentException("Relative slash-separated paths required");
-        Path path = root.resolve(relative).normalize();
-        verify(path);
-        return path;
-    }
+    private void verify(Path path) throws IOException { paths.verify(path, true); }
 
-    private void verify(Path path) throws IOException {
-        if (!path.startsWith(root) || excluded(path)) throw new IOException("Outside permitted tree");
-        Path current = root;
-        for (Path part : root.relativize(path)) {
-            current = current.resolve(part);
-            var attrs = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            if (attrs.isSymbolicLink() || attrs.isOther()) throw new IOException("Unsupported link or special file");
-        }
-        if (!path.toRealPath().startsWith(root)) throw new IOException("Resolved outside root");
-    }
-
-    private String relative(Path path) { return root.relativize(path).toString().replace('\\', '/'); }
-
-    private static final class Output {
-        private final StringBuilder text = new StringBuilder();
-        boolean truncated;
-        void add(String value) {
-            int remaining = 11_000 - text.length();
-            if (value.length() > remaining) {
-                truncated = true;
-                int end = Math.max(0, remaining);
-                if (end > 0 && Character.isHighSurrogate(value.charAt(end - 1))) end--;
-                text.append(value, 0, end);
-            } else text.append(value);
-        }
-        String finish() { return text + (truncated ? "\n[结果已截断，请缩小范围或分段读取]" : ""); }
-    }
+    private String relative(Path path) { return paths.relative(path); }
 
     private Result list(Path directory, int depth, ModelProvider.Cancellation check) throws Exception {
         if (depth > 8) return new Result(false, "目录 depth 需为 1–8，请缩小深度或指定子目录");
         if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Not directory");
-        var output = new Output();
+        var output = new BoundedOutput();
         var entries = new ArrayList<String>();
         record Level(Path path, int depth) {}
         var pending = new ArrayDeque<Level>();
@@ -203,7 +166,7 @@ public final class LocalWorkspaceTools implements WorkspaceTools {
         int end = Math.min(requestedEnd, limit);
         String[] lines = file(path, check).split("\\R", -1);
         if (start > lines.length) return new Result(false, "起始行超出文件范围，总行数：" + lines.length);
-        var output = new Output();
+        var output = new BoundedOutput();
         output.add("文件：" + relative(path) + "\n");
         if (requestedEnd > limit) output.add("[请求区间超过单次 200 行上限，已限制本次读取范围]\n");
         for (int line = start; line <= Math.min(end, lines.length); line++) {
@@ -216,7 +179,7 @@ public final class LocalWorkspaceTools implements WorkspaceTools {
 
     private Result search(Path directory, String query, ModelProvider.Cancellation check) throws Exception {
         if (query.length() > 200 || query.contains("\n") || !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new IllegalArgumentException("Invalid search");
-        var output = new Output();
+        var output = new BoundedOutput();
         var pending = new ArrayDeque<Path>(); pending.add(directory);
         int scanned = 0, matches = 0, skipped = 0;
         long[] remaining = { 8L * FILE_LIMIT };

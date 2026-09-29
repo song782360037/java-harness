@@ -20,5 +20,7 @@
 .idea/
 *.iml
 .vscode/
+.mimosa/
+.zcode/
 .DS_Store
 Thumbs.db

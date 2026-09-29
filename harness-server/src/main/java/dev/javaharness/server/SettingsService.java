@@ -113,6 +113,8 @@ public final class SettingsService implements RunConfigurationSource {
             var model = provider(captured);
             try {
                 WorkspaceTools tools = workspace.isEmpty() ? WorkspaceTools.disabled() : new LocalWorkspaceTools(Path.of(workspace), Duration.ofSeconds(captured.toolTimeoutSeconds()));
+                // Read-only git tools; hidden when the root is not a repository or git is unavailable.
+                if (!workspace.isEmpty()) tools = new GitWorkspaceTools(tools, Duration.ofSeconds(captured.toolTimeoutSeconds()));
                 if (!workspace.isEmpty() && changes != null) tools = new ReviewWorkspaceTools(tools, changes);
                 if (!workspace.isEmpty() && commands != null) tools = new CommandWorkspaceTools(tools, commands);
                 return new RunConfiguration.Resources(model, tools, model::close);

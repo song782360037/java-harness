@@ -18,7 +18,7 @@ harness-web        → Web API：Vue 工作台
 
 core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。SettingsService 实现 SPI 的 RunConfigurationSource，提交时捕获不可变配置；新任务执行时按捕获的配置创建 OpenAiChatCompletionProvider 和会话专属 LocalWorkspaceTools，结束时关闭该任务的 HTTP 客户端，幂等重试不创建资源。固定 provider 构造器供测试或嵌入场景使用，资源仍由调用者管理。厂商通过页面地址、Key、模型名切换。模拟器仅存在于 server 的 test 目录，不进入应用 JAR。ModelProvider 必须显式提供模型身份，并遵守取消和资源归属约定：stream 返回意味着本机的流消费已结束，不能在返回后继续回调；不代表远端推理或计费已经撤销。ModelException 只允许固定的用户可见消息，不能带上游正文或敏感异常原因。
 
-目前 Run 可包含多步模型与工作区工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每步先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本步完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 增加携带 runId 的默认执行入口，core 只依赖契约。ReviewWorkspaceTools 包装只读工具并增加文件修改提案能力，真正写文件仅在独立审核 API 中执行。CommandWorkspaceTools 在外层增加等待审批的命令调用；没有自动重试。
+目前 Run 可包含多步模型与工作区工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每步先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本步完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 增加携带 runId 的默认执行入口，core 只依赖契约。ReviewWorkspaceTools 包装只读工具并增加文件修改提案能力，真正写文件仅在独立审核 API 中执行。CommandWorkspaceTools 在外层增加等待审批的命令调用；没有自动重试。GitWorkspaceTools 在最内层的 LocalWorkspaceTools 之上增加只读 git_status / git_diff，构造时用 `git rev-parse --show-toplevel` 探测，仅当工作区根等于仓库根时暴露工具（子目录会让 git 报告工作区之外的路径）；调用使用直接 argv、`--literal-pathspecs`（拒绝 glob 展开）、`--no-textconv` 与 `--no-ext-diff`（.gitattributes 或配置不能借 textconv、外部驱动执行命令）、`core.fsmonitor=false`、`GIT_OPTIONAL_LOCKS=0`，清除 GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE 等继承变量；`git_diff` 拒绝目录 pathspec（git 会展开目录并暴露其中的排除文件），并用 numstat 预检路径集合。WorkspacePaths 与 BoundedOutput 被文件工具和 git 工具共用，避免路径与截断规则漂移；解析输出使用独立的较大上限，统计不因显示截断失真。
 
 ## 文件审核
 
@@ -84,4 +84,4 @@ AgentInstructions 在工具模式为每一步生成证据指引，随 ModelReque
 
 `harness-server/src/test` 使用实际 H2、迁移和引擎验证状态与持久化；HTTP 集成测试启动随机端口的 Spring Boot 服务并检查 SSE。测试数据库隔离，不使用 data 下的用户数据库。
 
-OpenAiChatCompletionTest 使用随机端口的本地 HTTP 服务验证通用适配器的最小请求字段、路径前缀、Bearer / 无鉴权、任意模型名、断流、取消传播、无自动重试以及旧数据保留。使用占位 Key，不访问公网模型。真实账户联调未执行。Shell、文件编辑、鉴权审批、插件及自动压缩仍未实现。
+OpenAiChatCompletionTest 使用随机端口的本地 HTTP 服务验证通用适配器的最小请求字段、路径前缀、Bearer / 无鉴权、任意模型名、断流、取消传播、无自动重试以及旧数据保留。使用占位 Key，不访问公网模型。真实账户联调未执行。GitWorkspaceToolsTest 在 `@TempDir` 内创建真实仓库（git 不可用时 abort），覆盖仓库根判定、分支与各类状态的渲染、重命名路径顺序、排除路径在状态与差异中均不出现、单文件补丁与暂存/未暂存区分、目录与通配符与越界路径拒绝、中文与空格文件名、大补丁与大列表的截断边界、取消与截止时间停止子进程，以及非 git 调用仍正确委托。文件编辑、鉴权审批、插件及自动压缩仍未实现；git 工具只读，不提供 add/commit/checkout 或 worktree 隔离。
