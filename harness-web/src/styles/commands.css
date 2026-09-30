@@ -1,5 +1,5 @@
 .command-reviews { margin-top: 24px; min-width: 0; }
-.command-reviews h3 { margin: 0 0 12px; font-size: 14px; }
+.command-reviews h3 { margin: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .command-reviews h3 > span { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .command-card { margin: 10px 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
 .command-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--hover); font-size: 12px; }
@@ -22,3 +22,10 @@
 .command-card button { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 12px; cursor: pointer; }
 .command-card button.primary { background: var(--text); color: var(--surface); border-color: var(--text); }
 .command-card button:disabled { opacity: .45; cursor: default; }
+.command-details > summary { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; font-size: 11px; list-style: none; }
+.command-details > summary::-webkit-details-marker { display: none; }
+.command-details > summary::before { content: '›'; font-size: 16px; color: var(--muted); }
+.command-details[open] > summary::before { transform: rotate(90deg); }
+.command-summary-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-status { flex-shrink: 0; }
+.command-failure { margin: 0; padding: 0 14px 12px; font-size: 11px; line-height: 1.7; color: var(--danger); overflow-wrap: anywhere; }

@@ -144,8 +144,8 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
   <main class="settings-page reference-settings" aria-labelledby="settings-title">
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="设置分类">
-        <div class="settings-brand"><UiIcon name="code" :size="23" /><strong>Harness</strong></div>
-        <button class="back-button" :disabled="busy || workspaceBusy" @click="emit('close')"><UiIcon name="back" :size="16" /> 返回工作区</button>
+        <div class="settings-brand"><img class="brand-icon" src="/harness-icon.svg" width="28" height="28" alt="" /><strong>Harness</strong></div>
+        <button class="back-button" aria-label="返回工作区" title="返回工作区" :disabled="busy || workspaceBusy" @click="emit('close')"><UiIcon name="back" :size="16" /><span>返回工作区</span></button>
         <p class="nav-group-label">基础设置</p>
         <button v-for="item in sections" :key="item.id" :class="{ selected: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" :disabled="busy || workspaceBusy" @click="section = item.id"><UiIcon :name="item.icon" :size="17" />{{ item.label }}</button>
         <div class="settings-local-note">本地运行 · 配置保存在本机</div>

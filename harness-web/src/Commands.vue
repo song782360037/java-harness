@@ -43,12 +43,14 @@ onUnmounted(() => { disposed = true })
     <h3>终端 <span>{{ commands.length }}</span></h3>
     <p v-if="error" class="dialog-error" role="alert">{{ error }} <button type="button" @click="retry">刷新记录</button></p>
     <article v-for="command in commands" :key="command.id" class="command-card" :aria-label="`${command.purpose} · ${labels[command.status] || command.status}`">
-      <header><strong>{{ command.shell }}</strong><span class="command-status" :data-status="command.status">{{ labels[command.status] || command.status }}</span></header>
+      <details class="command-details" :open="['PENDING', 'APPROVED', 'RUNNING', 'STOPPING'].includes(command.status)">
+      <summary><span class="command-summary-title">{{ command.purpose }}</span><span class="command-status" :data-status="command.status">{{ labels[command.status] || command.status }}</span></summary>
+      <header><strong>{{ command.shell }}</strong></header>
       <p class="command-purpose">{{ command.purpose }}</p>
       <pre class="command-source" aria-label="待执行命令"><code>{{ command.command }}</code></pre>
       <div class="command-meta"><span>{{ command.directory }}</span><span>超时 {{ command.timeoutSeconds }} 秒<span v-if="command.exitCode !== null"> · 退出码 {{ command.exitCode }}</span></span></div>
       <p v-if="command.status === 'PENDING'" class="command-notice">批准后以本机服务权限运行，可修改文件或访问网络。等待审批计入任务超时。</p>
-      <details v-if="command.stdout || command.stderr" open class="command-output">
+      <details v-if="command.stdout || command.stderr" :open="['RUNNING', 'STOPPING'].includes(command.status)" class="command-output">
         <summary>终端输出</summary>
         <div v-if="command.stdout"><span>stdout</span><pre tabindex="0" aria-label="标准输出">{{ command.stdout }}</pre></div>
         <div v-if="command.stderr"><span>stderr</span><pre tabindex="0" aria-label="错误输出">{{ command.stderr }}</pre></div>
@@ -61,6 +63,8 @@ onUnmounted(() => { disposed = true })
         </div>
         <button v-else-if="['APPROVED', 'RUNNING', 'STOPPING'].includes(command.status)" type="button" :disabled="busy || command.status === 'STOPPING'" @click="decide(command, 'stop')">停止命令</button>
       </footer>
+      </details>
+      <p v-if="['FAILED', 'TIMED_OUT', 'OUTPUT_LIMIT', 'INTERRUPTED'].includes(command.status)" class="command-failure">{{ command.detail || labels[command.status] }}</p>
     </article>
   </section>
 </template>
