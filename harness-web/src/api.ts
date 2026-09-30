@@ -4,8 +4,12 @@ export interface Session { id: string; title: string; createdAt: string; workspa
 export const reasoningOptions = [
   { value: '', label: '服务默认' }, { value: 'none', label: '关闭 · none' },
   { value: 'minimal', label: '最低 · minimal' }, { value: 'low', label: '低 · low' },
-  { value: 'medium', label: '中 · medium' }, { value: 'high', label: '高 · high' }, { value: 'xhigh', label: '最高 · xhigh' },
+  { value: 'medium', label: '中 · medium' }, { value: 'high', label: '高 · high' },
+  { value: 'xhigh', label: '极高 · xhigh' }, { value: 'max', label: '最高 · max' },
 ]
+export const reasoningDepthOptions = reasoningOptions.filter(option => ['low', 'medium', 'high', 'xhigh', 'max'].includes(option.value))
+// 聊天选择限定为五档，旧默认或关闭配置从低档开始。
+export const normalizeReasoningDepth = (value: string) => reasoningDepthOptions.some(option => option.value === value) ? value : 'low'
 export const effortLabel = (value: string) => reasoningOptions.find(option => option.value === value)?.label || '服务默认'
 export interface ModelProfile {
   id: string; displayName: string; reasoningEffort: string; revision: number; providerId: string; providerName: string

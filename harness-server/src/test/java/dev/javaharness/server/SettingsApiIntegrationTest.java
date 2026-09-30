@@ -298,22 +298,24 @@ class SettingsApiIntegrationTest {
             assertThat(post("/sessions/" + session + "/runs", new HashMap<>(original) {{ put("reasoningEffort", "high"); }}).statusCode()).isEqualTo(409);
             assertThat(post("/sessions/" + session + "/runs", new HashMap<>(original) {{ put("requestId", UUID.randomUUID().toString()); }}).statusCode()).isEqualTo(404);
 
-            for (String effort : new String[] {"default", ""}) {
+            for (String effort : new String[] {"default", "", "max"}) {
                 var next = new HashMap<>(Map.of("requestId", UUID.randomUUID().toString(), "prompt", "read again", "modelProfileId", idB));
                 if (!effort.equals("default")) next.put("reasoningEffort", effort);
                 var response = post("/sessions/" + session + "/runs", next);
                 assertThat(response.statusCode()).isEqualTo(202);
                 var done = settled(store.run(json.readTree(response.body()).path("id").asText()));
                 assertThat(done.model()).isEqualTo("profile-b");
-                assertThat(done.reasoningEffort()).isEqualTo(effort.equals("default") ? "medium" : "");
+                assertThat(done.reasoningEffort()).isEqualTo(effort.equals("default") ? "medium" : effort);
+                assertThat(store.modelRequests(done.id())).allMatch(request -> request.reasoningEffort().equals(done.reasoningEffort()));
             }
             assertThat(requests.subList(2, 4)).containsOnly("/b/chat/completions:profile-b:Bearer key-b:medium");
             assertThat(requests.subList(4, 6)).containsOnly("/b/chat/completions:profile-b:Bearer key-b:omitted");
+            assertThat(requests.subList(6, 8)).containsOnly("/b/chat/completions:profile-b:Bearer key-b:max");
             var siblingRun = post("/sessions/" + session + "/runs", Map.of("requestId", UUID.randomUUID().toString(), "prompt", "use sibling",
                     "modelProfileId", json.readTree(sibling.body()).path("id").asText()));
             assertThat(siblingRun.statusCode()).isEqualTo(202);
             settled(store.run(json.readTree(siblingRun.body()).path("id").asText()));
-            assertThat(requests.subList(6, 8)).containsOnly("/b/chat/completions:profile-b-sibling:Bearer key-b:high");
+            assertThat(requests.subList(8, 10)).containsOnly("/b/chat/completions:profile-b-sibling:Bearer key-b:high");
             assertThat(store.snapshot(session).session().modelProfileId()).isEqualTo(json.readTree(sibling.body()).path("id").asText());
             assertThat(store.snapshot(session).session().reasoningEffort()).isEqualTo("high");
         } finally { release.countDown(); upstream.stop(0); handlers.shutdownNow(); }

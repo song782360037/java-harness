@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { effortLabel, reasoningOptions, type ModelProfile, type Session } from './api'
+import { effortLabel, type ModelProfile, type Session } from './api'
+import ReasoningSlider from './ReasoningSlider.vue'
 import UiIcon from './UiIcon.vue'
 const props = defineProps<{ profiles: ModelProfile[]; modelId: string; effort: string; disabled: boolean; workspace: string; sessions: Session[]; workspaceDisabled: boolean }>()
 const emit = defineEmits<{ model: [id: string]; effort: [value: string]; settings: []; workspace: [path: string]; browse: [] }>()
@@ -35,14 +36,16 @@ async function toggle(value: NonNullable<typeof open.value>) {
     const button = value === 'model' ? modelButton.value : value === 'workspace' ? workspaceButton.value : effortButton.value
     const bounds = button?.getBoundingClientRect()
     if (bounds) {
-      const width = Math.min(value === 'workspace' ? 340 : value === 'model' ? 310 : 180, window.innerWidth - 24)
+      const width = Math.min(value === 'workspace' ? 340 : value === 'model' ? 310 : 320, window.innerWidth - 24)
       menuPosition.value = { left: `${Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12))}px`,
         bottom: `${window.innerHeight - bounds.top + 8}px`, width: `${width}px`, maxHeight: `${Math.max(100, Math.min(480, bounds.top - 20))}px` }
     }
   }
   await nextTick()
   if (open.value === 'model' || open.value === 'workspace') searchInput.value?.focus()
-  if (open.value === 'effort') panel.value?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus()
+  if (open.value === 'effort') {
+    panel.value?.querySelector<HTMLInputElement>('input[type="range"]')?.focus()
+  }
 }
 // 关闭菜单，可恢复到对应入口。
 function close(restoreFocus = false) {
@@ -93,7 +96,7 @@ function outsideResize() { close() }
     </div>
     <span class="selector-divider" aria-hidden="true"></span>
     <div class="selector-anchor">
-      <button id="composer-model" ref="modelButton" type="button" class="composer-chip" :disabled="disabled" :aria-expanded="open === 'model'" aria-controls="model-options" aria-label="选择模型" :title="selected ? `${selected.providerName} / ${selected.modelName}` : '请选择模型'" @click="toggle('model')"><span>{{ selected?.modelName || selected?.displayName || '选择模型' }}</span><UiIcon class="chevron" name="down" :size="12" /></button>
+      <button id="composer-model" ref="modelButton" type="button" class="composer-chip" :disabled="disabled" :aria-expanded="open === 'model'" aria-controls="model-options" aria-label="选择模型" :title="selected ? `${selected.providerName} / ${selected.modelName}` : '请选择模型'" @click="toggle('model')"><span>{{ selected?.displayName || selected?.modelName || '选择模型' }}</span><UiIcon class="chevron" name="down" :size="12" /></button>
       <div v-if="open === 'model'" id="model-options" :style="menuPosition" ref="panel" @keydown="navigate" class="selector-popover model-popover" aria-label="可用模型">
         <div class="popover-heading">模型</div>
         <input ref="searchInput" v-model="search" class="model-search" placeholder="搜索模型或提供商" aria-label="搜索模型或提供商" @keydown.enter.prevent />
@@ -110,9 +113,8 @@ function outsideResize() { close() }
     <span class="selector-divider" aria-hidden="true"></span>
     <div class="selector-anchor effort-anchor">
       <button id="composer-effort" ref="effortButton" type="button" class="composer-chip effort-chip" :disabled="disabled" :aria-expanded="open === 'effort'" aria-controls="effort-options" aria-label="选择思考强度" @click="toggle('effort')"><UiIcon name="reasoning" :size="15" /><span>{{ effortLabel(effort).split(' · ')[0] }}</span><UiIcon class="chevron" name="down" :size="12" /></button>
-      <div v-if="open === 'effort'" id="effort-options" :style="menuPosition" ref="panel" @keydown="navigate" class="selector-popover effort-popover" aria-label="思考强度">
-        <div class="popover-heading">思考强度</div>
-        <button v-for="option in reasoningOptions" :key="option.value" type="button" class="selector-option" :aria-pressed="option.value === effort" @click="emit('effort', option.value); close(true)"><span>{{ option.label.split(' · ')[0] }}</span><UiIcon v-if="option.value === effort" name="check" :size="15" /></button>
+      <div v-if="open === 'effort'" id="effort-options" :style="menuPosition" ref="panel" class="selector-popover effort-popover" aria-label="思考强度">
+        <ReasoningSlider :model-value="effort" :disabled="disabled" @update:model-value="emit('effort', $event)" />
       </div>
     </div>
   </div>

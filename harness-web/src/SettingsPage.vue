@@ -3,12 +3,14 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api, reasoningOptions, effortLabel, type ModelProfile, type ProviderView, type Session } from './api'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import AppearanceSettings from './AppearanceSettings.vue'
+import GeneralSettings from './GeneralSettings.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ initialProfileId: string; initialSection: 'models' | 'workspace'; session?: Session; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace'; session?: Session; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
-const section = ref<'appearance' | 'models' | 'workspace'>(props.initialSection)
+const section = ref<'general' | 'appearance' | 'models' | 'workspace'>(props.initialSection)
 const pageTitle = ref<HTMLElement>()
-const sections = [{ id: 'appearance', label: '外观', icon: 'palette', description: '让工作台更符合你的习惯。' },
+const sections = [{ id: 'general', label: '常规', icon: 'settings', description: '调整输入和阅读偏好，更改立即生效。' },
+  { id: 'appearance', label: '外观', icon: 'palette', description: '让工作台更符合你的习惯。' },
   { id: 'models', label: '模型与提供商', icon: 'cube', description: '连接你的模型服务，在对话中自由切换。' },
   { id: 'workspace', label: '工作区', icon: 'folder', description: '选择本次对话使用的项目目录。' }] as const
 const sectionInfo = computed(() => sections.find(item => item.id === section.value)!)
@@ -156,6 +158,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
           <div class="settings-section-heading"><p>{{ sectionInfo.description }}</p><button v-if="section === 'models'" class="icon-button" :disabled="busy" aria-label="重新加载配置" title="重新加载配置" @click="load"><UiIcon name="refresh" :size="16" /></button></div>
           <p v-if="error && section === 'models'" role="alert" class="dialog-error">{{ error }}</p>
           <p v-if="notice && section === 'models'" role="status" class="saved-note">{{ notice }}</p>
+          <GeneralSettings v-show="section === 'general'" />
           <AppearanceSettings v-show="section === 'appearance'" />
           <section v-show="section === 'models'" class="provider-console" aria-label="自定义提供商与模型">
             <aside class="provider-rail" aria-label="自定义提供商">

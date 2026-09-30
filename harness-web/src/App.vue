@@ -11,17 +11,25 @@ import SidebarResize from './SidebarResize.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import UiIcon from './UiIcon.vue'
 import MarkdownContent from './MarkdownContent.vue'
-import { api, ApiError, isActive, effortLabel, type Run, type RunEvent, type RunStatus,
+import { preferences, shouldSendPrompt } from './preferences'
+import { api, ApiError, isActive, effortLabel, normalizeReasoningDepth, type Run, type RunEvent, type RunStatus,
   type Session, type Snapshot, type Submission, type ModelProfile } from './api'
 
 const sessions = ref<Session[]>([])
 const profiles = ref<ModelProfile[]>([])
 const selectedProfileId = ref('default')
-const reasoningEffort = ref('')
+const reasoningEffort = ref('low')
 const selectedProfile = computed(() => profiles.value.find(profile => profile.id === selectedProfileId.value))
 const model = computed(() => selectedProfile.value?.model)
 const showSettings = ref(false)
-const settingsSection = ref<'models' | 'workspace'>('models')
+const settingsSection = ref<'general' | 'models' | 'workspace'>('general')
+const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
+// 根字号控制全局文字，缩放比例用于保留欢迎标题的响应式字号。
+watch(fontSize, value => {
+  document.documentElement.style.setProperty('--app-font-size', `${value}px`)
+  document.documentElement.style.setProperty('--app-font-scale', String(value / 14))
+}, { immediate: true })
+const sendShortcutHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送 · Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
 const creatingWorkspace = ref(false)
 const settingsBusy = ref(false)
 const workspaceSaving = ref(false)
@@ -99,6 +107,13 @@ function resizePrompt() {
   input.style.height = 'auto'
   input.style.height = `${Math.min(input.scrollHeight, 200)}px`
 }
+watch([fontSize, showSettings], () => { if (!showSettings.value) void nextTick(resizePrompt) })
+// 根据常规偏好处理发送，输入法确认回车保留给输入框。
+function onPromptKeydown(event: KeyboardEvent) {
+  if (!shouldSendPrompt(event, preferences.value.sendShortcut)) return
+  event.preventDefault()
+  void send()
+}
 // 在详情面板中查看本轮执行信息。
 async function inspectRun(run: Run, event: MouseEvent) {
   inspectorTrigger = event.currentTarget as HTMLElement
@@ -159,7 +174,7 @@ async function copyAnswer(run: Run) {
   try { await navigator.clipboard.writeText(run.output); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
   catch { copyError.value = '复制失败，请选择回答内容手动复制。' }
 }
-function openSettings(section: 'models' | 'workspace' = 'models', creating = false) {
+function openSettings(section: 'general' | 'models' | 'workspace' = 'general', creating = false) {
   if (workspaceChanging.value) return
   settingsSection.value = section
   creatingWorkspace.value = creating
@@ -206,7 +221,7 @@ async function loadProfiles() {
   const values = await api<ModelProfile[]>('/model-profiles')
   if (version === profileRevision) profiles.value = values
 }
-function chooseProfile(id: string) { selectedProfileId.value = id; reasoningEffort.value = selectedProfile.value?.reasoningEffort || '' }
+function chooseProfile(id: string) { selectedProfileId.value = id; reasoningEffort.value = normalizeReasoningDepth(selectedProfile.value?.reasoningEffort || '') }
 
 function storageGet(key: string) {
   try { return localStorage.getItem(key) } catch { return null }
@@ -228,7 +243,8 @@ async function refresh(id: string, version: number) {
   // 重命名完成前发出的刷新可能仍携带旧标题。
   if (titles !== titleRevision) value.session.title = sessions.value.find(session => session.id === id)?.title ?? value.session.title
   const node = timeline.value
-  const scroll = !node || node.scrollHeight - node.scrollTop - node.clientHeight < 100
+  const initialLoad = !snapshot.value
+  const scroll = initialLoad || (preferences.value.autoScroll && (!node || node.scrollHeight - node.scrollTop - node.clientHeight < 100))
   snapshot.value = value
   sessions.value = sessions.value.map(session => session.id === value.session.id ? value.session : session)
   if (error.value === '读取记录失败，正在重试。') error.value = ''
@@ -238,7 +254,7 @@ async function refresh(id: string, version: number) {
   }
   if (scroll) {
     await nextTick()
-    timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
+    if (initialLoad || preferences.value.autoScroll) timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
   }
   return value
 }
@@ -325,7 +341,7 @@ async function selectSession(id: string) {
     if (version === revision) {
       const session = loaded?.session
       selectedProfileId.value = pending.value?.modelProfileId || session?.modelProfileId || 'default'
-      reasoningEffort.value = pending.value?.reasoningEffort ?? (loaded?.runs.length ? session?.reasoningEffort || '' : selectedProfile.value?.reasoningEffort || '')
+      reasoningEffort.value = normalizeReasoningDepth(pending.value?.reasoningEffort ?? (loaded?.runs.length ? session?.reasoningEffort || '' : selectedProfile.value?.reasoningEffort || ''))
       follow(id, version)
     }
   } catch (cause) {
@@ -368,7 +384,7 @@ function settingsSaved(value: ModelProfile) {
   profiles.value = [...profiles.value.filter(profile => profile.id !== value.id), value]
   if (!pending.value && !submitting.value) {
     selectedProfileId.value = value.id
-    reasoningEffort.value = value.reasoningEffort
+    reasoningEffort.value = normalizeReasoningDepth(value.reasoningEffort)
   }
 }
 async function profileDeleted(id: string) {
@@ -493,17 +509,17 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <div class="composer-dock">
         <form class="composer" @submit.prevent="send">
           <label class="sr-only" for="prompt">输入问题</label>
-          <textarea id="prompt" @input="resizePrompt" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题…' : '描述你的问题，开始一起探索…'" maxlength="4000" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
+          <textarea id="prompt" @input="resizePrompt" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题…' : '描述你的问题，开始一起探索…'" maxlength="4000" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" @keydown="onPromptKeydown" />
           <div v-if="pending" class="pending-note">上次提交结果待确认，重试不会重复创建任务。</div>
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
             <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace="snapshot?.session.workspace || ''" :sessions="sessions" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" @model="chooseProfile" @effort="reasoningEffort = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
-            <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : '发送 · Ctrl / ⌘ + Enter'"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
+            <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
         </form>
         <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="15" />{{ item.title }}</button></div>
-        <div class="composer-caption"><span>{{ snapshot?.session.workspace ? '文件修改经你审核后应用' : '在本机管理对话与工作区' }}</span><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>Ctrl / ⌘ + Enter 发送</span></div>
+        <div class="composer-caption"><span>{{ snapshot?.session.workspace ? '文件修改经你审核后应用' : '在本机管理对话与工作区' }}</span><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>{{ sendShortcutHint }}</span></div>
       </div>
       </div>
       <aside v-if="inspectedRun" id="execution-inspector" class="execution-inspector" aria-labelledby="inspector-title" @keydown.esc.stop="closeInspector">

@@ -52,7 +52,7 @@ watch(() => props.revision, load)
 </template>
 
 <style scoped>
-.request-details { margin-top: 12px; font-size: 12px; color: var(--muted); }
+.request-details { margin-top: 12px; font-size: calc(12rem / 14); color: var(--muted); }
 summary { cursor: pointer; }
 .request-message { margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 220px; overflow-y: auto; }
