@@ -8,6 +8,8 @@ public interface SessionStore {
     Session createSession(String title);
     Session createSession(String title, String workspace);
     Session updateWorkspace(String sessionId, String workspace);
+    /** Rename a session without changing its workspace or active run. */
+    Session renameSession(String sessionId, String title);
     List<Session> sessions();
     SessionSnapshot snapshot(String sessionId);
     Run run(String runId);

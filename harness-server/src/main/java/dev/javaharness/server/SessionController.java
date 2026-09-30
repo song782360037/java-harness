@@ -22,6 +22,7 @@ public class SessionController {
 
     public record CreateSession(String title, String workspace) {}
     public record ChangeWorkspace(String workspace) {}
+    public record RenameSession(String title) {}
     public record SubmitRun(String requestId, String prompt, String scenario, String modelProfileId, String reasoningEffort) {}
 
     @GetMapping("/sessions")
@@ -38,6 +39,12 @@ public class SessionController {
     @PostMapping(value = "/sessions/{id}/workspace", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session workspace(@PathVariable String id, @RequestBody ChangeWorkspace request) {
         return store.updateWorkspace(id, directories.normalize(request.workspace()));
+    }
+
+    /** Rename the session, including while a run is active. */
+    @PostMapping(value = "/sessions/{id}/title", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Session rename(@PathVariable String id, @RequestBody RenameSession request) {
+        return store.renameSession(id, request.title());
     }
 
     @GetMapping("/sessions/{id}")

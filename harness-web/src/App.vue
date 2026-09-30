@@ -7,6 +7,8 @@ import Commands from './Commands.vue'
 import SettingsPage from './SettingsPage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
+import SidebarResize from './SidebarResize.vue'
+import SessionRenameDialog from './SessionRenameDialog.vue'
 import UiIcon from './UiIcon.vue'
 import MarkdownContent from './MarkdownContent.vue'
 import { api, ApiError, isActive, effortLabel, type Run, type RunEvent, type RunStatus,
@@ -32,6 +34,30 @@ const inspectorHeading = ref<HTMLElement>()
 let inspectorTrigger: HTMLElement | null = null
 const collapsedGroups = ref(new Set<string>())
 const sidebarCollapsed = ref(window.innerWidth <= 780)
+const savedSidebarWidth = Number(storageGet('harness.sidebar.width'))
+const sidebarWidth = ref(Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0 ? Math.max(200, Math.min(400, savedSidebarWidth)) : 232)
+watch(sidebarWidth, value => storageSet('harness.sidebar.width', String(value)))
+const renamingSession = ref<Session | null>(null)
+let renameTrigger: HTMLElement | null = null
+let titleRevision = 0
+// 记录重命名入口，关闭弹窗后恢复键盘焦点。
+function openRename(session: Session, event: MouseEvent) {
+  renameTrigger = event.currentTarget as HTMLElement
+  renamingSession.value = session
+}
+// 仅同步标题，保留可能同时刷新的工作区和运行记录。
+function sessionRenamed(session: Session) {
+  titleRevision++
+  sessions.value = sessions.value.map(value => value.id === session.id ? { ...value, title: session.title } : value)
+  if (snapshot.value?.session.id === session.id) snapshot.value.session.title = session.title
+}
+// 弹窗取消和保存后都返回原入口。
+async function closeRename() {
+  const trigger = renameTrigger
+  renamingSession.value = null; renameTrigger = null
+  await nextTick()
+  if (trigger?.isConnected) trigger.focus()
+}
 const mobileLayout = window.matchMedia('(max-width: 780px)')
 const isMobile = ref(mobileLayout.matches)
 function onLayoutChange() { isMobile.value = mobileLayout.matches; if (isMobile.value) sidebarCollapsed.value = true }
@@ -196,8 +222,11 @@ function setPending(value: Submission | null) {
   storageSet(`harness.pending.${selectedId.value}`, value ? JSON.stringify(value) : null)
 }
 async function refresh(id: string, version: number) {
+  const titles = titleRevision
   const value = await api<Snapshot>(`/sessions/${id}`)
   if (version !== revision || value.lastSeq < (snapshot.value?.lastSeq ?? 0)) return
+  // 重命名完成前发出的刷新可能仍携带旧标题。
+  if (titles !== titleRevision) value.session.title = sessions.value.find(session => session.id === id)?.title ?? value.session.title
   const node = timeline.value
   const scroll = !node || node.scrollHeight - node.scrollTop - node.clientHeight < 100
   snapshot.value = value
@@ -413,7 +442,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+  <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
     <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
       <div class="brand"><img class="brand-icon" src="/harness-icon.svg" width="28" height="28" alt="" /><strong>Harness</strong><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" /></button></div>
@@ -422,12 +451,17 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <nav class="session-navigation" aria-label="会话列表">
         <section v-for="[path, group] in sessionGroups" :key="path" class="session-group">
           <h2><button class="group-toggle" :title="path || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon :name="collapsedGroups.has(path) && !sessionSearch ? 'chevron' : 'down'" :size="12" /><UiIcon v-if="path" name="folder" :size="14" /><span>{{ group.label }}</span><small>{{ group.sessions.length }}</small></button></h2>
-          <button v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-item" :class="{ selected: session.id === selectedId }" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
+          <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId }">
+            <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
+            <button class="icon-button session-rename" :disabled="loading || workspaceChanging" :aria-label="`重命名会话：${session.title}`" title="重命名会话" @click="openRename(session, $event)"><UiIcon name="compose" :size="14" /></button>
+          </div>
         </section>
         <p v-if="!sessionGroups.length" class="sidebar-empty">{{ sessionSearch ? '没有匹配的会话' : '你的对话将保存在这里' }}</p>
       </nav>
       <div class="sidebar-footer"><button class="settings-entry" :disabled="settingsBusy || workspaceChanging" @click="openSettings()"><UiIcon name="settings" /><span>设置</span></button></div>
+      <SidebarResize v-if="!isMobile && !sidebarCollapsed && !showSettings" v-model:width="sidebarWidth" />
     </aside>
+    <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="sessionRenamed" @close="closeRename" />
     <main v-show="!showSettings" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>

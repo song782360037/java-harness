@@ -62,6 +62,27 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void renameApiValidatesPersistsAndPublishesSessionEvent() throws Exception {
+        String id = newSession();
+        var response = post("/sessions/" + id + "/title", Map.of("title", "  已重命名  "));
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(response.body()).get("title").asText()).isEqualTo("已重命名");
+        var snapshot = client.send(HttpRequest.newBuilder(uri("/sessions/" + id)).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(json.readTree(snapshot.body()).get("session").get("title").asText()).isEqualTo("已重命名");
+        var list = client.send(HttpRequest.newBuilder(uri("/sessions")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(json.readTree(list.body())).filteredOn(session -> session.get("id").asText().equals(id))
+                .extracting(session -> session.get("title").asText()).containsExactly("已重命名");
+        assertThat(readOneEvent(id, 0, null).get("type").asText()).isEqualTo("TITLE");
+        for (String invalid : java.util.List.of("", "   ", "x".repeat(101))) {
+            assertThat(post("/sessions/" + id + "/title", Map.of("title", invalid)).statusCode()).isEqualTo(400);
+        }
+        assertThat(post("/sessions/" + id + "/title", Map.of()).statusCode()).isEqualTo(400);
+        assertThat(post("/sessions/missing/title", Map.of("title", "name")).statusCode()).isEqualTo(404);
+        assertThat(store.snapshot(id).session().title()).isEqualTo("已重命名");
+        assertThat(store.snapshot(id).lastSeq()).isEqualTo(1);
+    }
+
+    @Test
     void modelMetadataContainsOnlyPublicConfiguration() throws Exception {
         var response = client.send(HttpRequest.newBuilder(uri("/model")).GET().build(), HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);

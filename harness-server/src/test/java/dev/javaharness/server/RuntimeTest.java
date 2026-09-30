@@ -42,6 +42,49 @@ class RuntimeTest {
         await().atMost(Duration.ofSeconds(5)).until(() -> !store.run(id).status().active());
     }
 
+    @Test void renamePreservesActiveRunAndOtherSessionFields() {
+        Session session = store.createSession("原名称", "E:\\projects\\java-harness");
+        Session other = store.snapshot(store.createSession("其他会话").id()).session();
+        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO).run();
+        store.transition(run.id(), RunStatus.RUNNING, "");
+        store.appendText(run.id(), "输出");
+        var before = store.snapshot(session.id());
+        Session renamed = store.renameSession(session.id(), "  " + "名".repeat(100) + "  ");
+        assertThat(renamed).isEqualTo(new Session(session.id(), "名".repeat(100), before.session().createdAt(),
+                session.workspace(), before.session().modelProfileId(), before.session().reasoningEffort()));
+        assertThat(store.snapshot(session.id()).runs()).isEqualTo(before.runs());
+        assertThat(store.snapshot(other.id()).session()).isEqualTo(other);
+        assertThat(jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?", String.class, session.id())).isEqualTo(run.id());
+        var event = store.events(session.id(), before.lastSeq(), 10).getFirst();
+        assertThat(event.type()).isEqualTo("TITLE");
+        assertThat(event.runId()).isNull();
+        store.renameSession(session.id(), renamed.title());
+        assertThat(store.snapshot(session.id()).lastSeq()).isEqualTo(before.lastSeq() + 1);
+    }
+
+    @Test void failedRenameEventRollsBackTitleAndSequence() {
+        Session session = store.createSession("原名称");
+        Session before = store.snapshot(session.id()).session();
+        jdbc.execute("ALTER TABLE harness_event ADD CONSTRAINT test_title_event CHECK (event_type <> 'TITLE')");
+        assertThatThrownBy(() -> store.renameSession(session.id(), "新名称")).isInstanceOf(RuntimeException.class);
+        assertThat(store.snapshot(session.id()).session()).isEqualTo(before);
+        assertThat(store.snapshot(session.id()).lastSeq()).isZero();
+        jdbc.execute("ALTER TABLE harness_event DROP CONSTRAINT test_title_event");
+    }
+
+    @Test void renamedSessionSurvivesFileStoreReopen(@TempDir Path directory) {
+        String url = "jdbc:h2:file:" + directory.resolve("rename").toString().replace('\\', '/');
+        open(url);
+        Session session = store.createSession("原名称");
+        store.renameSession(session.id(), "新名称");
+        jdbc.execute("SHUTDOWN");
+        open(url);
+        assertThat(store.snapshot(session.id()).session().title()).isEqualTo("新名称");
+        assertThat(store.sessions()).extracting(Session::title).containsExactly("新名称");
+        assertThat(store.events(session.id(), 0, 10).getFirst().type()).isEqualTo("TITLE");
+        jdbc.execute("SHUTDOWN");
+    }
+
     @Test void queuedRunCapturesSettingsAtSubmissionAndRetriesDoNotReopenResources() {
         var opened = new java.util.concurrent.atomic.AtomicInteger();
         var released = new java.util.concurrent.atomic.AtomicInteger();

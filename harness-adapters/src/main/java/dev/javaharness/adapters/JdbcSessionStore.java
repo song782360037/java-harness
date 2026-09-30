@@ -61,6 +61,22 @@ public final class JdbcSessionStore implements SessionStore {
         return new Session(id, title.strip(), created.toInstant(), workspace, "default", "");
     }
 
+    /** Persist the title and notify subscribers in the same transaction. */
+    @Override public synchronized Session renameSession(String sessionId, String title) {
+        String normalized = title == null ? "" : title.strip();
+        if (normalized.isEmpty() || normalized.length() > 100) {
+            throw new HarnessException("INVALID", "会话名称需为 1–100 个字符");
+        }
+        return tx.execute(status -> {
+            Session current = session(sessionId);
+            if (!current.title().equals(normalized)) {
+                jdbc.update("UPDATE harness_session SET title=? WHERE id=?", normalized, sessionId);
+                appendEvent(sessionId, null, "TITLE", null, "会话名称已更新");
+            }
+            return session(sessionId);
+        });
+    }
+
     private static void checkWorkspace(String workspace) {
         if (workspace == null || workspace.length() > 4096) throw new HarnessException("INVALID", "无效工作区路径");
     }
