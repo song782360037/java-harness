@@ -43,7 +43,7 @@ class RuntimeTest {
     }
 
     @Test void renamePreservesActiveRunAndOtherSessionFields() {
-        Session session = store.createSession("原名称", "E:\\projects\\java-harness");
+        Session session = store.createSession("原名称", java.nio.file.Path.of("").toAbsolutePath().toString());
         Session other = store.snapshot(store.createSession("其他会话").id()).session();
         Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO).run();
         store.transition(run.id(), RunStatus.RUNNING, "");
@@ -51,7 +51,7 @@ class RuntimeTest {
         var before = store.snapshot(session.id());
         Session renamed = store.renameSession(session.id(), "  " + "名".repeat(100) + "  ");
         assertThat(renamed).isEqualTo(new Session(session.id(), "名".repeat(100), before.session().createdAt(),
-                session.workspace(), before.session().modelProfileId(), before.session().reasoningEffort()));
+                session.workspace(), before.session().modelProfileId(), before.session().reasoningEffort(), session.workspaceId()));
         assertThat(store.snapshot(session.id()).runs()).isEqualTo(before.runs());
         assertThat(store.snapshot(other.id()).session()).isEqualTo(other);
         assertThat(jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?", String.class, session.id())).isEqualTo(run.id());

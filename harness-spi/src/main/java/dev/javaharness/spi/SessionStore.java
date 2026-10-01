@@ -8,6 +8,14 @@ public interface SessionStore {
     Session createSession(String title);
     Session createSession(String title, String workspace);
     Session updateWorkspace(String sessionId, String workspace);
+    /** List reusable workspaces independently of their sessions. */
+    List<Workspace> workspaces();
+    Workspace workspace(String id);
+    /** Save a workspace; an empty id creates it, otherwise revision must match. */
+    Workspace saveWorkspace(String id, String name, List<String> directories, String icon, String color, long revision);
+    /** Bind a session to a reusable workspace, or clear the binding with an empty id. */
+    Session selectWorkspace(String sessionId, String workspaceId);
+    Session createSessionInWorkspace(String title, String workspaceId);
     /** Rename a session without changing its workspace or active run. */
     Session renameSession(String sessionId, String title);
     List<Session> sessions();

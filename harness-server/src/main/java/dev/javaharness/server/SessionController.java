@@ -20,8 +20,8 @@ public class SessionController {
         this.directories = directories;
     }
 
-    public record CreateSession(String title, String workspace) {}
-    public record ChangeWorkspace(String workspace) {}
+    public record CreateSession(String title, String workspace, String workspaceId) {}
+    public record ChangeWorkspace(String workspace, String workspaceId) {}
     public record RenameSession(String title) {}
     public record SubmitRun(String requestId, String prompt, String scenario, String modelProfileId, String reasoningEffort) {}
 
@@ -33,12 +33,16 @@ public class SessionController {
     @PostMapping(value = "/sessions", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public Session create(@RequestBody CreateSession request) {
-        return store.createSession(request.title(), directories.normalize(request.workspace()));
+        return request.workspaceId() == null
+                ? store.createSession(request.title(), directories.normalize(request.workspace()))
+                : store.createSessionInWorkspace(request.title(), request.workspaceId());
     }
 
     @PostMapping(value = "/sessions/{id}/workspace", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session workspace(@PathVariable String id, @RequestBody ChangeWorkspace request) {
-        return store.updateWorkspace(id, directories.normalize(request.workspace()));
+        return request.workspaceId() == null
+                ? store.updateWorkspace(id, directories.normalize(request.workspace()))
+                : store.selectWorkspace(id, request.workspaceId());
     }
 
     /** Rename the session, including while a run is active. */

@@ -21,6 +21,16 @@ const paths: Record<string, string> = {
   eye: 'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
   sun: 'M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
   reasoning: 'm13 2-9 12h7l-1 8 10-13h-7l1-7Z',
+  coffee: 'M4 4h12v9a5 5 0 0 1-10 0V4M16 5h2a3 3 0 0 1 0 6h-2M3 20h16',
+  flask: 'M9 3h6M10 3v6L4 20h16L14 9V3M7 14h10',
+  rocket: 'M14 4c3-1 6-1 6-1s0 3-1 6l-8 8-5-5 8-8ZM6 12H3l3-6h5M11 17v4l6-3v-5M5 16l-2 5 5-2M16 7h.01',
+  bug: 'M8 8h8v9a4 4 0 0 1-8 0V8ZM9 8V6a3 3 0 0 1 6 0v2M4 10h4m8 0h4M3 15h5m8 0h5M5 21l3-3m8 0 3 3M12 9v10',
+  star: 'm12 3 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1 3-6Z',
+  music: 'M9 18V5l11-2v12M9 9l11-2M9 18a3 3 0 1 1-3-3c2 0 3 1 3 3ZM20 15a3 3 0 1 1-3-3c2 0 3 1 3 3Z',
+  heart: 'M12 21 3 12C-1 7 5 1 10 6l2 2 2-2c5-5 11 1 7 6l-9 9Z',
+  globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',
+  terminal: 'M3 4h18v16H3V4Zm4 4 4 4-4 4m6 0h4',
+  gamepad: 'M7 7h10a4 4 0 0 1 4 4l1 7c0 3-3 4-5 1l-2-2H9l-2 2c-2 3-5 2-5-1l1-7a4 4 0 0 1 4-4ZM6 12h4M8 10v4m7-2h.01m3 2h.01',
 }
 </script>
 <template><svg class="ui-icon" :width="size || 18" :height="size || 18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="paths[name] || paths.code" /></svg></template>

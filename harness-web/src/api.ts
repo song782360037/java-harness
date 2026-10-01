@@ -1,6 +1,7 @@
 export type RunStatus = 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED'
   | 'CANCELLED' | 'FAILED' | 'TIMED_OUT' | 'INTERRUPTED'
-export interface Session { id: string; title: string; createdAt: string; workspace: string; modelProfileId: string; reasoningEffort: string }
+export interface Session { id: string; title: string; createdAt: string; workspace: string; workspaceId: string; modelProfileId: string; reasoningEffort: string }
+export interface Workspace { id: string; name: string; directories: string[]; icon: string; color: string; revision: number }
 export const reasoningOptions = [
   { value: '', label: '服务默认' }, { value: 'none', label: '关闭 · none' },
   { value: 'minimal', label: '最低 · minimal' }, { value: 'low', label: '低 · low' },

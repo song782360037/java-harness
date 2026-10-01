@@ -1,6 +1,8 @@
 package dev.javaharness.server;
 
 import dev.javaharness.spi.SessionStore;
+import dev.javaharness.spi.Workspace;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
@@ -17,4 +19,20 @@ public class WorkspaceController {
     }
     @GetMapping("/api/workspaces/directories")
     public WorkspaceDirectories.Listing directories(@RequestParam(required = false) String path) { return directories.list(path); }
+
+    public record SaveWorkspace(String name, List<String> directories, String icon, String color, long revision) {}
+    @GetMapping("/api/workspaces")
+    public List<Workspace> workspaces() { return store.workspaces(); }
+    /** Create a reusable workspace with normalized, user-selected directories. */
+    @PostMapping("/api/workspaces")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Workspace create(@RequestBody SaveWorkspace request) { return save("", request); }
+    @PostMapping("/api/workspaces/{id}")
+    public Workspace update(@PathVariable String id, @RequestBody SaveWorkspace request) { return save(id, request); }
+    /** Validate all directory boundaries before persisting the workspace. */
+    private Workspace save(String id, SaveWorkspace request) {
+        if (request.directories() == null || request.directories().isEmpty() || request.directories().size() > 16)
+            throw new dev.javaharness.spi.HarnessException("INVALID", "请选择 1–16 个目录");
+        return store.saveWorkspace(id, request.name(), request.directories().stream().map(directories::normalize).toList(), request.icon(), request.color(), request.revision());
+    }
 }

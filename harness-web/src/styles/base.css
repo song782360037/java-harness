@@ -163,11 +163,10 @@ select { border: 1px solid var(--border); background: var(--surface); padding: 9
 .execution-metadata { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: calc(11rem / 14); line-height: 1.7; margin: 0 0 20px; }
 .execution-metadata dt { color: var(--muted); }
 .execution-metadata dd { margin: 0; overflow-wrap: anywhere; }
-.workspace-dialog.settings-page { display: none; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border); border-radius: 14px; color: var(--text); box-shadow: var(--popover-shadow); }
+.workspace-dialog.settings-page { display: none; width: min(820px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border); border-radius: 14px; color: var(--text); background: var(--page); box-shadow: var(--popover-shadow); }
 .workspace-dialog[open] { display: block; }
 .workspace-dialog::backdrop { background: var(--scrim); }
-.workspace-dialog .workspace-settings { padding: 0 24px 24px; }
-.workspace-dialog .workspace-settings h3 { display: none; }
+.workspace-dialog .workspace-settings { padding: 0 10px 16px; }
 .workspace-dialog .directory-list { max-height: 210px; }
 @media (max-width: 1200px) {
   .has-inspector .chat-panel { display: none; }

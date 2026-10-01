@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { effortLabel, type ModelProfile, type Session } from './api'
+import { effortLabel, type ModelProfile, type Workspace } from './api'
 import ReasoningSlider from './ReasoningSlider.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ profiles: ModelProfile[]; modelId: string; effort: string; disabled: boolean; workspace: string; sessions: Session[]; workspaceDisabled: boolean }>()
-const emit = defineEmits<{ model: [id: string]; effort: [value: string]; settings: []; workspace: [path: string]; browse: [] }>()
+const props = defineProps<{ profiles: ModelProfile[]; modelId: string; effort: string; disabled: boolean; workspaceId: string; workspaces: Workspace[]; workspaceDisabled: boolean }>()
+const emit = defineEmits<{ model: [id: string]; effort: [value: string]; settings: []; workspace: [id: string]; browse: []; edit: [] }>()
 const root = ref<HTMLElement>()
 const modelButton = ref<HTMLButtonElement>()
 const effortButton = ref<HTMLButtonElement>()
@@ -15,9 +15,8 @@ const open = ref<'model' | 'effort' | 'workspace' | null>(null)
 const menuPosition = ref<Record<string, string>>({})
 const search = ref('')
 const selected = computed(() => props.profiles.find(model => model.id === props.modelId))
-const workspaceName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() || path
-const workspaces = computed(() => [...new Set([props.workspace, ...props.sessions.map(session => session.workspace)])]
-  .filter(path => path && path.toLowerCase().includes(search.value.toLowerCase().trim())))
+const selectedWorkspace = computed(() => props.workspaces.find(workspace => workspace.id === props.workspaceId))
+const matchingWorkspaces = computed(() => props.workspaces.filter(workspace => `${workspace.name} ${workspace.directories.join(' ')}`.toLowerCase().includes(search.value.toLowerCase().trim())))
 const groups = computed(() => {
   const result = new Map<string, { name: string; models: ModelProfile[] }>()
   for (const model of props.profiles) {
@@ -81,17 +80,18 @@ function outsideResize() { close() }
 <template>
   <div ref="root" class="composer-selectors" @focusout="focusOut">
     <div class="selector-anchor workspace-anchor">
-      <button id="composer-workspace" ref="workspaceButton" type="button" class="composer-chip workspace-chip" :disabled="disabled || workspaceDisabled" :aria-expanded="open === 'workspace'" aria-controls="workspace-options" aria-label="选择工作区" :title="workspace || '仅聊天'" @click="toggle('workspace')"><UiIcon name="folder" :size="15" /><span>{{ workspace ? workspaceName(workspace) : '仅聊天' }}</span><UiIcon class="chevron" name="down" :size="11" /></button>
+      <button id="composer-workspace" ref="workspaceButton" type="button" class="composer-chip workspace-chip" :disabled="disabled || workspaceDisabled" :aria-expanded="open === 'workspace'" aria-controls="workspace-options" aria-label="选择工作区" :title="selectedWorkspace?.directories.join('\n') || '仅聊天'" @click="toggle('workspace')"><UiIcon :name="selectedWorkspace?.icon || 'folder'" :size="15" :style="{ color: selectedWorkspace?.color }" /><span>{{ selectedWorkspace?.name || '仅聊天' }}</span><UiIcon class="chevron" name="down" :size="11" /></button>
       <div v-if="open === 'workspace'" id="workspace-options" ref="panel" :style="menuPosition" class="selector-popover workspace-popover" aria-label="工作区选择" @keydown="navigate">
         <div class="popover-heading">工作区</div>
         <input ref="searchInput" v-model="search" class="model-search" placeholder="搜索项目或路径" aria-label="搜索工作区" @keydown.enter.prevent />
         <div class="model-options-scroll">
-          <button type="button" class="selector-option" :aria-pressed="!workspace" @click="emit('workspace', ''); close(true)"><UiIcon name="chat" :size="16" /><span><strong>仅聊天</strong><small>不使用项目文件</small></span><UiIcon v-if="!workspace" name="check" :size="15" /></button>
-          <h3 v-if="workspaces.length" class="option-group-label">最近的项目</h3>
-          <button v-for="path in workspaces" :key="path" type="button" class="selector-option" :aria-pressed="path === workspace" :title="path" @click="emit('workspace', path); close(true)"><UiIcon name="folder" :size="16" /><span><strong>{{ workspaceName(path) }}</strong><small>{{ path }}</small></span><UiIcon v-if="path === workspace" name="check" :size="15" /></button>
-          <p v-if="search && !workspaces.length" class="no-options">没有匹配的项目</p>
+          <button type="button" class="selector-option" :aria-pressed="!workspaceId" @click="emit('workspace', ''); close(true)"><UiIcon name="chat" :size="16" /><span><strong>仅聊天</strong><small>不使用项目文件</small></span><UiIcon v-if="!workspaceId" name="check" :size="15" /></button>
+          <h3 v-if="matchingWorkspaces.length" class="option-group-label">已保存的工作区</h3>
+          <button v-for="workspace in matchingWorkspaces" :key="workspace.id" type="button" class="selector-option" :aria-pressed="workspace.id === workspaceId" :title="workspace.directories.join('\n')" @click="emit('workspace', workspace.id); close(true)"><UiIcon :name="workspace.icon" :size="16" :style="{ color: workspace.color }" /><span><strong>{{ workspace.name }}</strong><small>{{ workspace.directories.length }} 个目录 · {{ workspace.directories.join(' · ') }}</small></span><UiIcon v-if="workspace.id === workspaceId" name="check" :size="15" /></button>
+          <p v-if="search && !matchingWorkspaces.length" class="no-options">没有匹配的工作区</p>
         </div>
-        <button type="button" class="manage-models" @click="close(true); emit('browse')"><span><UiIcon name="plus" :size="15" /> 选择其他目录</span><UiIcon name="chevron" :size="13" /></button>
+        <button v-if="selectedWorkspace" type="button" class="manage-models" @click="close(true); emit('edit')"><span><UiIcon name="edit" :size="15" /> 编辑当前工作区</span></button>
+        <button type="button" class="manage-models" @click="close(true); emit('browse')"><span><UiIcon name="plus" :size="15" /> 新建工作区</span><UiIcon name="chevron" :size="13" /></button>
       </div>
     </div>
     <span class="selector-divider" aria-hidden="true"></span>

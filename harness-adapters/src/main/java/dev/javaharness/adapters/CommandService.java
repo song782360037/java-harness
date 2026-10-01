@@ -163,16 +163,20 @@ public final class CommandService {
     private static Path directory(String workspace, String relative) {
         if (relative == null || relative.length() > 2048) throw new HarnessException("INVALID", "请提供工作区内相对目录");
         try {
-            Path root = Path.of(workspace).toRealPath();
-            Path input = Path.of(relative);
-            if (input.isAbsolute() || relative.contains(":") || input.startsWith("..")) throw new IOException();
-            return verifyDirectory(root.toString(), root.resolve(input).normalize().toString());
+            WorkspaceRoots.Target location = WorkspaceRoots.target(workspace, relative);
+            Path root = Path.of(location.root()).toRealPath();
+            Path input = Path.of(location.relative());
+            if (input.isAbsolute() || location.relative().contains(":") || input.startsWith("..")) throw new IOException();
+            return verifyDirectory(location.root(), root.resolve(input).normalize().toString());
         } catch (IOException | IllegalArgumentException error) { throw new HarnessException("INVALID", "执行目录必须是工作区内已存在的普通目录，不支持链接或越界路径"); }
     }
     private static Path verifyDirectory(String workspace, String directory) {
         try {
-            Path root = Path.of(workspace).toRealPath(), target = Path.of(directory).toAbsolutePath().normalize();
-            if (!root.equals(Path.of(workspace).toAbsolutePath().normalize()) || !target.startsWith(root)
+            Path target = Path.of(directory).toAbsolutePath().normalize();
+            Path configured = WorkspaceRoots.directories(workspace).stream().map(Path::of).filter(target::startsWith)
+                    .max(java.util.Comparator.comparingInt(Path::getNameCount)).orElseThrow(() -> new IOException("Outside workspace"));
+            Path root = configured.toRealPath();
+            if (!root.equals(configured.toAbsolutePath().normalize()) || !target.startsWith(root)
                     || !Files.isDirectory(target) || !target.toRealPath().equals(target)) throw new IOException();
             Path part = root;
             for (Path name : root.relativize(target)) {

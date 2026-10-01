@@ -1,6 +1,8 @@
 # 开发边界
 
-前端 `SettingsPage.vue` 统一管理提供商、模型和会话工作区，`WorkspaceSettings.vue` 作为页内面板；`ComposerSelectors.vue` 负责输入区的分组模型菜单和思考强度菜单。进入设置仅隐藏会话界面，保留草稿、快照与 SSE；配置及目录仍通过原有 API 保存。
+前端 `SettingsPage.vue` 统一管理提供商、模型和工作区，`WorkspaceSettings.vue` 复用于页内面板和新建／编辑弹窗；`ComposerSelectors.vue` 负责输入区的工作区、分组模型和思考强度菜单。进入设置仅隐藏会话界面，保留草稿、快照与 SSE。
+
+工作区保存在 `harness_workspace`，会话通过 `workspace_id` 复用自定义名称、目录列表、图标与颜色。`/api/workspaces` 创建和查询工作区，`/api/workspaces/{id}` 以 revision 校验编辑；会话创建／绑定接口接受 `workspaceId`，仍兼容旧 `workspace` 路径。旧会话按相同目录关联工作区，历史路径和 Run 快照保留原值。多目录快照由 `WorkspaceRoots` 编码为 JSON 数组，单目录继续保存路径；`MultiWorkspaceTools` 要求每次调用用 `root` 指定目录编号，并把读写、Git 和命令调用路由到原有单目录工具。审核路径用 `@1/`、`@2/` 标明目录，命令卡片显示实际执行路径。编辑目录列表会原子更新所有绑定会话；共享工作区有活动任务或目录快照存在待审核修改时拒绝目录变更。索引不在本次范围内。
 
 `UiIcon.vue` 统一线性图标；`MarkdownContent.vue` 通过禁用原始 HTML 的 markdown-it 渲染模型正文，不直接信任模型生成的 HTML。会话导航按工作区分组并在客户端过滤搜索；输入区的示例仅填入草稿。`npm --prefix harness-web test` 覆盖主题状态与 Markdown 安全边界。
 
@@ -30,7 +32,7 @@ core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。Settings
 
 ## 配置
 
-提供商连接信息保存在 `harness_model_provider`，模型及运行参数保存在 `harness_model_profile`，以 provider_id 外键关联。提供商独立保存名称、基础地址、加密 Key、鉴权要求、连接超时和 revision；模型保存名称、模型 ID、默认思考强度、运行参数和 revision，不重复持久化连接信息。下表的模型/运行环境变量仅在默认模型缺失时用于初始化；之后数据库值优先。端口、数据库位置、密钥文件和 Vite 代理仍属于启动配置。工作区由会话单独保存，`HARNESS_WORKSPACE_ROOT` 已停止读取。
+提供商连接信息保存在 `harness_model_provider`，模型及运行参数保存在 `harness_model_profile`，以 provider_id 外键关联。提供商独立保存名称、基础地址、加密 Key、鉴权要求、连接超时和 revision；模型保存名称、模型 ID、默认思考强度、运行参数和 revision，不重复持久化连接信息。下表的模型/运行环境变量仅在默认模型缺失时用于初始化；之后数据库值优先。端口、数据库位置、密钥文件和 Vite 代理仍属于启动配置。会话绑定独立工作区，`HARNESS_WORKSPACE_ROOT` 已停止读取。
 
 | 配置 | 默认值 | 用途 |
 | --- | --- | --- |

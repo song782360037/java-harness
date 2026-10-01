@@ -112,11 +112,20 @@ public final class SettingsService implements RunConfigurationSource {
         return new RunConfiguration(info(captured), Duration.ofSeconds(captured.runTimeoutSeconds()), captured.contextMaxCharacters(), captured.maxSteps(), workspace -> {
             var model = provider(captured);
             try {
-                WorkspaceTools tools = workspace.isEmpty() ? WorkspaceTools.disabled() : new LocalWorkspaceTools(Path.of(workspace), Duration.ofSeconds(captured.toolTimeoutSeconds()));
-                // Read-only git tools; hidden when the root is not a repository or git is unavailable.
-                if (!workspace.isEmpty()) tools = new GitWorkspaceTools(tools, Duration.ofSeconds(captured.toolTimeoutSeconds()));
-                if (!workspace.isEmpty() && changes != null) tools = new ReviewWorkspaceTools(tools, changes);
-                if (!workspace.isEmpty() && commands != null) tools = new CommandWorkspaceTools(tools, commands);
+                var roots = WorkspaceRoots.directories(workspace);
+                var delegates = new java.util.ArrayList<WorkspaceTools>();
+                for (int i = 0; i < roots.size(); i++) {
+                    WorkspaceTools root = new LocalWorkspaceTools(Path.of(roots.get(i)), Duration.ofSeconds(captured.toolTimeoutSeconds()));
+                    // Revalidate the captured root before using its immutable review-directory mapping.
+                    if (!root.workspace().equals(roots.get(i))) throw new java.io.IOException("Workspace changed");
+                    root = new GitWorkspaceTools(root, Duration.ofSeconds(captured.toolTimeoutSeconds()));
+                    String prefix = roots.size() > 1 ? "@" + (i + 1) + "/" : "";
+                    if (changes != null) root = new ReviewWorkspaceTools(root, changes, workspace, prefix);
+                    if (commands != null) root = new CommandWorkspaceTools(root, commands, workspace, prefix);
+                    delegates.add(root);
+                }
+                WorkspaceTools tools = roots.isEmpty() ? WorkspaceTools.disabled() : roots.size() == 1
+                        ? delegates.getFirst() : new MultiWorkspaceTools(workspace, delegates);
                 return new RunConfiguration.Resources(model, tools, model::close);
             } catch (Exception error) {
                 model.close();

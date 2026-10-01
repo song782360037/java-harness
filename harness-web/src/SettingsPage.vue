@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { api, reasoningOptions, effortLabel, type ModelProfile, type ProviderView, type Session } from './api'
+import { api, reasoningOptions, effortLabel, type ModelProfile, type ProviderView, type Session, type Workspace } from './api'
+import { workspaceSummary } from './workspaces'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import AppearanceSettings from './AppearanceSettings.vue'
 import GeneralSettings from './GeneralSettings.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace'; session?: Session; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const currentWorkspace = computed(() => props.workspaces.find(workspace => workspace.id === props.session?.workspaceId))
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
 const section = ref<'general' | 'appearance' | 'models' | 'workspace'>(props.initialSection)
 const pageTitle = ref<HTMLElement>()
 const sections = [{ id: 'general', label: '常规', icon: 'settings', description: '调整输入和阅读偏好，更改立即生效。' },
   { id: 'appearance', label: '外观', icon: 'palette', description: '让工作台更符合你的习惯。' },
   { id: 'models', label: '模型与提供商', icon: 'cube', description: '连接你的模型服务，在对话中自由切换。' },
-  { id: 'workspace', label: '工作区', icon: 'folder', description: '选择本次对话使用的项目目录。' }] as const
+  { id: 'workspace', label: '工作区', icon: 'folder', description: '管理工作区名称、目录和外观，多个会话可使用同一工作区。' }] as const
 const sectionInfo = computed(() => sections.find(item => item.id === section.value)!)
 const workspaceBusy = ref(false)
 const providers = ref<ProviderView[]>([])
@@ -231,8 +233,8 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
             </div>
           </section>
           <section v-show="section === 'workspace'" aria-label="工作区配置">
-            <div v-if="session && !creatingWorkspace" class="workspace-context"><span class="configuration-icon"><UiIcon name="folder" :size="19" /></span><div><strong>{{ session.title }}</strong><p>{{ session.workspace || '仅聊天 · 尚未选择目录' }}</p></div><span class="subtle-badge">当前会话</span></div>
-            <WorkspaceSettings class="settings-card" :session-id="creatingWorkspace ? undefined : session?.id" :initial-path="creatingWorkspace ? '' : session?.workspace || ''" :disabled="!creatingWorkspace && workspaceDisabled" @busy="workspaceBusy = $event" @saved="emit('workspaceSaved', $event)" />
+            <div v-if="session && !creatingWorkspace" class="workspace-context"><span class="configuration-icon"><UiIcon :name="currentWorkspace?.icon || 'folder'" :style="{ color: currentWorkspace?.color }" :size="19" /></span><div><strong>{{ currentWorkspace?.name || session.title }}</strong><p>{{ workspaceSummary(session.workspace) || '仅聊天 · 尚未选择目录' }}</p></div><span class="subtle-badge">当前工作区</span></div>
+            <WorkspaceSettings :key="creatingWorkspace ? 'new' : session?.workspaceId || session?.id" class="settings-card" :session-id="creatingWorkspace ? undefined : session?.id" :initial-path="creatingWorkspace ? '' : session?.workspace || ''" :initial-workspace="creatingWorkspace ? undefined : currentWorkspace" :disabled="!creatingWorkspace && workspaceDisabled" @busy="workspaceBusy = $event" @saved="emit('workspaceSaved', $event)" @cancel="emit('close')" />
           </section>
           <p v-if="section === 'models'" class="settings-footnote">保存后对新任务生效 · 连接与模型权限会在发送消息时验证</p>
         </div>

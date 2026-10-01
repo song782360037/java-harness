@@ -8,9 +8,14 @@ import java.util.*;
 public final class ReviewWorkspaceTools implements WorkspaceTools {
     private final WorkspaceTools reader;
     private final FileChangeService changes;
+    private final String workspace;
+    private final String prefix;
     private final ObjectMapper json = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-    public ReviewWorkspaceTools(WorkspaceTools reader, FileChangeService changes) { this.reader = reader; this.changes = changes; }
-    @Override public String workspace() { return reader.workspace(); }
+    public ReviewWorkspaceTools(WorkspaceTools reader, FileChangeService changes) { this(reader, changes, reader.workspace(), ""); }
+    public ReviewWorkspaceTools(WorkspaceTools reader, FileChangeService changes, String workspace, String prefix) {
+        this.reader = reader; this.changes = changes; this.workspace = workspace; this.prefix = prefix;
+    }
+    @Override public String workspace() { return workspace; }
     @Override public List<ToolDefinition> definitions() {
         var definitions = new ArrayList<>(reader.definitions());
         definitions.add(new ToolDefinition("propose_file_change",
@@ -31,7 +36,7 @@ public final class ReviewWorkspaceTools implements WorkspaceTools {
         return reader.execute(call, cancellation);
     }
     @Override public Result execute(String runId, ToolCall call, ModelProvider.Cancellation cancellation) throws Exception {
-        if (!call.name().equals("propose_file_change")) return reader.execute(call, cancellation);
+        if (!call.name().equals("propose_file_change")) return reader.execute(runId, call, cancellation);
         cancellation.check();
         try {
             JsonNode args = json.readTree(call.arguments());
@@ -39,7 +44,7 @@ public final class ReviewWorkspaceTools implements WorkspaceTools {
             for (String key : List.of("path", "operation", "old_text", "new_text"))
                 if (!args.has(key) || !args.get(key).isTextual()) return new Result(false, "修改参数必须是字符串");
             cancellation.check();
-            FileChange change = changes.propose(runId, call.id(), workspace(), args.get("path").asText(),
+            FileChange change = changes.propose(runId, call.id(), workspace(), prefix + args.get("path").asText(),
                     args.get("operation").asText(), args.get("old_text").asText(), args.get("new_text").asText());
             return new Result(true, "已保存待审核修改 " + change.id() + "，文件：" + change.path() + "。文件尚未修改；任务完成后请用户在差异卡片中应用或拒绝。");
         } catch (HarnessException error) { return new Result(false, error.getMessage()); }

@@ -13,9 +13,12 @@ import UiIcon from './UiIcon.vue'
 import MarkdownContent from './MarkdownContent.vue'
 import { preferences, shouldSendPrompt } from './preferences'
 import { api, ApiError, isActive, effortLabel, normalizeReasoningDepth, type Run, type RunEvent, type RunStatus,
-  type Session, type Snapshot, type Submission, type ModelProfile } from './api'
+  type Session, type Snapshot, type Submission, type ModelProfile, type Workspace } from './api'
+import { workspaceSummary } from './workspaces'
 
 const sessions = ref<Session[]>([])
+const workspaces = ref<Workspace[]>([])
+const editingWorkspace = ref<Workspace>()
 const profiles = ref<ModelProfile[]>([])
 const selectedProfileId = ref('default')
 const reasoningEffort = ref('low')
@@ -78,11 +81,16 @@ const copiedRun = ref('')
 const copyError = ref('')
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 const sessionGroups = computed(() => {
-  const groups = new Map<string, { label: string; sessions: Session[] }>()
+  const groups = new Map<string, { label: string; icon: string; color: string; directories: string[]; sessions: Session[] }>()
+  for (const workspace of workspaces.value) {
+    if (!sessionSearch.value || `${workspace.name} ${workspace.directories.join(' ')}`.toLowerCase().includes(sessionSearch.value.toLowerCase()))
+      groups.set(workspace.id, { label: workspace.name, icon: workspace.icon, color: workspace.color, directories: workspace.directories, sessions: [] })
+  }
   for (const session of sessions.value) {
-    if (!`${session.title} ${session.workspace}`.toLowerCase().includes(sessionSearch.value.toLowerCase())) continue
-    const key = session.workspace || ''
-    if (!groups.has(key)) groups.set(key, { label: key.split(/[\\/]/).filter(Boolean).pop() || '最近会话', sessions: [] })
+    const workspace = workspaces.value.find(value => value.id === session.workspaceId)
+    if (!`${session.title} ${workspace?.name || ''} ${session.workspace}`.toLowerCase().includes(sessionSearch.value.toLowerCase())) continue
+    const key = session.workspaceId || ''
+    if (!groups.has(key)) groups.set(key, { label: workspace?.name || '最近会话', icon: workspace?.icon || 'folder', color: workspace?.color || '', directories: workspace?.directories || [], sessions: [] })
     groups.get(key)!.sessions.push(session)
   }
   return [...groups.entries()]
@@ -130,9 +138,10 @@ async function closeInspector() {
   if (trigger?.isConnected) trigger.focus()
 }
 // 从工作区菜单打开目录选择弹窗。
-async function browseWorkspace() {
+async function browseWorkspace(workspace?: Workspace) {
   if (current.value || submitting.value || pending.value || loading.value || workspaceChanging.value) return
   creatingWorkspace.value = !snapshot.value
+  editingWorkspace.value = workspace
   browsingWorkspace.value = true
   await nextTick()
   workspaceDialog.value?.showModal()
@@ -144,15 +153,15 @@ function closeWorkspaceDialog() {
   browsingWorkspace.value = false
 }
 // 沿用既有工作区接口，快速选择项目时保留草稿与模型选择。
-async function chooseWorkspace(workspace: string) {
-  if (current.value || submitting.value || pending.value || loading.value || workspaceChanging.value || workspace === (snapshot.value?.session.workspace || '')) return
+async function chooseWorkspace(workspaceId: string) {
+  if (current.value || submitting.value || pending.value || loading.value || workspaceChanging.value || workspaceId === (snapshot.value?.session.workspaceId || '')) return
   creatingWorkspace.value = !snapshot.value
   workspaceSyncing.value = true
   error.value = ''
   try {
     const session = snapshot.value
-      ? await api<Session>(`/sessions/${selectedId.value}/workspace`, { workspace })
-      : await api<Session>('/sessions', { title: '新会话', workspace })
+      ? await api<Session>(`/sessions/${selectedId.value}/workspace`, { workspaceId })
+      : await api<Session>('/sessions', { title: '新会话', workspaceId })
     await workspaceSaved(session)
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '切换工作区失败' }
   finally { workspaceSyncing.value = false }
@@ -305,6 +314,7 @@ function follow(id: string, version: number) {
     if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
     if (event.type === 'FILE_CHANGE' && event.runId) changeRevisions.value[event.runId] = event.seq
     if (event.type === 'COMMAND' && event.runId) commandRevisions.value[event.runId] = event.seq
+    if (event.type === 'WORKSPACE') void loadWorkspaces().catch(() => {})
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
 }
@@ -348,10 +358,10 @@ async function selectSession(id: string) {
     if (version === revision) error.value = cause instanceof Error ? cause.message : '加载失败'
   } finally { if (version === revision) loading.value = false }
 }
-async function addSession(title: string, workspace: string) {
+async function addSession(title: string, workspaceId: string) {
   const profile = selectedProfileId.value
   const effort = reasoningEffort.value
-  const session = await api<Session>('/sessions', { title, workspace })
+  const session = await api<Session>('/sessions', { title, workspaceId })
   sessions.value = [session, ...sessions.value]
   await selectSession(session.id)
   selectedProfileId.value = profile; reasoningEffort.value = effort
@@ -363,7 +373,7 @@ async function addSession(title: string, workspace: string) {
 async function createSession() {
   if (loading.value || submitting.value || workspaceChanging.value) return
   loading.value = true; error.value = ''
-  try { await addSession('新会话', snapshot.value?.session.workspace || '') }
+  try { await addSession('新会话', snapshot.value?.session.workspaceId || '') }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { loading.value = false }
 }
@@ -399,6 +409,8 @@ async function workspaceSaved(session: Session) {
   closeSettings()
   sessions.value = creating ? [session, ...sessions.value] : sessions.value.map(value => value.id === session.id ? session : value)
   try {
+    await loadWorkspaces()
+    sessions.value = await api<Session[]>('/sessions')
     if (creating) {
       await selectSession(session.id)
       prompt.value = draft; selectedProfileId.value = profile; reasoningEffort.value = effort
@@ -406,11 +418,22 @@ async function workspaceSaved(session: Session) {
     else if (selectedId.value === session.id) await refresh(session.id, revision)
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '刷新会话失败' }
 }
+// 刷新独立工作区列表，包括尚未创建会话的工作区。
+async function loadWorkspaces() { workspaces.value = await api<Workspace[]>('/workspaces') }
+// 从侧栏工作区入口创建绑定该工作区的新会话。
+async function createWorkspaceSession(workspaceId: string) {
+  if (loading.value || submitting.value || workspaceChanging.value) return
+  loading.value = true; error.value = ''
+  try { await addSession('新会话', workspaceId) }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
+  finally { loading.value = false }
+}
 async function initialize() {
   loading.value = true
   error.value = ''
   try {
     await loadProfiles()
+    await loadWorkspaces()
     sessions.value = await api<Session[]>('/sessions')
     const stored = storageGet('harness.session')
     const id = sessions.value.find(session => session.id === stored)?.id || sessions.value[0]?.id
@@ -466,7 +489,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索会话" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
       <nav class="session-navigation" aria-label="会话列表">
         <section v-for="[path, group] in sessionGroups" :key="path" class="session-group">
-          <h2><button class="group-toggle" :title="path || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon :name="collapsedGroups.has(path) && !sessionSearch ? 'chevron' : 'down'" :size="12" /><UiIcon v-if="path" name="folder" :size="14" /><span>{{ group.label }}</span><small>{{ group.sessions.length }}</small></button></h2>
+          <h2 class="workspace-group-heading"><button class="group-toggle" :title="group.directories.join('\n') || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon :name="collapsedGroups.has(path) && !sessionSearch ? 'chevron' : 'down'" :size="12" /><UiIcon v-if="path" :name="group.icon" :style="{ color: group.color }" :size="14" /><span>{{ group.label }}</span><small>{{ group.sessions.length }}</small></button><button v-if="path" class="icon-button" :disabled="loading || submitting || workspaceChanging" :aria-label="`在 ${group.label} 新建会话`" title="新建会话" @click="createWorkspaceSession(path)"><UiIcon name="plus" :size="14" /></button></h2>
           <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId }">
             <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
             <button class="icon-button session-rename" :disabled="loading || workspaceChanging" :aria-label="`重命名会话：${session.title}`" title="重命名会话" @click="openRename(session, $event)"><UiIcon name="compose" :size="14" /></button>
@@ -488,7 +511,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading">
         <div v-if="loading" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
         <div v-else-if="!snapshot?.runs.length" class="welcome">
-          <p class="welcome-eyebrow">{{ snapshot?.session.workspace?.split(/[\\/]/).filter(Boolean).pop() || 'Java Harness' }}</p>
+          <p class="welcome-eyebrow">{{ workspaces.find(value => value.id === snapshot?.session.workspaceId)?.name || 'Java Harness' }}</p>
           <h2>{{ snapshot?.session.workspace ? '想在这个项目里做些什么？' : '开始你的下一项工作' }}</h2>
         </div>
         <article v-for="run in snapshot?.runs" :key="run.id" class="run-card">
@@ -513,7 +536,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
           <div v-if="pending" class="pending-note">上次提交结果待确认，重试不会重复创建任务。</div>
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
-            <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace="snapshot?.session.workspace || ''" :sessions="sessions" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" @model="chooseProfile" @effort="reasoningEffort = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace" />
+            <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" @model="chooseProfile" @effort="reasoningEffort = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
             <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
@@ -525,7 +548,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <aside v-if="inspectedRun" id="execution-inspector" class="execution-inspector" aria-labelledby="inspector-title" @keydown.esc.stop="closeInspector">
         <header class="inspector-header"><h2 id="inspector-title" ref="inspectorHeading" tabindex="-1">执行详情</h2><button type="button" class="icon-button" aria-label="关闭执行详情" @click="closeInspector"><UiIcon name="close" :size="16" /></button></header>
         <div class="inspector-content">
-          <dl class="execution-metadata"><dt>状态</dt><dd>{{ activityLabel(inspectedRun) }}</dd><dt>模型</dt><dd>{{ inspectedRun.model }}</dd><dt>思考强度</dt><dd>{{ effortLabel(inspectedRun.reasoningEffort) }}</dd><dt v-if="inspectedRun.workspace">工作区</dt><dd v-if="inspectedRun.workspace">{{ inspectedRun.workspace }}</dd></dl>
+          <dl class="execution-metadata"><dt>状态</dt><dd>{{ activityLabel(inspectedRun) }}</dd><dt>模型</dt><dd>{{ inspectedRun.model }}</dd><dt>思考强度</dt><dd>{{ effortLabel(inspectedRun.reasoningEffort) }}</dd><dt v-if="inspectedRun.workspace">工作区目录</dt><dd v-if="inspectedRun.workspace">{{ workspaceSummary(inspectedRun.workspace) }}</dd></dl>
           <p v-if="inspectedRun.context" class="run-detail">携带 {{ inspectedRun.context.includedTurns }} 轮历史<span v-if="inspectedRun.context.droppedTurns"> · 已裁剪 {{ inspectedRun.context.droppedTurns }} 轮</span><span v-if="inspectedRun.context.excludedTurns"> · 已跳过 {{ inspectedRun.context.excludedTurns }} 条</span></p>
           <ToolDetails :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
           <ModelRequestDetails v-if="inspectedRun.context" :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
@@ -534,9 +557,9 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       </div>
     </main>
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
-      <header class="inspector-header"><h2 id="workspace-dialog-title">选择工作区</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区选择" @click="closeWorkspaceDialog"><UiIcon name="close" :size="17" /></button></header>
-      <WorkspaceSettings v-if="browsingWorkspace" :session-id="snapshot?.session.id" :initial-path="snapshot?.session.workspace || ''" :disabled="workspaceSyncing || !!current || submitting || !!pending || loading" @busy="workspaceSaving = $event" @saved="workspacePicked" />
+      <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="17" /></button></header>
+      <WorkspaceSettings v-if="browsingWorkspace" :session-id="snapshot?.session.id" initial-path="" :initial-workspace="editingWorkspace" :disabled="workspaceSyncing || !!current || submitting || !!pending || loading" @busy="workspaceSaving = $event" @saved="workspacePicked" @cancel="closeWorkspaceDialog" />
     </dialog>
-    <SettingsPage v-if="showSettings" :initial-profile-id="selectedProfileId" :initial-section="settingsSection" :session="snapshot?.session" :creating-workspace="creatingWorkspace" :workspace-disabled="!!current || submitting || !!pending || loading" @close="closeSettings" @busy="settingsBusy = $event" @saved="settingsSaved" @deleted="profileDeleted" @changed="loadProfiles().catch(() => {})" @workspace-saved="workspaceSaved" />
+    <SettingsPage v-if="showSettings" :initial-profile-id="selectedProfileId" :initial-section="settingsSection" :session="snapshot?.session" :workspaces="workspaces" :creating-workspace="creatingWorkspace" :workspace-disabled="!!current || submitting || !!pending || loading" @close="closeSettings" @busy="settingsBusy = $event" @saved="settingsSaved" @deleted="profileDeleted" @changed="loadProfiles().catch(() => {})" @workspace-saved="workspacePicked" />
   </div>
 </template>

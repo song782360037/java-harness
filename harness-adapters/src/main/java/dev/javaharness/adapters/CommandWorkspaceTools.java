@@ -7,9 +7,14 @@ import java.util.*;
 public final class CommandWorkspaceTools implements WorkspaceTools {
     private final WorkspaceTools delegate;
     private final CommandService commands;
+    private final String workspace;
+    private final String prefix;
     private final ObjectMapper json = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-    public CommandWorkspaceTools(WorkspaceTools delegate, CommandService commands) { this.delegate = delegate; this.commands = commands; }
-    @Override public String workspace() { return delegate.workspace(); }
+    public CommandWorkspaceTools(WorkspaceTools delegate, CommandService commands) { this(delegate, commands, delegate.workspace(), ""); }
+    public CommandWorkspaceTools(WorkspaceTools delegate, CommandService commands, String workspace, String prefix) {
+        this.delegate = delegate; this.commands = commands; this.workspace = workspace; this.prefix = prefix;
+    }
+    @Override public String workspace() { return workspace; }
     @Override public List<ToolDefinition> definitions() {
         var definitions = new ArrayList<>(delegate.definitions());
         definitions.add(new ToolDefinition("propose_command", "Request user approval for a noninteractive " + LocalCommandRunner.shell()
@@ -39,7 +44,7 @@ public final class CommandWorkspaceTools implements WorkspaceTools {
                 if (!args.path(name).isTextual()) return new Result(false, "command、directory、purpose 必须为字符串");
             if (!args.path("timeout_seconds").isIntegralNumber() || !args.path("timeout_seconds").canConvertToInt())
                 return new Result(false, "timeout_seconds 必须为 1–300 的整数");
-            proposal = commands.propose(runId, call.id(), workspace(), args.get("command").asText(), args.get("directory").asText(),
+            proposal = commands.propose(runId, call.id(), workspace(), args.get("command").asText(), prefix + args.get("directory").asText(),
                     args.get("purpose").asText(), args.get("timeout_seconds").asInt());
         } catch (HarnessException error) { return new Result(false, error.getMessage()); }
         catch (java.io.IOException | IllegalArgumentException error) { return new Result(false, "命令参数不是有效 JSON 对象"); }

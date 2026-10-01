@@ -52,8 +52,10 @@ public final class FileChangeService {
             if (list(runId).size() >= 32) throw new HarnessException("INVALID", "每个任务最多生成 32 个文件修改，请分批处理");
             if (!Set.of("replace", "create").contains(operation)) throw new HarnessException("INVALID", "只支持 replace 或 create");
             try {
-                var files = new WorkspaceFileEditor(workspace);
-                Path target = files.resolve(path);
+                WorkspaceRoots.Target location = WorkspaceRoots.target(workspace, path);
+                if (path.length() > 2048) throw new IOException("Path too long");
+                var files = new WorkspaceFileEditor(location.root());
+                Path target = files.resolve(location.relative());
                 String before = null;
                 String after;
                 if (operation.equals("create")) {
@@ -101,9 +103,10 @@ public final class FileChangeService {
             if (snapshot.runs().stream().anyMatch(value -> value.status().active())) throw new HarnessException("BUSY", "请等待当前会话任务结束，再应用修改");
             if (!snapshot.session().workspace().equals(run.workspace())) throw new HarnessException("CONFLICT", "会话工作区已改变，请切回原工作区后审核");
             WorkspaceFileEditor files;
+            WorkspaceRoots.Target location = WorkspaceRoots.target(run.workspace(), change.path());
             try {
-                files = new WorkspaceFileEditor(run.workspace());
-                Path path = files.resolve(change.path());
+                files = new WorkspaceFileEditor(location.root());
+                Path path = files.resolve(location.relative());
                 if (!files.matches(path, change.beforeContent())) return settle(change, "CONFLICT", "文件已被修改、删除或新建，未覆盖；请重新生成修改");
             } catch (IOException | IllegalArgumentException error) {
                 return settle(change, "CONFLICT", "原文件或目录不可访问、编码改变或存在链接，未写入；请检查后重新生成");
@@ -111,7 +114,7 @@ public final class FileChangeService {
             // Commit intent before touching the workspace. A crash leaves a durable uncertain state.
             settle(change, "APPLYING", "正在应用");
             try {
-                files.apply(change.path(), change.beforeContent(), change.afterContent());
+                files.apply(location.relative(), change.beforeContent(), change.afterContent());
             } catch (WorkspaceFileEditor.FileConflict | FileAlreadyExistsException error) {
                 return settle(change, "CONFLICT", "应用前文件发生变化，未覆盖；请重新生成修改");
             } catch (IOException | RuntimeException error) {

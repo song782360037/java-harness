@@ -30,11 +30,21 @@ public final class JdbcSessionStore implements SessionStore {
             rs.getString("model_profile_id"), rs.getString("reasoning_effort"));
     private static final RowMapper<Session> SESSION_MAPPER = (rs, row) ->
             new Session(rs.getString("id"), rs.getString("title"), instant(rs, "created_at"), rs.getString("workspace"),
-                    rs.getString("model_profile_id"), rs.getString("reasoning_effort"));
+                    rs.getString("model_profile_id"), rs.getString("reasoning_effort"), rs.getString("workspace_id") == null ? "" : rs.getString("workspace_id"));
+    private static final RowMapper<Workspace> WORKSPACE_MAPPER = (rs, row) -> new Workspace(rs.getString("id"),
+            rs.getString("name"), WorkspaceRoots.directories(rs.getString("roots")), rs.getString("icon"), rs.getString("color"), rs.getLong("revision"));
+    private static final List<String> ICONS = List.of("folder", "code", "branch", "cube", "reasoning", "coffee", "flask", "rocket", "bug", "star", "music", "heart", "globe", "terminal", "gamepad");
 
     public JdbcSessionStore(JdbcTemplate jdbc, TransactionTemplate tx) {
         this.jdbc = jdbc;
         this.tx = tx;
+        // Link existing sessions without rewriting their run snapshots or requiring directories online.
+        tx.executeWithoutResult(status -> {
+            for (Session session : sessions()) {
+                if (!session.workspace().isEmpty() && session.workspaceId().isEmpty())
+                    jdbc.update("UPDATE harness_session SET workspace_id=? WHERE id=?", legacyWorkspace(session.workspace()), session.id());
+            }
+        });
     }
 
     private static Instant instant(ResultSet rs, String name) throws SQLException {
@@ -57,8 +67,11 @@ public final class JdbcSessionStore implements SessionStore {
         String id = UUID.randomUUID().toString();
         OffsetDateTime created = now();
         checkWorkspace(workspace);
-        jdbc.update("INSERT INTO harness_session(id,title,created_at,workspace) VALUES (?,?,?,?)", id, title.strip(), created, workspace);
-        return new Session(id, title.strip(), created.toInstant(), workspace, "default", "");
+        return tx.execute(status -> {
+            String workspaceId = workspace.isEmpty() ? null : legacyWorkspace(workspace);
+            jdbc.update("INSERT INTO harness_session(id,title,created_at,workspace,workspace_id) VALUES (?,?,?,?,?)", id, title.strip(), created, workspace, workspaceId);
+            return session(id);
+        });
     }
 
     /** Persist the title and notify subscribers in the same transaction. */
@@ -78,7 +91,7 @@ public final class JdbcSessionStore implements SessionStore {
     }
 
     private static void checkWorkspace(String workspace) {
-        if (workspace == null || workspace.length() > 4096) throw new HarnessException("INVALID", "无效工作区路径");
+        if (workspace == null || workspace.length() > 131072) throw new HarnessException("INVALID", "无效工作区路径");
     }
 
     @Override public synchronized Session updateWorkspace(String sessionId, String workspace) {
@@ -87,9 +100,85 @@ public final class JdbcSessionStore implements SessionStore {
             session(sessionId);
             String active = jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?", String.class, sessionId);
             if (active != null) throw new HarnessException("BUSY", "请先停止当前任务，再切换工作区");
-            jdbc.update("UPDATE harness_session SET workspace=? WHERE id=?", workspace, sessionId);
+            jdbc.update("UPDATE harness_session SET workspace=?,workspace_id=? WHERE id=?", workspace,
+                    workspace.isEmpty() ? null : legacyWorkspace(workspace), sessionId);
             appendEvent(sessionId, null, "WORKSPACE", null, "会话工作区已更新");
             return session(sessionId);
+        });
+    }
+
+    /** Reuse migrated directory groups, keeping old single-root tool paths valid. */
+    private String legacyWorkspace(String roots) {
+        var existing = jdbc.query("SELECT * FROM harness_workspace WHERE roots=? ORDER BY id", WORKSPACE_MAPPER, roots);
+        if (!existing.isEmpty()) return existing.getFirst().id();
+        List<String> directories = WorkspaceRoots.directories(roots);
+        String first = directories.getFirst();
+        String[] parts = first.split("[\\\\/]");
+        String name = parts.length == 0 ? first : parts[parts.length - 1];
+        if (name.length() > 100) name = name.substring(0, 100);
+        String id = UUID.randomUUID().toString();
+        // Historical snapshots are preserved verbatim; only new/edited directories are validated.
+        jdbc.update("INSERT INTO harness_workspace(id,name,roots,icon,color,revision) VALUES (?,?,?,'folder','#4b705b',1)", id, name, roots);
+        return id;
+    }
+
+    @Override public synchronized List<Workspace> workspaces() {
+        return jdbc.query("SELECT * FROM harness_workspace ORDER BY name,id", WORKSPACE_MAPPER);
+    }
+
+    @Override public synchronized Workspace workspace(String id) {
+        var rows = jdbc.query("SELECT * FROM harness_workspace WHERE id=?", WORKSPACE_MAPPER, id);
+        if (rows.isEmpty()) throw new HarnessException("NOT_FOUND", "工作区不存在");
+        return rows.getFirst();
+    }
+
+    /** Persist workspace metadata and update every bound session atomically under the session lock. */
+    @Override public synchronized Workspace saveWorkspace(String id, String name, List<String> directories, String icon, String color, long revision) {
+        String normalized = name == null ? "" : name.strip();
+        if (normalized.isEmpty() || normalized.length() > 100) throw new HarnessException("INVALID", "工作区名称需为 1–100 个字符");
+        if (icon == null || !ICONS.contains(icon) || color == null || !color.matches("#[0-9a-fA-F]{6}")) throw new HarnessException("INVALID", "请选择有效的工作区图标和颜色");
+        String roots = WorkspaceRoots.encode(directories);
+        return tx.execute(status -> {
+            String key = id == null || id.isEmpty() ? UUID.randomUUID().toString() : id;
+            if (id == null || id.isEmpty()) {
+                jdbc.update("INSERT INTO harness_workspace(id,name,roots,icon,color,revision) VALUES (?,?,?,?,?,1)", key, normalized, roots, icon, color);
+            } else {
+                Workspace current = workspace(key);
+                if (current.revision() != revision) throw new HarnessException("CONFLICT", "工作区已被更新，请重新打开后再保存");
+                if (!WorkspaceRoots.encode(current.directories()).equals(roots)) {
+                    Integer active = jdbc.queryForObject("SELECT COUNT(*) FROM harness_session WHERE workspace_id=? AND active_run_id IS NOT NULL", Integer.class, key);
+                    Integer pending = jdbc.queryForObject("SELECT COUNT(*) FROM harness_file_change c JOIN harness_run r ON r.id=c.run_id WHERE r.workspace=? AND c.status IN ('PENDING','APPLYING')", Integer.class, WorkspaceRoots.encode(current.directories()));
+                    if (active > 0 || pending > 0) throw new HarnessException("BUSY", "工作区有运行中的任务或待审核修改，请处理完成后再调整目录");
+                }
+                jdbc.update("UPDATE harness_workspace SET name=?,roots=?,icon=?,color=?,revision=revision+1 WHERE id=?", normalized, roots, icon, color, key);
+                for (Session session : sessions()) {
+                    if (!session.workspaceId().equals(key)) continue;
+                    jdbc.update("UPDATE harness_session SET workspace=? WHERE id=?", roots, session.id());
+                    appendEvent(session.id(), null, "WORKSPACE", null, "工作区已更新");
+                }
+            }
+            return workspace(key);
+        });
+    }
+
+    @Override public synchronized Session selectWorkspace(String sessionId, String workspaceId) {
+        return tx.execute(status -> {
+            session(sessionId);
+            if (jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?", String.class, sessionId) != null)
+                throw new HarnessException("BUSY", "请先停止当前任务，再切换工作区");
+            String key = workspaceId == null || workspaceId.isEmpty() ? null : workspaceId;
+            String roots = key == null ? "" : WorkspaceRoots.encode(workspace(key).directories());
+            jdbc.update("UPDATE harness_session SET workspace=?,workspace_id=? WHERE id=?", roots, key, sessionId);
+            appendEvent(sessionId, null, "WORKSPACE", null, "会话工作区已更新");
+            return session(sessionId);
+        });
+    }
+
+    @Override public synchronized Session createSessionInWorkspace(String title, String workspaceId) {
+        return tx.execute(status -> {
+            if (workspaceId != null && !workspaceId.isEmpty()) workspace(workspaceId);
+            Session session = createSession(title);
+            return selectWorkspace(session.id(), workspaceId);
         });
     }
 
