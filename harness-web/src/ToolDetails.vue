@@ -30,7 +30,7 @@ watch(() => props.revision, load)
 </template>
 <style scoped>
 .tool-list { margin-top: 16px; font-size: calc(12rem / 14); }
-.tool-card { margin-top: 8px; padding: 12px; border-radius: 8px; background: var(--subtle); border: 1px solid var(--border); }
-summary { cursor: pointer; overflow-wrap: anywhere; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font: inherit; }
+.tool-card { margin-top: 10px; padding: 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+summary { cursor: pointer; overflow-wrap: anywhere; line-height: 1.8; }
+pre { padding: 12px; border-radius: 8px; background: var(--subtle); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font: calc(11rem / 14)/1.8 'Cascadia Code', Consolas, monospace; }
 </style>

@@ -58,6 +58,8 @@ function outside(event: PointerEvent) { if (!root.value?.contains(event.target a
 function escape(event: KeyboardEvent) { if (event.key === 'Escape' && open.value) { event.preventDefault(); close(true) } }
 // Tab 离开选择区域时关闭菜单。
 function focusOut(event: FocusEvent) { if (!root.value?.contains(event.relatedTarget as Node)) close() }
+// 页面滚动会移动入口；菜单自身滚动时保持展开。
+function scroll(event: Event) { if (!panel.value?.contains(event.target as Node)) close() }
 // 使用方向键在可用菜单选项之间移动。
 function navigate(event: KeyboardEvent) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
@@ -72,8 +74,8 @@ function navigate(event: KeyboardEvent) {
 }
 watch(() => props.workspaceDisabled, value => { if (value && open.value === 'workspace') close() })
 watch(() => props.disabled, value => { if (value) close() })
-onMounted(() => { document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape); window.addEventListener('resize', outsideResize) })
-onUnmounted(() => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); window.removeEventListener('resize', outsideResize) })
+onMounted(() => { document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape); document.addEventListener('scroll', scroll, true); window.addEventListener('resize', outsideResize) })
+onUnmounted(() => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); document.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', outsideResize) })
 // 视口改变时关闭菜单，避免位置继续依赖旧尺寸。
 function outsideResize() { close() }
 </script>

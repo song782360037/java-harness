@@ -96,9 +96,9 @@ const sessionGroups = computed(() => {
   return [...groups.entries()]
 })
 const suggestions = [
-  { icon: 'folder', title: '了解项目', prompt: '查看项目结构，读取构建配置，并结合源码解释程序入口。' },
-  { icon: 'scan', title: '定位问题', prompt: '请帮我定位一个问题，先告诉我需要提供哪些错误信息和复现步骤。' },
-  { icon: 'branch', title: '梳理调用链', prompt: '分析项目的核心模块和调用关系，标明关键类与方法。' },
+  { icon: 'folder', title: '了解项目', description: '从结构到入口，建立全局视图', prompt: '查看项目结构，读取构建配置，并结合源码解释程序入口。' },
+  { icon: 'scan', title: '定位问题', description: '从现象出发，找到问题所在', prompt: '请帮我定位一个问题，先告诉我需要提供哪些错误信息和复现步骤。' },
+  { icon: 'branch', title: '梳理调用链', description: '连接模块，理清执行脉络', prompt: '分析项目的核心模块和调用关系，标明关键类与方法。' },
 ]
 function useSuggestion(value: string) { prompt.value = value; promptInput.value?.focus() }
 // 在项目列表中折叠或展开会话，搜索时始终显示结果。
@@ -484,7 +484,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
   <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
     <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
-      <div class="brand"><img class="brand-icon" src="/harness-icon.svg" width="28" height="28" alt="" /><strong>Harness</strong><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" /></button></div>
+      <div class="brand"><img class="brand-icon" src="/harness-icon.svg" width="34" height="34" alt="" /><span class="brand-copy"><strong>Harness</strong><small>本地编程工作台</small></span><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" /></button></div>
       <button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="compose" /><span>新对话</span><UiIcon name="plus" :size="15" /></button>
       <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索会话" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
       <nav class="session-navigation" aria-label="会话列表">
@@ -495,15 +495,15 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
             <button class="icon-button session-rename" :disabled="loading || workspaceChanging" :aria-label="`重命名会话：${session.title}`" title="重命名会话" @click="openRename(session, $event)"><UiIcon name="compose" :size="14" /></button>
           </div>
         </section>
-        <p v-if="!sessionGroups.length" class="sidebar-empty">{{ sessionSearch ? '没有匹配的会话' : '你的对话将保存在这里' }}</p>
+        <div v-if="!sessionGroups.length" class="sidebar-empty"><UiIcon :name="sessionSearch ? 'search' : 'chat'" :size="22" /><p>{{ sessionSearch ? '没有匹配的会话' : '从一个想法开始' }}</p><small v-if="!sessionSearch">你的工作与对话，将在这里展开。</small></div>
       </nav>
-      <div class="sidebar-footer"><button class="settings-entry" :disabled="settingsBusy || workspaceChanging" @click="openSettings()"><UiIcon name="settings" /><span>设置</span></button></div>
+      <div class="sidebar-footer"><button class="settings-entry" :disabled="settingsBusy || workspaceChanging" @click="openSettings()"><UiIcon name="settings" /><span>设置与偏好</span><UiIcon name="chevron" :size="13" /></button><p class="sidebar-footnote">JAVA HARNESS <span>在本机管理工作区</span></p></div>
       <SidebarResize v-if="!isMobile && !sidebarCollapsed && !showSettings" v-model:width="sidebarWidth" />
     </aside>
     <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="sessionRenamed" @close="closeRename" />
     <main v-show="!showSettings" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
-        <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
+        <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
         <div class="header-meta"><span v-if="snapshot?.session.workspace" class="readonly-label">修改需审核</span><span class="connection" :class="{ online: connected }" :title="selectedId ? (connected ? '实时连接正常' : '正在重新连接') : '本地服务'">{{ selectedId && !connected ? '连接中' : '本地' }}</span></div>
       </header>
       <div v-if="error" class="error-banner" role="alert">{{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button></div>
@@ -511,8 +511,20 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading">
         <div v-if="loading" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
         <div v-else-if="!snapshot?.runs.length" class="welcome">
-          <p class="welcome-eyebrow">{{ workspaces.find(value => value.id === snapshot?.session.workspaceId)?.name || 'Java Harness' }}</p>
-          <h2>{{ snapshot?.session.workspace ? '想在这个项目里做些什么？' : '开始你的下一项工作' }}</h2>
+          <div class="welcome-copy">
+            <p class="welcome-eyebrow"><span aria-hidden="true"></span>{{ workspaces.find(value => value.id === snapshot?.session.workspaceId)?.name || '想法，从这里启程' }}</p>
+            <h2>{{ snapshot?.session.workspace ? '在项目里，' : '把想法，' }}<br /><span>写成下一步。</span></h2>
+            <p class="welcome-description">{{ snapshot?.session.workspace ? '读懂代码，厘清问题，一起推进手头的工作。' : '连接你的模型与工作区，让每一次探索都有迹可循。' }}</p>
+          </div>
+          <svg class="welcome-art" viewBox="0 0 240 200" fill="none" aria-hidden="true">
+            <rect class="art-frame" x="32" y="16" width="176" height="168" rx="44" transform="rotate(-8 120 100)" />
+            <rect class="art-core" x="45" y="28" width="150" height="144" rx="36" />
+            <path class="art-brackets" d="M94 64H77V136H94M146 64H163V136H146" />
+            <path class="art-link" d="M77 100H163" />
+            <circle class="art-node" cx="120" cy="100" r="7" />
+            <path class="art-orbit" d="M17 151H49M191 48H223M120 4V22M120 178V196" />
+            <circle class="art-terminal" cx="17" cy="151" r="4" /><circle class="art-terminal" cx="223" cy="48" r="4" />
+          </svg>
         </div>
         <article v-for="run in snapshot?.runs" :key="run.id" class="run-card">
           <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>
@@ -541,7 +553,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
             <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
         </form>
-        <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="15" />{{ item.title }}</button></div>
+        <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>
         <div class="composer-caption"><span>{{ snapshot?.session.workspace ? '文件修改经你审核后应用' : '在本机管理对话与工作区' }}</span><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>{{ sendShortcutHint }}</span></div>
       </div>
       </div>

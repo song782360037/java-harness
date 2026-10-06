@@ -27,7 +27,7 @@ function update(event: Event) { choose(levels[(event.target as HTMLInputElement)
 .reasoning-heading > span { color: var(--text); }
 .reasoning-range { position: relative; height: 44px; }
 .reasoning-track { position: absolute; inset: 7px 0; overflow: hidden; border-radius: 20px; background: var(--subtle); border: 1px solid var(--border); }
-.reasoning-fill { position: absolute; inset: 0 auto 0 0; width: calc(18px + (100% - 36px) * var(--reasoning-progress)); background: linear-gradient(100deg, #3b82f6, #8b5cf6); }
+.reasoning-fill { position: absolute; inset: 0 auto 0 0; width: calc(18px + (100% - 36px) * var(--reasoning-progress)); background: linear-gradient(100deg, #327759, #8dd9b6); }
 .reasoning-particles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .reasoning-particles i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #fff; box-shadow: 0 0 5px #ffffffb3; animation: reasoning-spark 2.4s linear infinite; animation-delay: calc(var(--particle) * -.23s); }
 @keyframes reasoning-spark { 0% { opacity: 0; transform: translate(-14px, 6px) scale(.5); } 25%, 65% { opacity: .8; } 100% { opacity: 0; transform: translate(18px, -6px) scale(1.1); } }

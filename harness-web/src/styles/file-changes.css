@@ -1,7 +1,7 @@
 .file-changes { margin: 22px 0; }
 .file-changes > h3 { display: flex; gap: 8px; align-items: center; font-size: calc(12rem / 14); font-weight: 600; }
 .file-changes > h3 > span { color: var(--muted); font-weight: 400; }
-.file-change-card { margin: 10px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.file-change-card { margin: 12px 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
 .file-change-heading { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--subtle); }
 .file-change-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; text-align: left; background: transparent; border: 0; padding: 5px 0; font-size: calc(12rem / 14); }
 .file-change-toggle > span { overflow-wrap: anywhere; }
@@ -26,6 +26,6 @@
 .full-file-content summary { color: var(--muted); cursor: pointer; }
 .full-file-content h4 { font-size: calc(11rem / 14); font-weight: 500; }
 .full-file-content pre { max-height: 360px; overflow: auto; padding: 12px; background: var(--subtle); font: calc(12rem / 14)/1.8 Consolas, monospace; tab-size: 4; }
-.file-change-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.file-change-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 14px; border-top: 1px solid var(--border); }
 .file-change-actions > span { flex: 1; min-width: 130px; color: var(--muted); font-size: calc(11rem / 14); }
 .file-change-actions > button { padding: 6px 10px; font-size: calc(11rem / 14); }

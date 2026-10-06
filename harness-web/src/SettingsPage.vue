@@ -148,7 +148,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
   <main class="settings-page reference-settings" aria-labelledby="settings-title">
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="设置分类">
-        <div class="settings-brand"><img class="brand-icon" src="/harness-icon.svg" width="28" height="28" alt="" /><strong>Harness</strong></div>
+        <div class="settings-brand"><img class="brand-icon" src="/harness-icon.svg" width="34" height="34" alt="" /><span class="brand-copy"><strong>Harness</strong><small>本地编程工作台</small></span></div>
         <button class="back-button" aria-label="返回工作区" title="返回工作区" :disabled="busy || workspaceBusy" @click="emit('close')"><UiIcon name="back" :size="16" /><span>返回工作区</span></button>
         <p class="nav-group-label">基础设置</p>
         <button v-for="item in sections" :key="item.id" :class="{ selected: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" :disabled="busy || workspaceBusy" @click="section = item.id"><UiIcon :name="item.icon" :size="17" />{{ item.label }}</button>
@@ -156,6 +156,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
       </nav>
       <div class="settings-content">
         <div class="settings-content-inner">
+          <p class="settings-eyebrow">工作台设置</p>
           <h1 id="settings-title" ref="pageTitle" class="reference-title" tabindex="-1">{{ sectionInfo.label }}</h1>
           <div class="settings-section-heading"><p>{{ sectionInfo.description }}</p><button v-if="section === 'models'" class="icon-button" :disabled="busy" aria-label="重新加载配置" title="重新加载配置" @click="load"><UiIcon name="refresh" :size="16" /></button></div>
           <p v-if="error && section === 'models'" role="alert" class="dialog-error">{{ error }}</p>
@@ -193,7 +194,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                       <label for="provider-timeout">连接超时（秒）</label><input id="provider-timeout" v-model.number="provider.connectTimeoutSeconds" type="number" required min="1" max="300" step="1" />
                     </details>
                   </fieldset>
-                  <div class="provider-save"><button type="submit" :disabled="busy || editingModel">{{ busy ? '处理中…' : '保存提供商' }}</button></div>
+                  <div class="provider-save"><button type="submit" class="primary" :disabled="busy || editingModel">{{ busy ? '处理中…' : '保存提供商' }}</button></div>
                 </form>
                 <section class="provider-model-list" aria-labelledby="model-list-title">
                   <div class="model-list-heading"><h3 id="model-list-title">模型列表</h3><span>{{ providerModels.length }} 个模型</span></div>
