@@ -318,6 +318,8 @@ function scheduleRefresh(id: string, version: number, delay = 200) {
       if (version === revision) {
         refreshing = false
         if (dirty) scheduleRefresh(id, version, retryDelay)
+        // SSE can stay silently open across a backend restart; keep fetching while a run is active.
+        else if (snapshot.value?.runs.some(isActive)) scheduleRefresh(id, version, 4000)
       }
     }
   }, delay)
@@ -352,6 +354,18 @@ function follow(id: string, version: number) {
     if (event.type === 'WORKSPACE') void loadWorkspaces().catch(() => {})
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
+}
+// Replace a stream that may have died without an error event (for example after a backend restart).
+function restartStream() {
+  const id = selectedId.value
+  if (!id) return
+  const version = revision
+  source?.close()
+  source = null
+  clearTimeout(reconnectTimer)
+  reconnectTimer = undefined
+  connected.value = false
+  follow(id, version)
 }
 async function selectSession(id: string) {
   inspectedRunId.value = ''; inspectorTrigger = null
@@ -492,6 +506,7 @@ async function submit() {
       setPending(null)
       prompt.value = ''
       await refresh(id, version)
+      restartStream()
     }
   } catch (cause) {
     if (version === revision) {
