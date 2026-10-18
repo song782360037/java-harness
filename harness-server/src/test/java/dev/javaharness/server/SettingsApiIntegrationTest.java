@@ -25,7 +25,8 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:settings-api;DB_CLOSE_DELAY=-1",
         "harness.model.base-url=https://api.openai.com/v1", "harness.model.name=", "harness.model.api-key=",
-        "harness.model.api-key-required=true", "harness.tools.max-steps=0"
+        "harness.model.api-key-required=true", "harness.tools.max-steps=0",
+        "harness.session-naming.enabled=false"
 })
 class SettingsApiIntegrationTest {
     @TempDir static Path directory;

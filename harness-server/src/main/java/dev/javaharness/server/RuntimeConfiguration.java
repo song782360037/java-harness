@@ -58,6 +58,12 @@ public class RuntimeConfiguration {
         return new DefaultAgentEngine(store, configurations);
     }
 
+    @Bean(destroyMethod = "close")
+    SessionNamingService sessionNamingService(SessionStore store, RunConfigurationSource configurations,
+            @Value("${harness.session-naming.enabled:true}") boolean enabled) {
+        return new SessionNamingService(store, configurations, enabled);
+    }
+
     @Bean
     ApplicationListener<ContextClosedEvent> stopRuntime(AgentEngine engine, EventController events) {
         return event -> { events.close(); engine.close(); };

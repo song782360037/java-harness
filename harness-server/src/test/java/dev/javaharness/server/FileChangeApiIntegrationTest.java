@@ -21,7 +21,8 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:file-change-api;DB_CLOSE_DELAY=-1",
-        "harness.model.base-url=https://api.openai.com/v1", "harness.model.name=", "harness.model.api-key="
+        "harness.model.base-url=https://api.openai.com/v1", "harness.model.name=", "harness.model.api-key=",
+        "harness.session-naming.enabled=false"
 })
 class FileChangeApiIntegrationTest {
     @TempDir static Path directory;

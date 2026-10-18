@@ -1,0 +1,17 @@
+{
+  "name": "java-harness-promo-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Java Harness 项目宣传片（Remotion）",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render src/index.ts java-harness-promo output/java-harness-promo.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.409",
+    "@remotion/google-fonts": "4.0.409",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.409"
+  }
+}

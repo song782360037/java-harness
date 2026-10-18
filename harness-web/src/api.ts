@@ -65,5 +65,7 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     const error = await response.json().catch(() => ({})) as { message?: string }
     throw new ApiError(error.message || `请求失败（${response.status}）`, response.status)
   }
+  // 删除类接口返回 204 无内容。
+  if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }

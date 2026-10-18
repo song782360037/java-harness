@@ -9,6 +9,7 @@ import ComposerSelectors from './ComposerSelectors.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import SidebarResize from './SidebarResize.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
+import SessionDeleteDialog from './SessionDeleteDialog.vue'
 import UiIcon from './UiIcon.vue'
 import MarkdownContent from './MarkdownContent.vue'
 import { preferences, shouldSendPrompt } from './preferences'
@@ -68,6 +69,38 @@ async function closeRename() {
   renamingSession.value = null; renameTrigger = null
   await nextTick()
   if (trigger?.isConnected) trigger.focus()
+}
+const deletingSession = ref<Session | null>(null)
+let deleteTrigger: HTMLElement | null = null
+// 记录删除入口，关闭弹窗后恢复键盘焦点。
+function openDelete(session: Session, event: MouseEvent) {
+  deleteTrigger = event.currentTarget as HTMLElement
+  deletingSession.value = session
+}
+// 删除成功后移除列表项；删除的是当前会话时，断开实时连接并切换到下一个会话或回到空白页。
+async function sessionDeleted(session: { id: string }) {
+  sessions.value = sessions.value.filter(value => value.id !== session.id)
+  storageSet(`harness.pending.${session.id}`, null)
+  if (session.id !== selectedId.value) return
+  const next = sessions.value[0]?.id
+  if (next) { await selectSession(next); return }
+  revision++
+  source?.close(); source = null
+  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); refreshTimer = undefined
+  refreshing = false; dirty = false; connected.value = false
+  selectedId.value = ''; snapshot.value = null; pending.value = null
+  inspectedRunId.value = ''; inspectorTrigger = null
+  toolRevisions.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}
+  error.value = ''
+  storageSet('harness.session', null)
+}
+// 弹窗取消和删除后都返回原入口；入口已随会话移除时，焦点落到"新对话"。
+async function closeDelete() {
+  const trigger = deleteTrigger
+  deletingSession.value = null; deleteTrigger = null
+  await nextTick()
+  if (trigger?.isConnected) trigger.focus()
+  else (document.querySelector('.new-session') as HTMLElement | null)?.focus()
 }
 const mobileLayout = window.matchMedia('(max-width: 780px)')
 const isMobile = ref(mobileLayout.matches)
@@ -277,8 +310,10 @@ function scheduleRefresh(id: string, version: number, delay = 200) {
     dirty = false
     let retryDelay = 200
     try { await refresh(id, version) }
-    catch {
-      if (version === revision) { error.value = '读取记录失败，正在重试。'; dirty = true; retryDelay = 2000 }
+    catch (cause) {
+      // 会话已在别处（如另一个标签页）被删除：停止重连并按删除处理。
+      if (cause instanceof ApiError && cause.status === 404) void sessionDeleted({ id })
+      else if (version === revision) { error.value = '读取记录失败，正在重试。'; dirty = true; retryDelay = 2000 }
     } finally {
       if (version === revision) {
         refreshing = false
@@ -355,7 +390,8 @@ async function selectSession(id: string) {
       follow(id, version)
     }
   } catch (cause) {
-    if (version === revision) error.value = cause instanceof Error ? cause.message : '加载失败'
+    if (cause instanceof ApiError && cause.status === 404) await sessionDeleted({ id })
+    else if (version === revision) error.value = cause instanceof Error ? cause.message : '加载失败'
   } finally { if (version === revision) loading.value = false }
 }
 async function addSession(title: string, workspaceId: string) {
@@ -493,6 +529,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
           <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId }">
             <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
             <button class="icon-button session-rename" :disabled="loading || workspaceChanging" :aria-label="`重命名会话：${session.title}`" title="重命名会话" @click="openRename(session, $event)"><UiIcon name="compose" :size="14" /></button>
+            <button class="icon-button session-delete" :disabled="loading || workspaceChanging || submitting || (session.id === selectedId && (!!current || !!pending))" :aria-label="`删除会话：${session.title}`" title="删除会话" @click="openDelete(session, $event)"><UiIcon name="trash" :size="14" /></button>
           </div>
         </section>
         <div v-if="!sessionGroups.length" class="sidebar-empty"><UiIcon :name="sessionSearch ? 'search' : 'chat'" :size="22" /><p>{{ sessionSearch ? '没有匹配的会话' : '从一个想法开始' }}</p><small v-if="!sessionSearch">你的工作与对话，将在这里展开。</small></div>
@@ -501,6 +538,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <SidebarResize v-if="!isMobile && !sidebarCollapsed && !showSettings" v-model:width="sidebarWidth" />
     </aside>
     <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="sessionRenamed" @close="closeRename" />
+    <SessionDeleteDialog v-if="deletingSession" :session="deletingSession" @deleted="sessionDeleted" @close="closeDelete" />
     <main v-show="!showSettings" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>

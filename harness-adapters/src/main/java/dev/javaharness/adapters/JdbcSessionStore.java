@@ -90,6 +90,42 @@ public final class JdbcSessionStore implements SessionStore {
         });
     }
 
+    /** Delete run artifacts in dependency order, then the session itself, atomically. */
+    @Override public synchronized void deleteSession(String sessionId) {
+        tx.executeWithoutResult(status -> {
+            session(sessionId);
+            if (jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?", String.class, sessionId) != null)
+                throw new HarnessException("BUSY", "请先停止当前任务，再删除会话");
+            String runs = "SELECT id FROM harness_run WHERE session_id=?";
+            jdbc.update("DELETE FROM harness_file_change WHERE run_id IN (" + runs + ")", sessionId);
+            jdbc.update("DELETE FROM harness_command WHERE run_id IN (" + runs + ")", sessionId);
+            jdbc.update("DELETE FROM harness_tool WHERE run_id IN (" + runs + ")", sessionId);
+            jdbc.update("DELETE FROM harness_model_request WHERE run_id IN (" + runs + ")", sessionId);
+            jdbc.update("DELETE FROM harness_model_step WHERE run_id IN (" + runs + ")", sessionId);
+            jdbc.update("DELETE FROM harness_conversation WHERE run_id IN (" + runs + ")", sessionId);
+            jdbc.update("DELETE FROM harness_event WHERE session_id=?", sessionId);
+            jdbc.update("DELETE FROM harness_run WHERE session_id=?", sessionId);
+            jdbc.update("DELETE FROM harness_session WHERE id=?", sessionId);
+        });
+    }
+
+    /** Compare-and-set rename in one transaction: a user edit landing first wins over late auto-naming. */
+    @Override public synchronized boolean renameSessionIfTitle(String sessionId, String expectedTitle, String title) {
+        String normalized = title == null ? "" : title.strip();
+        if (normalized.isEmpty() || normalized.length() > 100) {
+            throw new HarnessException("INVALID", "会话名称需为 1–100 个字符");
+        }
+        return tx.execute(status -> {
+            Session current = session(sessionId);
+            if (!current.title().equals(expectedTitle)) return false;
+            if (!current.title().equals(normalized)) {
+                jdbc.update("UPDATE harness_session SET title=? WHERE id=?", normalized, sessionId);
+                appendEvent(sessionId, null, "TITLE", null, "会话名称已更新");
+            }
+            return true;
+        });
+    }
+
     private static void checkWorkspace(String workspace) {
         if (workspace == null || workspace.length() > 131072) throw new HarnessException("INVALID", "无效工作区路径");
     }

@@ -12,15 +12,24 @@
 .env.*
 !.env.example
 *.log
+*.pid
 /data/
 /logs/
 /workspaces/
 
-# Editors and OS
+# Video production: renders, temp files and captured screenshots are reproducible
+/remotion-videos/output/
+/remotion-videos/.tmp/
+/video-assets/shots/
+
+# Editors, tools and OS
 .idea/
-*.iml
-.vscode/
+.setting/
+.qoder/
+.workbuddy/
 .mimosa/
 .zcode/
+*.iml
+.vscode/
 .DS_Store
 Thumbs.db

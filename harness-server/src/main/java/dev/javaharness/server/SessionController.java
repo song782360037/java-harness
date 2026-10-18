@@ -13,11 +13,13 @@ public class SessionController {
     private final SessionStore store;
     private final AgentEngine engine;
     private final WorkspaceDirectories directories;
+    private final SessionNamingService naming;
 
-    public SessionController(SessionStore store, AgentEngine engine, WorkspaceDirectories directories) {
+    public SessionController(SessionStore store, AgentEngine engine, WorkspaceDirectories directories, SessionNamingService naming) {
         this.store = store;
         this.engine = engine;
         this.directories = directories;
+        this.naming = naming;
     }
 
     public record CreateSession(String title, String workspace, String workspaceId) {}
@@ -72,10 +74,23 @@ public class SessionController {
         return store.tools(id);
     }
 
+    /** Delete the session and its history; active runs must be stopped first. */
+    @PostMapping("/sessions/{id}/delete")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable String id) {
+        store.deleteSession(id);
+    }
+
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
+        var selection = new ModelSelection(request.modelProfileId(), request.reasoningEffort());
         var result = engine.submit(id, request.requestId(), request.prompt(),
-                request.scenario() == null ? "NORMAL" : request.scenario(), new ModelSelection(request.modelProfileId(), request.reasoningEffort()));
+                request.scenario() == null ? "NORMAL" : request.scenario(), selection);
+        // 首个任务创建成功即触发 AI 命名，与任务执行并行；占位标题用于识别用户是否已手动改名。
+        if (result.created()) {
+            var snapshot = store.snapshot(id);
+            if (snapshot.runs().size() == 1) naming.nameFromFirstMessage(id, result.run().prompt(), selection, snapshot.session().title());
+        }
         return ResponseEntity.status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK).body(result.run());
     }
 

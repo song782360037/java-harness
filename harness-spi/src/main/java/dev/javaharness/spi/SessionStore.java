@@ -18,6 +18,10 @@ public interface SessionStore {
     Session createSessionInWorkspace(String title, String workspaceId);
     /** Rename a session without changing its workspace or active run. */
     Session renameSession(String sessionId, String title);
+    /** Rename only when the current title still matches, atomically; false when it changed first. */
+    boolean renameSessionIfTitle(String sessionId, String expectedTitle, String title);
+    /** Delete a session and all of its run artifacts; rejects while a run is active. */
+    void deleteSession(String sessionId);
     List<Session> sessions();
     SessionSnapshot snapshot(String sessionId);
     Run run(String runId);

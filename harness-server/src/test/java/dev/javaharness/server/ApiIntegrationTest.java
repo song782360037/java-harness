@@ -27,7 +27,7 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:api-tests;DB_CLOSE_DELAY=-1",
         "harness.run-timeout=5s", "harness.model.api-key=", "harness.model.name=",
-        "harness.model.base-url=https://api.openai.com/v1"
+        "harness.model.base-url=https://api.openai.com/v1", "harness.session-naming.enabled=false"
 })
 @Import(ApiIntegrationTest.FixtureConfiguration.class)
 class ApiIntegrationTest {
@@ -80,6 +80,32 @@ class ApiIntegrationTest {
         assertThat(post("/sessions/missing/title", Map.of("title", "name")).statusCode()).isEqualTo(404);
         assertThat(store.snapshot(id).session().title()).isEqualTo("已重命名");
         assertThat(store.snapshot(id).lastSeq()).isEqualTo(1);
+    }
+
+    @Test
+    void deleteApiRejectsActiveRunsThenRemovesSessionAndHistory() throws Exception {
+        String id = newSession();
+        var submitted = post("/sessions/" + id + "/runs", Map.of("requestId", UUID.randomUUID().toString(),
+                "prompt", "slow", "scenario", "SLOW"));
+        assertThat(submitted.statusCode()).isEqualTo(202);
+        String runId = json.readTree(submitted.body()).get("id").asText();
+        // 任务运行中禁止删除。
+        assertThat(post("/sessions/" + id + "/delete", Map.of()).statusCode()).isEqualTo(409);
+        post("/runs/" + runId + "/cancel", Map.of());
+        await().atMost(Duration.ofSeconds(3)).until(() -> store.run(runId).status() == RunStatus.CANCELLED);
+        // 再执行一个完整任务，产生模型请求与对话记录，验证级联删除覆盖全部子表。
+        var second = post("/sessions/" + id + "/runs", Map.of("requestId", UUID.randomUUID().toString(), "prompt", "done"));
+        String doneId = json.readTree(second.body()).get("id").asText();
+        await().atMost(Duration.ofSeconds(5)).until(() -> store.run(doneId).status() == RunStatus.COMPLETED);
+        assertThat(post("/sessions/" + id + "/delete", Map.of()).statusCode()).isEqualTo(204);
+        assertThat(client.send(HttpRequest.newBuilder(uri("/sessions/" + id)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(404);
+        assertThatThrownBy(() -> store.run(runId)).isInstanceOf(HarnessException.class);
+        assertThatThrownBy(() -> store.run(doneId)).isInstanceOf(HarnessException.class);
+        // 重复删除返回 404，列表中不再出现该会话。
+        assertThat(post("/sessions/" + id + "/delete", Map.of()).statusCode()).isEqualTo(404);
+        var list = client.send(HttpRequest.newBuilder(uri("/sessions")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(json.readTree(list.body())).noneMatch(session -> session.get("id").asText().equals(id));
     }
 
     @Test
