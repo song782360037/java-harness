@@ -52,8 +52,8 @@ class ToolLoopTest {
     }
     ToolCall read(String id) { return new ToolCall(id, "read_file", "{\"path\":\"App.java\"}"); }
     ModelTurn answer() { return new ModelTurn("分析完成", List.of()); }
-    DefaultAgentEngine engine(ModelProvider model, WorkspaceTools workspace, int steps, int budget) {
-        return new DefaultAgentEngine(store, model, Duration.ofSeconds(15), budget, workspace, steps);
+    DefaultAgentEngine engine(ModelProvider model, WorkspaceTools workspace, int maxTools, int budget) {
+        return new DefaultAgentEngine(store, model, Duration.ofSeconds(15), budget, workspace, maxTools);
     }
     Run submit(DefaultAgentEngine engine, String session) {
         return engine.submit(session, UUID.randomUUID().toString(), "分析项目", "NORMAL").run();
@@ -109,21 +109,13 @@ class ToolLoopTest {
             assertThat(store.modelRequests(run.id())).hasSize(3);
         }
     }
-    @Test void finalStepDoesNotExecuteAnotherBatchAndBudgetPreventsAnotherModelCall() throws Exception {
+    @Test void budgetPreventsAnotherModelCall() throws Exception {
         var model = model((request, cancel) -> new ModelTurn("", List.of(read("r" + request.step()))));
-        try (var engine = engine(model, tools, 1, 32000)) {
-            Run run = settled(submit(engine, store.createSession("limit").id()));
-            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
-            assertThat(run.detail()).contains("tool_choice=none");
-            assertThat(store.tools(run.id())).extracting(ToolExecution::status).containsExactly("SKIPPED");
-            assertThat(requests).hasSize(1);
-        }
-        requests.clear();
-        Files.writeString(directory.resolve("App.java"), "x".repeat(5000));
-        try (var engine = engine(model, tools, 8, 4000)) {
+        Files.writeString(directory.resolve("App.java"), "x".repeat(30000));
+        try (var engine = engine(model, tools, 32, 4000)) {
             Run run = settled(submit(engine, store.createSession("budget").id()));
             assertThat(run.status()).isEqualTo(RunStatus.FAILED);
-            assertThat(run.detail()).contains("上下文容量");
+            assertThat(run.detail()).contains("上下文 token 容量");
             assertThat(requests).hasSize(1);
         }
     }
@@ -195,15 +187,12 @@ class ToolLoopTest {
         }
     }
 
-    @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {0, 64})
-    void longInvestigationPassesPreviousLimitsAndEndsWhenModelHasEnoughEvidence(int maxSteps) {
+    @Test void longInvestigationRunsUntilModelHasEnoughEvidence() {
         var model = model((request, cancel) -> {
             assertThat(request.finalAnswerOnly()).isFalse();
-            if (maxSteps == 0) assertThat(request.instructions()).contains("未设置固定轮次上限").doesNotContain("最后一次模型请求", "最后一步");
             return request.step() <= 40 ? new ModelTurn("", List.of(read("r" + request.step()))) : answer();
         });
-        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(30), 32000, tools, maxSteps)) {
+        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(30), 32000, tools, 32)) {
             Run submitted = submit(engine, store.createSession("long-investigation").id());
             await().atMost(Duration.ofSeconds(20)).until(() -> !store.run(submitted.id()).status().active());
             Run run = store.run(submitted.id());
@@ -226,7 +215,7 @@ class ToolLoopTest {
             new CountDownLatch(1).await();
             return answer();
         });
-        try (var engine = engine(model, tools, 0, 32000)) {
+        try (var engine = engine(model, tools, 32, 32000)) {
             Run run = submit(engine, store.createSession("stop-unbounded").id());
             assertThat(reached.await(10, TimeUnit.SECONDS)).isTrue();
             engine.cancel(run.id());
@@ -236,63 +225,33 @@ class ToolLoopTest {
         }
     }
 
-    @Test void lastStepClosesExplorationAndPersistsAnHonestAnswerWithoutExtraRequests() {
-        var model = model((request, cancel) -> {
-            assertThat(request.context().characters()).isEqualTo(request.instructions().length()
-                    + request.messages().stream().mapToInt(ModelMessage::characters).sum());
-            if (request.finalAnswerOnly()) {
-                assertThat(request.step()).isEqualTo(3);
-                assertThat(request.instructions()).contains("停止工具调用", "缺少的证据", "不能虚构");
-                return new ModelTurn("已确认 App.java 声明了 App 类；未找到主方法，不能确认程序入口。", List.of());
+    @Test void softDeadlineSkipsRemainingToolsAndRequestsAFinalAnswer() throws Exception {
+        WorkspaceTools slow = new WorkspaceTools() {
+            public String workspace() { return tools.workspace(); }
+            public List<ToolDefinition> definitions() { return tools.definitions(); }
+            public Result execute(ToolCall call, ModelProvider.Cancellation cancel) throws Exception {
+                Thread.sleep(5_000);
+                return new Result(true, "slow result");
             }
-            assertThat(request.instructions()).contains("search_files", "还可探索");
-            return new ModelTurn("", List.of(read("r" + request.step())));
-        });
-        String session = store.createSession("final-answer").id();
-        try (var engine = engine(model, tools, 3, 32000)) {
-            Run run = settled(submit(engine, session));
+        };
+        var model = model((request, cancel) -> request.finalAnswerOnly()
+                ? answer()
+                : new ModelTurn("", List.of(read("a"), read("b"))));
+        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(6), 32000, slow, 32)) {
+            Run submitted = submit(engine, store.createSession("soft-deadline").id());
+            await().atMost(Duration.ofSeconds(12)).until(() -> !store.run(submitted.id()).status().active());
+            Run run = store.run(submitted.id());
             assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
-            assertThat(run.output()).contains("不能确认程序入口");
-            assertThat(run.detail()).contains("探索步数上限", "未确认");
-            assertThat(store.tools(run.id())).hasSize(2).allMatch(tool -> tool.status().equals("COMPLETED"));
-            assertThat(requests).hasSize(3);
-            var persisted = store.modelRequests(run.id()).getLast();
-            assertThat(persisted.finalAnswerOnly()).isTrue();
-            assertThat(persisted.instructions()).isEqualTo(requests.getLast().instructions());
-            assertThat(store.conversation(run.id())).allMatch(message -> !message.content().contains("这是最后一次模型请求"));
-        }
-    }
-
-    @Test void emptyFinalResponseIsNotRecordedAsSuccessfulAnalysis() {
-        try (var engine = engine(model((request, cancel) -> new ModelTurn("", List.of())), tools, 1, 32000)) {
-            Run run = settled(submit(engine, store.createSession("empty-final").id()));
-            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
-            assertThat(run.detail()).contains("收尾阶段未返回文字");
-            assertThat(store.tools(run.id())).isEmpty();
-            assertThat(requests).hasSize(1);
-            assertThat(requests.getFirst().finalAnswerOnly()).isTrue();
-        }
-    }
-
-    @Test void finalAnswerStillCooperatesWithCancellation() throws Exception {
-        var reached = new CountDownLatch(1);
-        var model = model((request, cancel) -> {
-            if (!request.finalAnswerOnly()) return new ModelTurn("", List.of(read("r")));
-            reached.countDown();
-            new CountDownLatch(1).await();
-            return answer();
-        });
-        try (var engine = engine(model, tools, 2, 32000)) {
-            Run run = submit(engine, store.createSession("cancel-final").id());
-            assertThat(reached.await(3, TimeUnit.SECONDS)).isTrue();
-            engine.cancel(run.id());
-            assertThat(settled(run).status()).isEqualTo(RunStatus.CANCELLED);
+            assertThat(run.detail()).contains("时间预算");
+            assertThat(store.tools(run.id())).extracting(ToolExecution::status).containsExactly("COMPLETED", "SKIPPED");
             assertThat(requests).hasSize(2);
-            assertThat(store.tools(run.id())).extracting(ToolExecution::status).containsExactly("COMPLETED");
+            assertThat(requests.getLast().finalAnswerOnly()).isTrue();
+            assertThat(requests.getLast().tools()).isEmpty();
         }
     }
+
     @Test void historyWithToolsIsDroppedAsAWholeAndOtherWorkspacesAreExcluded() throws Exception {
-        Files.writeString(directory.resolve("App.java"), "x".repeat(5000));
+        Files.writeString(directory.resolve("App.java"), "x".repeat(30000));
         String session = store.createSession("history").id();
         var model = model((request, cancel) -> request.step() == 1 ? new ModelTurn("", List.of(read("r"))) : answer());
         try (var engine = engine(model, tools, 8, 32000)) {

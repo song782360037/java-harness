@@ -93,7 +93,7 @@ class RuntimeTest {
             opened.incrementAndGet();
             return new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), released::incrementAndGet);
         };
-        var old = new RunConfiguration(new ModelInfo("openai-compatible", "old", true), Duration.ofSeconds(5), 32000, 0, factory);
+        var old = new RunConfiguration(new ModelInfo("openai-compatible", "old", true), Duration.ofSeconds(5), 32000, 32, factory);
         var changed = new RunConfiguration(new ModelInfo("openai-compatible", "new", true), Duration.ofSeconds(5), 64000, 2, factory);
         var source = new java.util.concurrent.atomic.AtomicReference<>(old);
         try (var engine = new DefaultAgentEngine(store, source::get)) {
@@ -106,12 +106,12 @@ class RuntimeTest {
             }
             settled(first.id());
             assertThat(store.run(first.id()).output()).isEqualTo("old");
-            assertThat(store.run(first.id()).context().maxCharacters()).isEqualTo(32000);
+            assertThat(store.run(first.id()).context().maxTokens()).isEqualTo(16000);
             assertThat(engine.submit(session, requestId, "hello", "NORMAL").created()).isFalse();
             Run next = engine.submit(session, key(), "next", "NORMAL").run();
             settled(next.id());
             assertThat(store.run(next.id()).output()).isEqualTo("new");
-            assertThat(store.run(next.id()).context().maxCharacters()).isEqualTo(64000);
+            assertThat(store.run(next.id()).context().maxTokens()).isEqualTo(32000);
             assertThat(opened).hasValue(2);
             assertThat(released).hasValue(2);
         }
@@ -121,7 +121,7 @@ class RuntimeTest {
         var entered = new CountDownLatch(1);
         var released = new java.util.concurrent.atomic.AtomicInteger();
         TestModelProvider provider = (request, cancellation, text) -> { entered.countDown(); new CountDownLatch(1).await(); };
-        var config = new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 0,
+        var config = new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 32,
                 workspace -> new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), released::incrementAndGet));
         try (var engine = new DefaultAgentEngine(store, () -> config)) {
             var run = engine.submit(store.createSession("cancel").id(), key(), "hello", "NORMAL").run();

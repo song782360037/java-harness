@@ -8,12 +8,12 @@
 Web 提交输入（持有 requestId）
 → SessionController.submit → DefaultAgentEngine.submit
 → JdbcSessionStore.retry（先识别原请求；复用 ID 改模型/强度返回冲突）
-→ SettingsService.snapshot（按本次选择捕获模型、思考强度、连接/执行超时、上下文及步数配置）
+→ SettingsService.snapshot（按本次选择捕获模型、思考强度、连接/执行超时、token 窗口、输出预留及工具上限）
 → JdbcSessionStore.submit（事务：复制会话工作区到 Run + 保存选择 + 活动占位 + QUEUED 事件）
 → 虚拟线程：RUNNING → 根据捕获配置创建模型客户端和工作区工具
 → contextHistory → ConversationContext.build（完整轮次过滤、裁剪）
 → 每个模型步骤：
-    检查取消与上下文容量
+    检查取消与 token 容量
     → saveModelRequest（事务：不可覆盖的步骤快照 + context_summary + CONTEXT 事件）
     → OpenAiChatCompletionProvider.complete（标准 HTTP/SSE）
     → 文本回调：事务追加 TEXT 事件并更新输出
@@ -81,11 +81,11 @@ QUEUED 或 RUNNING → CANCELLING → CANCELLED / TIMED_OUT
 
 Session 保存 id、title、createdAt、workspace、modelProfileId、reasoningEffort，后两项为最近一次成功提交的选择。页面可选择本机现有可读目录，服务端规范化为绝对路径，模型工具仅访问该根目录。Run 保存 provider、model、context、workspace、modelProfileId、reasoningEffort，绑定提交时选择的配置和会话目录。新 provider 为 openai-compatible，不能据此判定实际厂商；旧来源标识保留。ModelRequest 包含 runId、model、scenario、messages、context、step、workspace、tools、instructions、finalAnswerOnly、reasoningEffort。instructions 以首条 system 消息发送，但不写入历史问答；finalAnswerOnly=true 时发送标准 tool_choice=none。页面展示系统指引、思考强度及“收尾回答”标记，消息条数包含系统消息。旧 JSON 的新字段默认为空字符串/false。ToolExecution 包含 runId、step、callId、name、arguments、status、output。快照不含鉴权配置；HTTP 适配器将 toolCalls/toolCallId 映射为标准 tool_calls/tool_call_id。
 
-配置保存请求包含 revision、baseUrl、modelName、apiKey、clearApiKey、apiKeyRequired、connectTimeoutSeconds、runTimeoutSeconds、contextMaxCharacters、maxSteps、toolTimeoutSeconds。apiKey 省略/空白表示保留，非空替换；clearApiKey=true 清除，不能同时提交新 Key。响应包含除 apiKey/clearApiKey 外的配置字段，并增加 apiKeyConfigured 和 model（ModelInfo）。保存不调用上游、不证明连通性；缺少模型名或必需 Key 时仍可保存，但不能提交新任务。字段范围及兼容地址示例见 README 的页面配置说明。
+配置保存请求包含 revision、baseUrl、modelName、apiKey、clearApiKey、apiKeyRequired、connectTimeoutSeconds、runTimeoutSeconds、contextWindowTokens、maxOutputTokens、toolTimeoutSeconds、maxToolsPerRequest。apiKey 省略/空白表示保留，非空替换；clearApiKey=true 清除，不能同时提交新 Key。响应包含除 apiKey/clearApiKey 外的配置字段，并增加 apiKeyConfigured 和 model（ModelInfo）。保存不调用上游、不证明连通性；缺少模型名或必需 Key 时仍可保存，但不能提交新任务。字段范围及兼容地址示例见 README 的页面配置说明。
 
 model-providers 新增/编辑请求为 revision、displayName、baseUrl、apiKey、clearApiKey、apiKeyRequired、connectTimeoutSeconds，Key 保留/清除规则同上。新增 provider 时省略 Key 不继承其他提供商的 Key。
 
-model-profiles 新增/编辑请求为 revision、providerId、displayName、modelName、reasoningEffort、runTimeoutSeconds、contextMaxCharacters、maxSteps、toolTimeoutSeconds；响应增加 id、providerName 和 model（ModelInfo），不含 baseUrl/Key/连接超时。新增同提供商的模型只需引用 providerId，使用该提供商共享连接。界面提供服务默认、none/minimal/low/medium/high/xhigh；服务默认不发送 reasoning_effort，其余透传，不保证任意兼容服务均支持。
+model-profiles 新增/编辑请求为 revision、providerId、displayName、modelName、reasoningEffort、runTimeoutSeconds、contextWindowTokens、maxOutputTokens、toolTimeoutSeconds、maxToolsPerRequest；响应增加 id、providerName 和 model（ModelInfo），不含 baseUrl/Key/连接超时。新增同提供商的模型只需引用 providerId，使用该提供商共享连接。界面提供服务默认、none/minimal/low/medium/high/xhigh；服务默认不发送 reasoning_effort，其余透传，不保证任意兼容服务均支持。
 
 错误返回 `{ code, message }`：无效输入 400，不存在 404，忙碌/状态冲突 409，正在停止/连接容量不足 503。前端持久化待确认 requestId，网络结果不明时以同 ID 重试，避免重复提交。
 
@@ -112,15 +112,15 @@ SSE 事件名 `run-event`，id 为会话内单调 seq。STATE 携带状态与原
 
 历史选取同会话、早于当前提交、COMPLETED、非 simulated、output 非空白且 workspace 为空或匹配当前目录的记录。切换模型/服务不切断合格历史；切换工作区会排除绑定其他目录的记录。按提交事件 seq 排序，按完整问答轮次保留最近后缀，工具调用与结果成对保留。
 
-默认 32000 UTF-16 字符预算包含系统指引、正文、调用 ID、名称、参数和工具结果，配置范围 4000–256000；不计工具定义及协议开销，也不是 token 计数。每步在加入本步系统指引后校验容量，超限则失败，禁止下一次模型请求，不截掉未配对结果。context 的 includedTurns/droppedTurns/excludedTurns 是历史轮数，characters 是本步全部消息字符数。
+上下文按 token 估算。每个模型配置上下文窗口（1024–2000000 tokens）和输出预留（64–131072 tokens，且小于窗口）；默认 16000 和 4096。输入预算扣除输出预留、系统指引、工具定义、消息与工具调用开销，并额外保留约 10% 安全余量。计数由 adapters 的本地 tokenizer 完成，未知模型族使用 o200k 近似；它不是上游精确 usage。每次请求前校验容量，超限则失败，禁止下一次模型请求，不截掉未配对结果。context 的 includedTurns/droppedTurns/excludedTurns 是历史轮数，tokens/maxTokens 是本步估算输入和窗口；characters/maxCharacters 保留用于读取旧快照。
 
-每步调用前保存快照，失败时不请求模型；快照存在不证明上游成功接收。页面 maxSteps 默认 0，不设固定请求轮数；ModelRequest.step 也不再限制为 32，后续步骤按原表逐条持久化。默认系统指引说明可根据证据继续调查，建议 Java 入口直接 search_files、目录树使用 depth=8，不按轮数强制终止或发送 tool_choice=none。
+每次请求调用前保存快照，失败时不请求模型；快照存在不证明上游成功接收。内部仍按请求序号持久化并按原表逐条恢复，但产品不暴露步骤，也不设请求轮数上限。默认系统指引说明可根据证据继续调查，建议 Java 入口直接 search_files、目录树使用 depth=8。
 
-显式配置正整数步数上限时，才在最后一步通过 tool_choice=none 关闭调用，要求根据已有结果回答并说明未确认项；成功时 COMPLETED 和探索上限提示与完整对话同事务保存。若返回空白文字或无视 tool_choice 继续请求工具，明确失败；后者调用保存为 SKIPPED，不执行。取消、总超时、上下文和输出限制在两种模式下都生效；不设轮次上限不代表无限时间或无限上下文。
+一次响应可以包含多个工具调用，引擎按索引顺序串行执行；每个模型配置单次工具上限（默认 32，最大 256），超出的调用保存为 SKIPPED，不访问文件系统，但仍追加对应 tool_call_id 的结果。为限制流式解析内存，单次响应最多累积 256 个不同调用，超过时失败且不执行该批。工具输入错误作为 FAILED 结果回传；读取行区间超过 200 行会自动限制为前 200 行并提示继续位置。没有自动 HTTP 重试或重启续跑。
 
-探索步每步最多实际执行 8 个工具。若模型返回更多调用，前 8 个按索引顺序执行，其余保存为 SKIPPED，不访问文件系统，但仍追加对应 tool_call_id 的结果，说明本步未执行及后续请求方法。工具输入错误作为 FAILED 结果回传；读取行区间超过 200 行会自动限制为前 200 行并提示继续位置。没有自动 HTTP 重试或重启续跑。
+剩余时间不足以预留约 20%（最多 30 秒）的收尾时间时，引擎停止执行新工具，剩余调用保存为 SKIPPED 并配对结果，随后发起一次不带工具的收尾请求；收尾请求仍计入总超时。取消、总超时、上下文和输出限制始终生效；不设轮数上限不代表无限时间或无限上下文。命令审批等待仍计入任务总超时。
 
-HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工作区仅发送 model、stream=true、messages；有工作区额外发送标准函数 tools。支持流式 tool_calls 的 index/id/function.name/function.arguments 分片累积，按 index 排序；索引必须为非负 int，可不连续，其数值不代表调用数量。单步最多累积 32 个不同索引（跨所有分片），超过时失败且不执行该批，避免无限累积。每个 ID 最多 128 字符、名称 64、参数 16384，拒绝重复 ID、非法索引和类型，并分别提示 index、type 或数量上限，避免混淆。工具参数必须是 JSON 对象且只含定义字段。正常文本需要 finish_reason=stop + [DONE]；工具步骤需要非空调用、finish_reason=tool_calls + [DONE]。
+HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工作区仅发送 model、stream=true、messages；有工作区额外发送标准函数 tools。支持流式 tool_calls 的 index/id/function.name/function.arguments 分片累积，按 index 排序；索引必须为非负 int，可不连续，其数值不代表调用数量。单次响应最多累积 256 个不同索引（跨所有分片），超过时失败且不执行该批，避免无限累积。每个 ID 最多 128 字符、名称 64、参数 16384，拒绝重复 ID、非法索引和类型，并分别提示 index、type 或数量上限，避免混淆。工具参数必须是 JSON 对象且只含定义字段。正常文本需要 finish_reason=stop + [DONE]；工具响应需要非空调用、finish_reason=tool_calls + [DONE]。
 
 支持角色、空内容及 usage-only 分段。EOF、缺失结束标记、非法 JSON、超长事件、HTTP 错误、非 SSE、长度截断、过滤和 refusal 都会失败并保留已提交文本。单事件最大 65536 字符，回答按不拆分代理对的 4096 字符分段入库，总输出最多 100000 字符。不保存 reasoning_content，不附加厂商扩展或固定生成 token 上限；仅在用户选择具体强度时发送标准 reasoning_effort。
 

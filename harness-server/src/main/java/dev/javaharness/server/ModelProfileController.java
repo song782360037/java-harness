@@ -13,17 +13,22 @@ public class ModelProfileController {
     public ModelProfileController(SettingsService settings) { this.settings = settings; }
     public record View(String id, String displayName, String reasoningEffort, long revision,
                        String providerId, String providerName, String modelName,
-                       int runTimeoutSeconds, int contextMaxCharacters,
-                       int maxSteps, int toolTimeoutSeconds, ModelInfo model) {}
+                       int runTimeoutSeconds, int contextWindowTokens, int maxOutputTokens,
+                       int toolTimeoutSeconds, int maxToolsPerRequest, ModelInfo model) {}
     public record Save(String displayName, String reasoningEffort, long revision, String providerId, String modelName,
-                       int runTimeoutSeconds, int contextMaxCharacters, int maxSteps, int toolTimeoutSeconds) {
-        ModelParameters value() { return new ModelParameters(modelName, runTimeoutSeconds, contextMaxCharacters, maxSteps, toolTimeoutSeconds); }
+                       int runTimeoutSeconds, int contextWindowTokens, int maxOutputTokens,
+                       int toolTimeoutSeconds, int maxToolsPerRequest) {
+        ModelParameters value() {
+            return new ModelParameters(modelName, runTimeoutSeconds, 0, 0, toolTimeoutSeconds, maxToolsPerRequest,
+                    contextWindowTokens, maxOutputTokens);
+        }
     }
     public record Delete(long revision) {}
     private View view(ModelProfile profile) {
         var value = profile.settings();
         return new View(profile.id(), profile.displayName(), profile.reasoningEffort(), value.revision(), profile.providerId(), profile.providerName(), value.modelName(),
-                value.runTimeoutSeconds(), value.contextMaxCharacters(), value.maxSteps(), value.toolTimeoutSeconds(), SettingsService.info(value));
+                value.runTimeoutSeconds(), value.contextWindowTokens(), value.maxOutputTokens(), value.toolTimeoutSeconds(),
+                value.maxToolsPerRequest(), SettingsService.info(value));
     }
     @GetMapping public List<View> list() { return settings.profiles().stream().map(this::view).toList(); }
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)

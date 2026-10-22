@@ -14,14 +14,14 @@ export const normalizeReasoningDepth = (value: string) => reasoningDepthOptions.
 export const effortLabel = (value: string) => reasoningOptions.find(option => option.value === value)?.label || '服务默认'
 export interface ModelProfile {
   id: string; displayName: string; reasoningEffort: string; revision: number; providerId: string; providerName: string
-  modelName: string; runTimeoutSeconds: number; contextMaxCharacters: number; maxSteps: number; toolTimeoutSeconds: number; model: ModelInfo
+  modelName: string; runTimeoutSeconds: number; contextWindowTokens: number; maxOutputTokens: number; toolTimeoutSeconds: number; maxToolsPerRequest: number; model: ModelInfo
 }
 export interface ProviderView {
   id: string; revision: number; displayName: string; baseUrl: string; apiKeyConfigured: boolean; apiKeyRequired: boolean; connectTimeoutSeconds: number
 }
 export interface SettingsView {
   revision: number; baseUrl: string; modelName: string; apiKeyConfigured: boolean; apiKeyRequired: boolean
-  connectTimeoutSeconds: number; runTimeoutSeconds: number; contextMaxCharacters: number; maxSteps: number; toolTimeoutSeconds: number
+  connectTimeoutSeconds: number; runTimeoutSeconds: number; contextWindowTokens: number; maxOutputTokens: number; toolTimeoutSeconds: number; maxToolsPerRequest: number
   model: ModelInfo
 }
 export interface DirectoryListing { path: string; parent: string; directories: { name: string; path: string }[]; truncated: boolean }
@@ -44,6 +44,7 @@ export interface ModelRequest {
 }
 export interface ContextSummary {
   includedTurns: number; droppedTurns: number; excludedTurns: number; characters: number; maxCharacters: number
+  tokens?: number; maxTokens?: number
 }
 export interface Run {
   id: string; sessionId: string; requestId: string; prompt: string; scenario: string

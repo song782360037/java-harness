@@ -20,7 +20,7 @@ harness-web        → Web API：Vue 工作台
 
 core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。SettingsService 实现 SPI 的 RunConfigurationSource，提交时捕获不可变配置；新任务执行时按捕获的配置创建 OpenAiChatCompletionProvider 和会话专属 LocalWorkspaceTools，结束时关闭该任务的 HTTP 客户端，幂等重试不创建资源。固定 provider 构造器供测试或嵌入场景使用，资源仍由调用者管理。厂商通过页面地址、Key、模型名切换。模拟器仅存在于 server 的 test 目录，不进入应用 JAR。ModelProvider 必须显式提供模型身份，并遵守取消和资源归属约定：stream 返回意味着本机的流消费已结束，不能在返回后继续回调；不代表远端推理或计费已经撤销。ModelException 只允许固定的用户可见消息，不能带上游正文或敏感异常原因。
 
-目前 Run 可包含多步模型与工作区工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每步先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本步完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 增加携带 runId 的默认执行入口，core 只依赖契约。ReviewWorkspaceTools 包装只读工具并增加文件修改提案能力，真正写文件仅在独立审核 API 中执行。CommandWorkspaceTools 在外层增加等待审批的命令调用；没有自动重试。GitWorkspaceTools 在最内层的 LocalWorkspaceTools 之上增加只读 git_status / git_diff，构造时用 `git rev-parse --show-toplevel` 探测，仅当工作区根等于仓库根时暴露工具（子目录会让 git 报告工作区之外的路径）；调用使用直接 argv、`--literal-pathspecs`（拒绝 glob 展开）、`--no-textconv` 与 `--no-ext-diff`（.gitattributes 或配置不能借 textconv、外部驱动执行命令）、`core.fsmonitor=false`、`GIT_OPTIONAL_LOCKS=0`，清除 GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE 等继承变量；`git_diff` 拒绝目录 pathspec（git 会展开目录并暴露其中的排除文件），并用 numstat 预检路径集合。WorkspacePaths 与 BoundedOutput 被文件工具和 git 工具共用，避免路径与截断规则漂移；解析输出使用独立的较大上限，统计不因显示截断失真。
+目前 Run 可包含多次模型请求与工作区工具调用。ConversationContext 按完整轮次保留 user/assistant/tool 消息，验证调用与结果配对；引擎每次请求前先持久化 ModelRequest，再由适配器序列化为标准 Chat Completions 消息。ModelProvider.complete 返回本次响应完整文本和调用列表；默认实现兼容旧的纯文本 stream。WorkspaceTools 增加携带 runId 的默认执行入口，core 只依赖契约。ReviewWorkspaceTools 包装只读工具并增加文件修改提案能力，真正写文件仅在独立审核 API 中执行。CommandWorkspaceTools 在外层增加等待审批的命令调用；没有自动重试。GitWorkspaceTools 在最内层的 LocalWorkspaceTools 之上增加只读 git_status / git_diff，构造时用 `git rev-parse --show-toplevel` 探测，仅当工作区根等于仓库根时暴露工具（子目录会让 git 报告工作区之外的路径）；调用使用直接 argv、`--literal-pathspecs`（拒绝 glob 展开）、`--no-textconv` 与 `--no-ext-diff`（.gitattributes 或配置不能借 textconv、外部驱动执行命令）、`core.fsmonitor=false`、`GIT_OPTIONAL_LOCKS=0`，清除 GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE 等继承变量；`git_diff` 拒绝目录 pathspec（git 会展开目录并暴露其中的排除文件），并用 numstat 预检路径集合。WorkspacePaths 与 BoundedOutput 被文件工具和 git 工具共用，避免路径与截断规则漂移；解析输出使用独立的较大上限，统计不因显示截断失真。
 
 ## 文件审核
 
@@ -39,9 +39,10 @@ core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。Settings
 | `HARNESS_PORT` | 8080 | 本地后端端口 |
 | `spring.datasource.url` | `jdbc:h2:file:./data/harness;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0` | 单实例文件数据库 |
 | `HARNESS_RUN_TIMEOUT` / `harness.run-timeout` | 120s | 一次 Run 的执行时间预算 |
-| `HARNESS_CONTEXT_MAX_CHARACTERS` / `harness.context.max-characters` | 32000 | 系统指引、正文、工具 ID/名称/参数/结果 UTF-16 字符预算，4000–256000，不是 token 限制 |
+| `HARNESS_CONTEXT_WINDOW_TOKENS` / `harness.context.window-tokens` | 16000 | 模型上下文窗口估算，1024–2000000 tokens |
+| `HARNESS_MAX_OUTPUT_TOKENS` / `harness.context.max-output-tokens` | 4096 | 输出预留，64–131072 tokens 且小于窗口；用于输入预算，不是上游硬限制 |
 | `HARNESS_SETTINGS_KEY_FILE` | `./data/settings.key` | API Key 加密所需的安装密钥，备份时与数据库一起保留 |
-| `HARNESS_TOOLS_MAX_STEPS` | 0 | 0 不设轮次上限；正整数为自定义总请求上限，只有配置上限时才在最后一步关闭工具并要求文字回答 |
+| `HARNESS_MAX_TOOLS_PER_REQUEST` / `harness.tools.max-tools-per-request` | 32 | 单次模型响应实际执行的工具上限，1–256；解析安全上限固定为 256 |
 | `HARNESS_TOOL_TIMEOUT` | 5s | 单工具协作式截止时间 |
 | `HARNESS_MODEL_API_KEY` | 空 | 首次初始化的 Bearer Key；页面支持保留、替换和清除 |
 | `HARNESS_MODEL_API_KEY_REQUIRED` | true | 无鉴权服务可显式设 false；不影响模型名必填 |
@@ -74,7 +75,7 @@ V7 创建提供商表及模型外键；JdbcSettingsStore 构造时在事务中�
 
 V3 增加 harness_model_request 和 Run 的 context_summary。快照插入、摘要更新与 CONTEXT 事件同一事务提交；唯一 run_id 防止覆盖。旧记录保持 context=null，GET 快照返回 204。消息快照按需读取，普通会话快照只包含计数摘要，避免在每次 SSE 刷新时重复加载所有历史请求。
 
-V4 增加工作区、后续步骤快照、工具执行与成功任务完整对话表。第一步保留 V3 存储及 GET 单快照接口；新增 GET model-requests 和 tools 接口。工具状态变化提交 TOOL 事件，前端按通知读取工具记录；模型输入只在展开时读取并随步骤刷新。终态取消/恢复会同步结算未完成工具。区分协议解析上限（32 个调用）与单步执行预算（8 个工具）；超出执行预算的调用从 PENDING 进入 SKIPPED，保存配对结果而不实际执行，下一步可由模型重新请求。索引仅标识调用，不能以 index >= 8 判断协议无效。
+V4 增加工作区、后续步骤快照、工具执行与成功任务完整对话表。第一步保留 V3 存储及 GET 单快照接口；新增 GET model-requests 和 tools 接口。工具状态变化提交 TOOL 事件，前端按通知读取工具记录；模型输入只在展开时读取并随步骤刷新。终态取消/恢复会同步结算未完成工具。区分协议解析安全上限（256 个调用）与模型配置的单次执行上限（默认 32，最大 256）；超出执行上限的调用从 PENDING 进入 SKIPPED，保存配对结果而不实际执行，下一次响应可由模型重新请求。索引仅标识调用，不能以 index >= 执行上限判断协议无效。
 
 历史候选以当前 Run 的 QUEUED 事件为界，按 seq 顺序查询，排除绑定其他工作区的轮次。每次组装读取该会话此前的 Run，适合本地小规模使用；发送内容受预算约束，数据库历史读取尚未分页。ModelMessage 校验完整工具配对，裁剪不可拆分一个用户轮次中的工具循环。工具输出是不可信数据，不能扩展工具权限；目录边界和排除规则不是操作系统沙箱。
 

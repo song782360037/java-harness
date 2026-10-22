@@ -98,18 +98,28 @@ class ConversationContextTest {
         String session = store.createSession("预算").id();
         history(session, "旧", "a".repeat(2500), RunStatus.COMPLETED, REAL);
         Run recent = history(session, "新", "🌱".repeat(1000), RunStatus.COMPLETED, REAL);
-        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 4000)) {
+        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 1400)) {
             Run current = submit(engine, session, "追问");
-            assertThat(current.context()).isEqualTo(new ContextSummary(1, 1, 0, 2003, 4000));
+            var context = current.context();
+            assertThat(context.includedTurns()).isEqualTo(1);
+            assertThat(context.droppedTurns()).isEqualTo(1);
+            assertThat(context.excludedTurns()).isZero();
+            assertThat(context.characters()).isEqualTo(2003);
+            assertThat(context.maxTokens()).isEqualTo(1400);
+            assertThat(context.tokens()).isPositive();
             assertThat(received.getLast().messages()).extracting(ModelMessage::content)
                     .containsExactly(recent.prompt(), recent.output(), current.prompt());
         }
         String other = store.createSession("大轮次").id();
         history(other, "很早", "短回答", RunStatus.COMPLETED, REAL);
         history(other, "最近", "x".repeat(4100), RunStatus.COMPLETED, REAL);
-        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 4000)) {
+        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 1400)) {
             Run current = submit(engine, other, "追问");
-            assertThat(current.context()).isEqualTo(new ContextSummary(0, 2, 0, 2, 4000));
+            var context = current.context();
+            assertThat(context.includedTurns()).isZero();
+            assertThat(context.droppedTurns()).isEqualTo(2);
+            assertThat(context.characters()).isEqualTo(2);
+            assertThat(context.maxTokens()).isEqualTo(1400);
             assertThat(received.getLast().messages()).containsExactly(new ModelMessage("user", "追问"));
         }
     }
@@ -190,14 +200,18 @@ class ConversationContextTest {
         assertThat(migrated.modelRequest("r")).isNull();
     }
 
-    @Test void budgetAcceptsAnExactBoundaryAndRejectsInvalidConfiguration() {
+    @Test void budgetIncludesAFittingTurnAndRejectsInvalidConfiguration() {
         String session = store.createSession("精确预算").id();
-        history(session, "问", "x".repeat(3998), RunStatus.COMPLETED, REAL);
+        history(session, "问", "短回答", RunStatus.COMPLETED, REAL);
         try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 4000)) {
             Run current = submit(engine, session, "追");
-            assertThat(current.context()).isEqualTo(new ContextSummary(1, 0, 0, 4000, 4000));
+            var context = current.context();
+            assertThat(context.includedTurns()).isEqualTo(1);
+            assertThat(context.droppedTurns()).isZero();
+            assertThat(context.maxTokens()).isEqualTo(4000);
+            assertThat(context.tokens()).isPositive();
         }
-        assertThatThrownBy(() -> new ConversationContext(3999)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ConversationContext(256001)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ConversationContext(255)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ConversationContext(2_000_001)).isInstanceOf(IllegalArgumentException.class);
     }
 }

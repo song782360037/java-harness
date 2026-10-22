@@ -61,8 +61,8 @@ async function createModel() {
   if (!provider.value?.id) return
   editingId.value = ''
   form.value = { id: '', revision: 0, providerId: provider.value.id, providerName: provider.value.displayName,
-    displayName: '', modelName: '', reasoningEffort: '', runTimeoutSeconds: 120, contextMaxCharacters: 32000,
-    maxSteps: 0, toolTimeoutSeconds: 5, model: { provider: 'openai-compatible', model: '', configured: false } }
+    displayName: '', modelName: '', reasoningEffort: '', runTimeoutSeconds: 120, contextWindowTokens: 16000, maxOutputTokens: 4096,
+    toolTimeoutSeconds: 5, maxToolsPerRequest: 32, model: { provider: 'openai-compatible', model: '', configured: false } }
   resetFeedback()
   editingModel.value = true
   await focusModelEditor()
@@ -220,8 +220,9 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                       <template v-if="form.id"><label for="model-provider">所属提供商</label><select id="model-provider" v-model="form.providerId"><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></template>
                       <div class="settings-grid">
                         <label>任务总超时（秒）<input v-model.number="form.runTimeoutSeconds" type="number" required min="1" max="86400" step="1" /></label>
-                        <label>上下文容量（字符）<input v-model.number="form.contextMaxCharacters" type="number" required min="4000" max="256000" step="1" /></label>
-                        <label>模型步数上限（0 不限）<input v-model.number="form.maxSteps" type="number" required min="0" max="2147483647" step="1" /></label>
+                        <label>上下文窗口（tokens）<input v-model.number="form.contextWindowTokens" type="number" required min="1024" max="2000000" step="1" /></label>
+                        <label>输出预留（tokens）<input v-model.number="form.maxOutputTokens" type="number" required min="64" max="131072" step="1" /></label>
+                        <label>单次工具上限<input v-model.number="form.maxToolsPerRequest" type="number" required min="1" max="256" step="1" /></label>
                         <label>单工具超时（秒）<input v-model.number="form.toolTimeoutSeconds" type="number" required min="1" max="300" step="1" /></label>
                       </div>
                     </details>

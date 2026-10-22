@@ -39,12 +39,14 @@ public class RuntimeConfiguration {
             @Value("${harness.model.api-key-required}") boolean apiKeyRequired,
             @Value("${harness.model.connect-timeout}") Duration connectTimeout,
             @Value("${harness.run-timeout}") Duration runTimeout,
-            @Value("${harness.context.max-characters}") int maxCharacters,
-            @Value("${harness.tools.max-steps}") int maxSteps,
+            @Value("${harness.context.window-tokens}") int contextWindowTokens,
+            @Value("${harness.context.max-output-tokens}") int maxOutputTokens,
+            @Value("${harness.tools.max-tools-per-request}") int maxToolsPerRequest,
             @Value("${harness.tools.timeout}") Duration toolTimeout) {
         var storage = new JdbcSettingsStore(jdbc, new LocalSecretCipher(Path.of(keyFile)));
         return new SettingsService(storage, new HarnessSettings(1, baseUrl, apiKey, modelName, apiKeyRequired,
-                (int) connectTimeout.toSeconds(), (int) runTimeout.toSeconds(), maxCharacters, maxSteps, (int) toolTimeout.toSeconds()), changes, commands);
+                (int) connectTimeout.toSeconds(), (int) runTimeout.toSeconds(), 0, 0, (int) toolTimeout.toSeconds(),
+                maxToolsPerRequest, contextWindowTokens, maxOutputTokens), changes, commands);
     }
 
     @Bean

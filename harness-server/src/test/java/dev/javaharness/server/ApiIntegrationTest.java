@@ -36,7 +36,7 @@ class ApiIntegrationTest {
         @Bean @Primary
         RunConfigurationSource testConfiguration() {
             var provider = new SimulatedModelProvider(20);
-            return () -> new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 0,
+            return () -> new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 32,
                     workspace -> new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), () -> {}));
         }
     }

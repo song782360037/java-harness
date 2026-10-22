@@ -40,7 +40,8 @@ public final class SettingsService implements RunConfigurationSource {
         if (clearApiKey && !key.isEmpty()) throw new HarnessException("INVALID", "清除 API Key 时不能同时填写新 Key");
         if (key.isEmpty() && !clearApiKey && old != null) key = old.apiKey();
         String base = requested.baseUrl() == null ? "" : requested.baseUrl().strip();
-        validate(new HarnessSettings(1, base, key, "", requested.apiKeyRequired(), requested.connectTimeoutSeconds(), 120, 32000, 0, 5));
+        validate(new HarnessSettings(1, base, key, "", requested.apiKeyRequired(), requested.connectTimeoutSeconds(),
+                120, 0, 0, 5, 32, 16000, 4096));
         return store.saveProvider(new ProviderSettings(requested.id(), requested.revision(), requested.displayName().strip(), base, key,
                 requested.apiKeyRequired(), requested.connectTimeoutSeconds()));
     }
@@ -53,7 +54,8 @@ public final class SettingsService implements RunConfigurationSource {
         if (id == null && revision != 0) throw new HarnessException("INVALID", "新模型版本需为 0");
         if (id != null) store.profile(id);
         var normalized = new ModelParameters(parameters.modelName() == null ? "" : parameters.modelName().strip(), parameters.runTimeoutSeconds(),
-                parameters.contextMaxCharacters(), parameters.maxSteps(), parameters.toolTimeoutSeconds());
+                parameters.contextMaxCharacters(), parameters.maxSteps(), parameters.toolTimeoutSeconds(), parameters.maxToolsPerRequest(),
+                parameters.contextWindowTokens(), parameters.maxOutputTokens());
         validate(normalized.resolve(revision, store.provider(providerId)));
         return store.saveModel(id, providerId, name.strip(), effort, normalized, revision);
     }
@@ -74,7 +76,8 @@ public final class SettingsService implements RunConfigurationSource {
         if (key.isEmpty() && !clearApiKey) key = current.apiKey();
         var value = new HarnessSettings(current.revision(), requested.baseUrl() == null ? "" : requested.baseUrl().strip(), key,
                 requested.modelName() == null ? "" : requested.modelName().strip(), requested.apiKeyRequired(), requested.connectTimeoutSeconds(),
-                requested.runTimeoutSeconds(), requested.contextMaxCharacters(), requested.maxSteps(), requested.toolTimeoutSeconds());
+                requested.runTimeoutSeconds(), requested.contextMaxCharacters(), requested.maxSteps(), requested.toolTimeoutSeconds(),
+                requested.maxToolsPerRequest(), requested.contextWindowTokens(), requested.maxOutputTokens());
         validate(value);
         return id == null ? store.createProfile(name.strip(), effort, value)
                 : store.saveProfile(id, name.strip(), effort, value, current.revision());
@@ -89,9 +92,11 @@ public final class SettingsService implements RunConfigurationSource {
         if (settings.baseUrl() == null || settings.baseUrl().length() > 2048 || settings.apiKey() == null || settings.apiKey().length() > 8192
                 || settings.connectTimeoutSeconds() < 1 || settings.connectTimeoutSeconds() > 300
                 || settings.runTimeoutSeconds() < 1 || settings.runTimeoutSeconds() > 86400
-                || settings.contextMaxCharacters() < 4000 || settings.contextMaxCharacters() > 256000
-                || settings.maxSteps() < 0 || settings.toolTimeoutSeconds() < 1 || settings.toolTimeoutSeconds() > 300) {
-            throw new HarnessException("INVALID", "请检查配置：连接/工具超时 1–300 秒，任务超时 1–86400 秒，上下文 4000–256000 字符，步数为非负整数");
+                || settings.contextWindowTokens() < 1024 || settings.contextWindowTokens() > 2_000_000
+                || settings.maxOutputTokens() < 64 || settings.maxOutputTokens() >= settings.contextWindowTokens()
+                || settings.toolTimeoutSeconds() < 1 || settings.toolTimeoutSeconds() > 300
+                || settings.maxToolsPerRequest() < 1 || settings.maxToolsPerRequest() > ToolCall.MAX_BATCH_SIZE) {
+            throw new HarnessException("INVALID", "请检查配置：连接/工具超时 1–300 秒，任务超时 1–86400 秒，上下文窗口 1024–2000000 tokens 且大于最大输出，单次工具上限 1–" + ToolCall.MAX_BATCH_SIZE);
         }
         try (var ignored = provider(settings)) { /* Constructor validates endpoint, credentials and model without networking. */ }
         catch (IllegalArgumentException error) { throw new HarnessException("INVALID", "模型配置无效：请检查基础地址、模型名称和 API Key 格式；远程地址需 HTTPS，本机可用 HTTP"); }
@@ -109,7 +114,9 @@ public final class SettingsService implements RunConfigurationSource {
         var profile = store.profile(selection.profileId() == null ? "default" : selection.profileId());
         HarnessSettings captured = profile.settings();
         var chosen = new ModelSelection(profile.id(), selection.reasoningEffort() == null ? profile.reasoningEffort() : selection.reasoningEffort());
-        return new RunConfiguration(info(captured), Duration.ofSeconds(captured.runTimeoutSeconds()), captured.contextMaxCharacters(), captured.maxSteps(), workspace -> {
+        return new RunConfiguration(info(captured), Duration.ofSeconds(captured.runTimeoutSeconds()),
+                captured.contextWindowTokens(), captured.maxOutputTokens(), captured.maxToolsPerRequest(),
+                new JtokkitTokenCounter(captured.modelName()), workspace -> {
             var model = provider(captured);
             try {
                 var roots = WorkspaceRoots.directories(workspace);

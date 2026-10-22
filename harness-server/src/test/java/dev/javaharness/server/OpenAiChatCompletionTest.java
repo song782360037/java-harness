@@ -357,7 +357,7 @@ class OpenAiChatCompletionTest {
     private static com.fasterxml.jackson.databind.node.ArrayNode wireConversation(com.fasterxml.jackson.databind.JsonNode request) {
         var messages = (com.fasterxml.jackson.databind.node.ArrayNode) request.path("messages").deepCopy();
         assertThat(messages.get(0).path("role").asText()).isEqualTo("system");
-        assertThat(messages.remove(0).path("content").asText()).contains("search_files", "最后一步");
+        assertThat(messages.remove(0).path("content").asText()).contains("search_files", "按顺序执行");
         return messages;
     }
 
@@ -423,38 +423,6 @@ class OpenAiChatCompletionTest {
         }
     }
 
-    @Test void finalRequestUsesStandardToolChoiceNoneAndReturnsEvidenceBasedAnswer(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
-        java.nio.file.Files.writeString(directory.resolve("App.java"), "class App {}\n");
-        serve(exchange -> {
-            headers(exchange);
-            var request = new ObjectMapper().readTree(body.get());
-            var messages = request.path("messages");
-            assertThat(messages.get(0).path("role").asText()).isEqualTo("system");
-            if (calls.get() == 1) {
-                assertThat(request.has("tool_choice")).isFalse();
-                write(exchange, toolChunk("[" + toolDelta(0, "r", "read_file", "{\"path\":\"App.java\"}") + "]", "tool_calls") + "data: [DONE]\n\n");
-            } else {
-                assertThat(calls).hasValue(2);
-                assertThat(request.path("tool_choice").asText()).isEqualTo("none");
-                assertThat(messages.get(0).path("content").asText()).contains("停止工具调用", "不能虚构");
-                assertThat(messages.get(messages.size() - 1).path("content").asText()).contains("class App {}");
-                write(exchange, chunk("已读取 App.java，仅声明 App 类；尚未确认程序入口。", "stop") + "data: [DONE]\n\n");
-            }
-        });
-        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 32000,
-                new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 2)) {
-            Run run = settled(submit(engine));
-            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
-            assertThat(run.output()).contains("尚未确认程序入口");
-            assertThat(run.detail()).contains("探索步数上限");
-            var saved = store.modelRequests(run.id());
-            assertThat(saved).hasSize(2);
-            assertThat(saved.getLast().finalAnswerOnly()).isTrue();
-            assertThat(saved.getLast().instructions()).isEqualTo(new ObjectMapper().readTree(body.get()).path("messages").get(0).path("content").asText());
-            assertThat(store.tools(run.id())).hasSize(1);
-        }
-    }
-
     @Test void sparseIndexesIdentifyCallsAndDoNotConsumeTheExecutionBudget(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
         serve(exchange -> {
             headers(exchange);
@@ -477,7 +445,7 @@ class OpenAiChatCompletionTest {
         serve(exchange -> {
             headers(exchange);
             var deltas = new java.util.ArrayList<String>();
-            for (int i = 0; i < 33; i++) deltas.add(toolDelta(i, "call" + i, "list_directory", "{}"));
+            for (int i = 0; i < ToolCall.MAX_BATCH_SIZE + 1; i++) deltas.add(toolDelta(i, "call" + i, "list_directory", "{}"));
             if (fragmented) for (String delta : deltas) write(exchange, toolChunk("[" + delta + "]", null));
             else write(exchange, toolChunk("[" + String.join(",", deltas) + "]", "tool_calls"));
             write(exchange, "data: [DONE]\n\n");
@@ -486,7 +454,7 @@ class OpenAiChatCompletionTest {
                 new LocalWorkspaceTools(directory, Duration.ofSeconds(5)), 8)) {
             Run run = settled(submit(engine));
             assertThat(run.status()).isEqualTo(RunStatus.FAILED);
-            assertThat(run.detail()).contains("32", "解析上限");
+            assertThat(run.detail()).contains("解析上限");
             assertThat(store.tools(run.id())).isEmpty();
             assertThat(calls).hasValue(1);
         }

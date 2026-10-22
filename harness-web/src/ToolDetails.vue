@@ -21,7 +21,7 @@ watch(() => props.revision, load)
   <div v-if="tools.length || error" class="tool-list" aria-label="工具执行记录">
     <p v-if="error" role="alert">{{ error }} <button @click="load">重试</button></p>
     <details v-for="tool in tools" :key="tool.callId" class="tool-card">
-      <summary>第 {{ tool.step }} 步 · {{ tool.name }} · {{ labels[tool.status] || tool.status }}</summary>
+      <summary>{{ tool.name }} · {{ labels[tool.status] || tool.status }}</summary>
       <p>调用 ID：{{ tool.callId }}</p>
       <strong>参数</strong><pre>{{ tool.arguments }}</pre>
       <strong>结果</strong><pre>{{ tool.output || '等待工具结果…' }}</pre>

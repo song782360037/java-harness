@@ -1,5 +1,6 @@
 package dev.javaharness.server;
 
+import dev.javaharness.core.TokenBudget;
 import dev.javaharness.spi.*;
 import java.time.Duration;
 import java.util.List;
@@ -83,9 +84,11 @@ public final class SessionNamingService implements AutoCloseable {
         try (RunConfiguration.Resources resources = configuration.resources().open("")) {
             String clipped = clip(prompt, MAX_PROMPT_CHARACTERS);
             String instructions = "请用不超过 10 个字符概括以下内容的主题作为会话标题，只输出标题本身，不要输出标点、引号、换行或解释。\n\n";
+            int tokens = new TokenBudget(configuration.tokenCounter())
+                    .message(new ModelMessage("user", instructions + clipped));
             var request = new ModelRequest(UUID.randomUUID().toString(), configuration.modelInfo().model(), "NORMAL",
                     List.of(new ModelMessage("user", instructions + clipped)),
-                    new ContextSummary(0, 0, 0, instructions.length() + clipped.length(), configuration.contextMaxCharacters()));
+                    new ContextSummary(0, 0, 0, instructions.length() + clipped.length(), 0, tokens, configuration.contextWindowTokens()));
             return normalize(resources.model().complete(request, () -> {}, text -> {}).text());
         }
     }

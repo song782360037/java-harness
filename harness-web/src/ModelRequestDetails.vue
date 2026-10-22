@@ -31,12 +31,12 @@ watch(() => props.revision, load)
 
 <template>
   <details class="request-details" @toggle="toggle">
-    <summary>查看每步模型输入</summary>
-    <p>调用前保存的消息快照，不代表上游已成功接收。工具结果会随下一步请求发送。</p>
+    <summary>查看模型输入</summary>
+    <p>调用前保存的消息快照，不代表上游已成功接收。工具结果会随下一次请求发送。</p>
     <p v-if="loading">正在读取…</p>
     <p v-if="error" role="alert">{{ error }} <button @click="load">重试</button></p>
     <details v-for="request in requests" :key="request.step" class="request-message">
-      <summary>第 {{ request.step }} 步 · {{ request.messages.length + (request.instructions ? 1 : 0) }} 条消息{{ request.finalAnswerOnly ? ' · 收尾回答' : '' }}</summary>
+      <summary>请求 {{ request.step }} · {{ request.messages.length + (request.instructions ? 1 : 0) }} 条消息{{ request.finalAnswerOnly ? ' · 收尾回答' : '' }}</summary>
       <p>工作区目录：{{ workspaceSummary(request.workspace) || '未配置' }} · {{ request.finalAnswerOnly ? '工具调用已关闭' : `可用工具：${request.tools.map(tool => tool.name).join('、') || '无'}` }}</p>
       <p>思考强度：{{ effortLabel(request.reasoningEffort) }}</p>
       <div v-if="request.instructions" class="request-message"><strong>系统指引</strong><pre>{{ request.instructions }}</pre></div>

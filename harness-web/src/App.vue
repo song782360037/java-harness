@@ -614,7 +614,7 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
         <header class="inspector-header"><h2 id="inspector-title" ref="inspectorHeading" tabindex="-1">执行详情</h2><button type="button" class="icon-button" aria-label="关闭执行详情" @click="closeInspector"><UiIcon name="close" :size="16" /></button></header>
         <div class="inspector-content">
           <dl class="execution-metadata"><dt>状态</dt><dd>{{ activityLabel(inspectedRun) }}</dd><dt>模型</dt><dd>{{ inspectedRun.model }}</dd><dt>思考强度</dt><dd>{{ effortLabel(inspectedRun.reasoningEffort) }}</dd><dt v-if="inspectedRun.workspace">工作区目录</dt><dd v-if="inspectedRun.workspace">{{ workspaceSummary(inspectedRun.workspace) }}</dd></dl>
-          <p v-if="inspectedRun.context" class="run-detail">携带 {{ inspectedRun.context.includedTurns }} 轮历史<span v-if="inspectedRun.context.droppedTurns"> · 已裁剪 {{ inspectedRun.context.droppedTurns }} 轮</span><span v-if="inspectedRun.context.excludedTurns"> · 已跳过 {{ inspectedRun.context.excludedTurns }} 条</span></p>
+          <p v-if="inspectedRun.context" class="run-detail">携带 {{ inspectedRun.context.includedTurns }} 轮历史<span v-if="inspectedRun.context.droppedTurns"> · 已裁剪 {{ inspectedRun.context.droppedTurns }} 轮</span><span v-if="inspectedRun.context.excludedTurns"> · 已跳过 {{ inspectedRun.context.excludedTurns }} 条</span><span v-if="inspectedRun.context.tokens"> · 约 {{ inspectedRun.context.tokens }} / {{ inspectedRun.context.maxTokens }} tokens</span></p>
           <ToolDetails :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
           <ModelRequestDetails v-if="inspectedRun.context" :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
         </div>

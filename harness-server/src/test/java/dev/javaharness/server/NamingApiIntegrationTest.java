@@ -34,7 +34,7 @@ class NamingApiIntegrationTest {
 
         @Bean @Primary
         RunConfigurationSource testConfiguration(GatedNamingProvider provider) {
-            return () -> new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 0,
+            return () -> new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 32,
                     workspace -> new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), () -> {}));
         }
     }
