@@ -2,6 +2,7 @@ package dev.javaharness.server;
 
 import dev.javaharness.adapters.*;
 import dev.javaharness.spi.*;
+import dev.javaharness.adapters.plugins.PluginService;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -10,6 +11,7 @@ public final class SettingsService implements RunConfigurationSource {
     private final JdbcSettingsStore store;
     private final FileChangeService changes;
     private final CommandService commands;
+    private final PluginService plugins;
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial) {
         this(store, initial, null);
     }
@@ -17,9 +19,13 @@ public final class SettingsService implements RunConfigurationSource {
         this(store, initial, changes, null);
     }
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial, FileChangeService changes, CommandService commands) {
+        this(store, initial, changes, commands, null);
+    }
+    public SettingsService(JdbcSettingsStore store, HarnessSettings initial, FileChangeService changes, CommandService commands, PluginService plugins) {
         this.store = store;
         this.changes = changes;
         this.commands = commands;
+        this.plugins = plugins;
         if (store.current() == null) { validate(initial); store.initialize(initial); }
     }
 
@@ -108,6 +114,10 @@ public final class SettingsService implements RunConfigurationSource {
 
     @Override public RunConfiguration snapshot() {
         return snapshot(ModelSelection.DEFAULT);
+    }
+
+    @Override public RunExtension extensions(Session session, String prompt) {
+        return plugins == null ? RunExtension.none() : plugins.prepare(session, prompt);
     }
 
     @Override public RunConfiguration snapshot(ModelSelection selection) {

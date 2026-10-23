@@ -60,14 +60,23 @@ public final class DefaultAgentEngine implements AgentEngine {
         var retry = store.retry(sessionId, requestId, prompt, scenario, selection);
         if (retry != null) return retry;
         RunConfiguration configuration = configurations.snapshot(selection);
-        var submission = store.submit(sessionId, requestId, prompt, scenario, configuration.modelInfo(), selection, configuration.selection());
-        if (!submission.created()) return submission;
+        RunExtension extension;
+        SessionStore.Submission submission;
+        synchronized (store) {
+            extension = configurations.extensions(store.snapshot(sessionId).session(), prompt);
+            try {
+                submission = store.submit(sessionId, requestId, prompt, scenario, configuration.modelInfo(), selection, configuration.selection(), extension.snapshot());
+                if (submission.created()) extension.submitted(submission.run().id());
+            } catch (RuntimeException error) { extension.close(); throw error; }
+        }
+        if (!submission.created()) { extension.close(); return submission; }
         var task = new Task();
         tasks.put(submission.run().id(), task);
         try {
-            workers.execute(() -> execute(submission.run(), task, configuration));
+            workers.execute(() -> execute(submission.run(), task, configuration, extension));
         } catch (RejectedExecutionException error) {
             tasks.remove(submission.run().id());
+            extension.close();
             store.transition(submission.run().id(), RunStatus.FAILED, "执行器不可用");
             throw new HarnessException("UNAVAILABLE", "执行器不可用");
         }
@@ -91,7 +100,7 @@ public final class DefaultAgentEngine implements AgentEngine {
         if (task.thread != null) task.thread.interrupt();
     }
 
-    private void execute(Run run, Task task, RunConfiguration configuration) {
+    private void execute(Run run, Task task, RunConfiguration configuration, RunExtension extension) {
         ScheduledFuture<?> deadline = null;
         RunConfiguration.Resources resources = null;
         String failure = null;
@@ -109,14 +118,19 @@ public final class DefaultAgentEngine implements AgentEngine {
             }
             resources = configuration.resources().open(run.workspace());
             ModelProvider model = resources.model();
-            WorkspaceTools tools = resources.tools();
+            ModelProvider.Cancellation cancellation = () -> {
+                synchronized (this) {
+                    if (task.stopReason != null || Thread.currentThread().isInterrupted()) throw new InterruptedException("run stopped");
+                }
+            };
+            WorkspaceTools tools = extension.open(run.id(), resources.tools(), cancellation);
             int maxToolsPerRequest = configuration.maxToolsPerRequest();
             int contextWindowTokens = configuration.contextWindowTokens();
             int maxOutputTokens = configuration.maxOutputTokens();
             TokenCounter counter = configuration.tokenCounter();
             TokenBudget budget = new TokenBudget(counter);
             boolean toolEnabled = !tools.definitions().isEmpty();
-            String normalInstructions = toolEnabled ? AgentInstructions.forRequest() : "";
+            String normalInstructions = (toolEnabled ? AgentInstructions.forRequest() : "") + extension.instructions();
             int reserved = maxOutputTokens + budget.tools(tools.definitions()) + counter.count(normalInstructions);
             int historyBudget = contextWindowTokens - reserved - TokenBudget.safety(contextWindowTokens);
             long timeoutNanos = configuration.timeout().toNanos();
@@ -129,13 +143,6 @@ public final class DefaultAgentEngine implements AgentEngine {
                 request = new ConversationContext(counter, historyBudget).build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
             }
             final String runId = run.id();
-            ModelProvider.Cancellation cancellation = () -> {
-                synchronized (this) {
-                    if (task.stopReason != null || Thread.currentThread().isInterrupted()) {
-                        throw new InterruptedException("run stopped");
-                    }
-                }
-            };
             java.util.function.Consumer<String> onText = text -> {
                 synchronized (this) {
                     if (task.stopReason == null && !Thread.currentThread().isInterrupted()) {
@@ -149,7 +156,7 @@ public final class DefaultAgentEngine implements AgentEngine {
             boolean finalRequest = false;
             for (int step = 1; ; step = Math.incrementExact(step)) {
                 cancellation.check();
-                String instructions = finalRequest ? AgentInstructions.forFinalAnswer() : normalInstructions;
+                String instructions = finalRequest ? extension.instructions() + AgentInstructions.forFinalAnswer() : normalInstructions;
                 List<ToolDefinition> requestTools = finalRequest ? List.of() : tools.definitions();
                 int characters = instructions.length() + messages.stream().mapToInt(ModelMessage::characters).sum();
                 int tokens = budget.input(messages, instructions, requestTools);
@@ -208,11 +215,15 @@ public final class DefaultAgentEngine implements AgentEngine {
             failure = "执行被中断";
         } catch (ModelException error) {
             failure = error.getMessage();
+        } catch (HarnessException error) {
+            failure = error.getMessage();
         } catch (Exception error) {
             failure = "模型执行失败";
             System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING, "Run " + run.id() + " failed", error);
         } finally {
             if (deadline != null) deadline.cancel(false);
+            try { extension.close(); }
+            catch (RuntimeException error) { if (failure == null) failure = "释放插件资源失败"; }
             if (resources != null) {
                 try { resources.close(); }
                 catch (RuntimeException error) { if (failure == null) failure = "释放模型连接失败"; }

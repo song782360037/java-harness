@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "dependencies": {
+      "type": "stdio",
+      "command": "java",
+      "args": ["-jar", "${PLUGIN_ROOT}/server/dependency-report.jar"]
+    }
+  }
+}

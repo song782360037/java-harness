@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "java-review",
+  "version": "1.0.0",
+  "description": "追踪调用链、区分新增回归与历史问题的 Java 审查工作流",
+  "extensions": {
+    "dev.javaharness": { "schemaVersion": 1, "requires": ["skills", "commands"] }
+  }
+}

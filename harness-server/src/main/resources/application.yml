@@ -1,4 +1,8 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 16MB
+      max-request-size: 17MB
   application:
     name: java-harness
   datasource:
@@ -30,6 +34,8 @@ management:
       show-details: never
 
 harness:
+  plugins:
+    directory: ${HARNESS_PLUGIN_DIRECTORY:./data/plugins}
   settings:
     key-file: ${HARNESS_SETTINGS_KEY_FILE:./data/settings.key}
   session-naming:

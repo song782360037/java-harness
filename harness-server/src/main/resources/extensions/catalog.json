@@ -1,0 +1,37 @@
+{
+  "version": "1.0.1",
+  "workflows": {
+    "java-review": {"description":"沿实际调用链审查 Java 变更，区分新增回归与历史问题。","body":"先读取变更、项目约定及调用方，确认输入、状态转换、事务和异常传播。对照修改前版本，区分本次引入的问题与历史缺陷。只报告有明确触发条件和业务影响的问题，提供文件位置、证据、修复建议和必要的回归验证；证据不足时明确说明。不要擅自修改或提交代码。"},
+    "project-map": {"description":"从工程入口、模块边界和数据流建立项目全局视图。","body":"先查看目录、构建文件、README 和运行配置，再定位应用入口与主要业务模块。选择一条真实请求追踪入口、服务、存储和外部依赖，说明静态可达性与实际运行证据的区别。输出模块关系、关键调用链及下一步阅读入口，给出可核对的源码位置。不要把未执行的路径描述为已验证。"},
+    "root-cause": {"description":"从现象出发，沿日志、状态与调用链定位问题根因。","body":"先明确预期行为、实际现象、时间范围及最小复现条件。沿真实调用链提出少量可证伪的假设，用日志、源码与测试逐一排除。区分触发因素、直接原因和影响范围，说明结论的证据强度。给出最小修复与回归方案；不通过吞异常、写死结果或移除校验掩盖问题。"},
+    "test-plan": {"description":"把需求转为正常、边界、异常及恢复场景的验收清单。","body":"先核对需求、现有实现和本次变更边界。覆盖核心业务流程、关键边界、错误输入、权限、取消、重试和恢复，按实际风险选择场景。每个用例说明前置条件、操作、预期结果及可观察证据。标明自动化与人工验收的范围，不声称未执行的测试已经通过。"},
+    "architecture": {"description":"梳理系统边界、依赖与时序，生成可验证的架构说明。","body":"读取模块依赖、接口、配置和关键调用点后再建模。区分组件、进程、数据库与外部系统，展示一条核心业务时序，并标注同步、异步、状态归属与失败处理。需要图示时使用 Mermaid，确保节点和关系对应真实源码；将目标设计与当前实现分开，说明权衡与演进顺序。"},
+    "release-check": {"description":"核对变更、配置、兼容性和回滚条件，形成发布检查表。","body":"对照变更范围检查构建、测试、迁移、配置、启动依赖和向后兼容性。区分本地验证、测试环境验证和目标主机验收；记录尚未验证的条件。输出最小发布顺序、健康检查和回滚前提。部署、数据库写入、停止服务和对外发布都需用户授权，不自动执行。"},
+    "frontend-design": {"description":"设计清晰、克制且可落地的界面，兼顾交互与可访问性。","body":"先理解页面目标、用户路径、参考图和现有组件规范。明确布局、间距、文字层级、颜色和交互状态，再实现真实数据与可用操作。覆盖加载、空态、失败、键盘焦点、窄屏和深色模式；弹窗使用独立滚动与固定操作区。完成后实际打开页面检查，不用静态截图代替功能验收。"},
+    "api-design": {"description":"围绕业务语义设计接口、错误模型和兼容演进。","body":"确认调用方、资源所有权和现有接口模式，定义输入、输出、认证、幂等、分页及错误语义。结合真实数据与状态转换说明边界，避免泄露凭据和内部异常。给出请求示例、兼容策略及验收用例，公共接口调整前说明影响，不凭空增加配置和抽象。"},
+    "technical-writing": {"description":"把代码与事实整理为清晰、可核对的技术文档。","body":"先确定读者、目标和已有材料，核对关键事实与源码。按问题、行为、使用方式和验证证据组织内容，保留必要术语和准确的路径。明确已实现、计划中和未验证的内容，提供可执行示例与限制说明；删除空泛结论，不编造功能、指标或参考来源。"},
+    "sql-review": {"description":"检查 SQL 的业务语义、索引条件与数据安全边界。","body":"只基于用户提供或已授权读取的表结构、索引、执行计划和 SQL 分析。检查关联、过滤、分页、事务及空值语义，避免无界扫描和隐式类型转换。区分测试数据与生产证据，给出最小修正和只读验证建议。本技能不提供数据库连接，也不授权执行写入或访问任何数据库。"},
+    "code-simplify": {"description":"在保持行为的前提下减少重复与不必要的复杂度。","body":"先理解现有行为、调用方和测试，限定本次允许修改的范围。优先减少重复分支、冗余状态和一次性抽象，保持项目风格及公共接口。每一处改动都应对应明确问题；不顺手格式化或重构无关模块。用现有测试与必要的边界检查证明行为保持一致。"},
+    "weekly-report": {"description":"从真实工作记录提炼进展、问题和下一步计划。","body":"仅使用已提供或已授权读取的工作记录。按目标和结果归纳完成事项，说明影响、阻塞、风险与下一步；区分已完成、进行中和计划项。保持措辞简洁，保留关键链接和证据，不编造进度、工时或业务收益。信息不足时标出需要补充的部分。"}
+  },
+  "items": [
+    {"id":"harness-java-review","kind":"plugin","title":"Java 代码审查","description":"追踪调用链与变更影响，给出有证据的审查结论。","category":"代码评审","icon":"code","workflow":"java-review","featured":true},
+    {"id":"harness-project-map","kind":"plugin","title":"项目理解","description":"连接工程入口、模块与数据流，快速建立全局视图。","category":"代码开发","icon":"cube","workflow":"project-map","featured":true},
+    {"id":"harness-root-cause","kind":"plugin","title":"问题定位","description":"从现象与日志出发，定位可验证的问题根因。","category":"代码开发","icon":"bug","workflow":"root-cause","featured":true},
+    {"id":"harness-test-plan","kind":"plugin","title":"测试计划","description":"把需求变成正常、边界、异常和恢复场景。","category":"安全与测试","icon":"flask","workflow":"test-plan","featured":true},
+    {"id":"harness-architecture","kind":"plugin","title":"架构梳理","description":"用源码关系和 Mermaid 说明系统边界与时序。","category":"开发者工具","icon":"branch","workflow":"architecture","featured":true},
+    {"id":"harness-release-check","kind":"plugin","title":"发布检查","description":"核对变更、运行依赖、验收及回滚条件。","category":"运维部署","icon":"rocket","workflow":"release-check","featured":true},
+    {"id":"skill-frontend-design","kind":"skill","title":"前端设计","description":"创建清晰、有层次且可落地的生产级前端界面。","category":"设计","icon":"palette","workflow":"frontend-design","featured":true},
+    {"id":"skill-java-review","kind":"skill","title":"Java 审查","description":"关注真实调用链、异常传播与新增业务回归。","category":"代码评审","icon":"code","workflow":"java-review","featured":true},
+    {"id":"skill-root-cause","kind":"skill","title":"根因分析","description":"通过最小复现和可证伪假设逐步定位问题。","category":"代码开发","icon":"bug","workflow":"root-cause","featured":true},
+    {"id":"skill-api-design","kind":"skill","title":"API 设计","description":"围绕业务语义设计接口、错误模型和兼容策略。","category":"代码开发","icon":"globe","workflow":"api-design","featured":true},
+    {"id":"skill-test-cases","kind":"skill","title":"测试用例设计","description":"覆盖核心流程、关键边界和失败恢复路径。","category":"安全与测试","icon":"flask","workflow":"test-plan","featured":true},
+    {"id":"skill-technical-writing","kind":"skill","title":"技术文档","description":"将源码和事实整理为清晰、可核对的说明。","category":"内容创作","icon":"edit","workflow":"technical-writing","featured":true},
+    {"id":"skill-sql-review","kind":"skill","title":"SQL 审查","description":"核对查询语义、索引条件与数据访问边界。","category":"数据库与分析","icon":"scan","workflow":"sql-review","featured":false},
+    {"id":"skill-code-simplify","kind":"skill","title":"代码简化","description":"保持业务行为，减少重复和不必要的复杂度。","category":"代码开发","icon":"code","workflow":"code-simplify","featured":false},
+    {"id":"skill-weekly-report","kind":"skill","title":"周报撰写","description":"从真实工作记录提炼进展、阻塞与下步计划。","category":"办公效率","icon":"edit","workflow":"weekly-report","featured":false},
+    {"id":"connector-text","kind":"connector","title":"文本工具","description":"统计字符、行数与 UTF-8 字节，并计算 SHA-256。","category":"内容创作","icon":"edit","connector":"text","featured":false},
+    {"id":"connector-json","kind":"connector","title":"JSON 工具","description":"校验并格式化明确提供的 JSON，不读取本地文件。","category":"开发者工具","icon":"code","connector":"json","featured":false},
+    {"id":"connector-time","kind":"connector","title":"时间工具","description":"查询指定 IANA 时区的当前时间与时间戳。","category":"办公效率","icon":"globe","connector":"time","featured":false}
+  ]
+}

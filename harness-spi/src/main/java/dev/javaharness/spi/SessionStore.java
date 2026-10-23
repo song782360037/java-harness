@@ -41,6 +41,13 @@ public interface SessionStore {
     Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model);
     Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model,
                       ModelSelection requested, ModelSelection selected);
+    /** Persist the extension selection in the same transaction as the new run. */
+    default Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model,
+                              ModelSelection requested, ModelSelection selected, String extensions) {
+        return submit(sessionId, requestId, prompt, scenario, model, requested, selected);
+    }
+    /** Notify clients that extension preparation or an external approval changed. */
+    default void pluginsUpdated(String runId) { commandsUpdated(runId); }
     /** Validate an exact retry before resolving a profile that may have changed or been deleted. */
     Submission retry(String sessionId, String requestId, String prompt, String scenario, ModelSelection requested);
     Run transition(String runId, RunStatus status, String detail);

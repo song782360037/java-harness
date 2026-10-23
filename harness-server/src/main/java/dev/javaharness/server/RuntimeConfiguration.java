@@ -1,6 +1,7 @@
 package dev.javaharness.server;
 
 import dev.javaharness.adapters.*;
+import dev.javaharness.adapters.plugins.PluginService;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.spi.*;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +32,7 @@ public class RuntimeConfiguration {
 
     @Bean
     @DependsOnDatabaseInitialization
-    SettingsService settingsService(JdbcTemplate jdbc, FileChangeService changes, CommandService commands,
+    SettingsService settingsService(JdbcTemplate jdbc, FileChangeService changes, CommandService commands, PluginService plugins,
             @Value("${harness.settings.key-file}") String keyFile,
             @Value("${harness.model.base-url}") String baseUrl,
             @Value("${harness.model.api-key}") String apiKey,
@@ -46,7 +47,17 @@ public class RuntimeConfiguration {
         var storage = new JdbcSettingsStore(jdbc, new LocalSecretCipher(Path.of(keyFile)));
         return new SettingsService(storage, new HarnessSettings(1, baseUrl, apiKey, modelName, apiKeyRequired,
                 (int) connectTimeout.toSeconds(), (int) runTimeout.toSeconds(), 0, 0, (int) toolTimeout.toSeconds(),
-                maxToolsPerRequest, contextWindowTokens, maxOutputTokens), changes, commands);
+                maxToolsPerRequest, contextWindowTokens, maxOutputTokens), changes, commands, plugins);
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    PluginService pluginService(JdbcTemplate jdbc, PlatformTransactionManager transactions, SessionStore sessions,
+            @Value("${harness.plugins.directory:./data/plugins}") String directory,
+            @Value("${harness.settings.key-file}") String keyFile) {
+        var plugins = new PluginService(jdbc, new TransactionTemplate(transactions), sessions, new LocalSecretCipher(Path.of(keyFile)), Path.of(directory));
+        plugins.initializeGlobal();
+        return plugins;
     }
 
     @Bean

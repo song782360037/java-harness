@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "dependency-report",
+  "version": "1.0.0",
+  "description": "独立 Java MCP 服务：汇总明确提供的 POM 依赖声明",
+  "extensions": { "dev.javaharness": { "schemaVersion": 1, "requires": ["skills", "mcp.stdio"] } }
+}

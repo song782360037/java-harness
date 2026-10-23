@@ -402,6 +402,11 @@ public final class JdbcSessionStore implements SessionStore {
 
     @Override public synchronized Submission submit(String sessionId, String requestId, String prompt, String scenario,
                                                    ModelInfo model, ModelSelection requested, ModelSelection selected) {
+        return submit(sessionId, requestId, prompt, scenario, model, requested, selected, "{}");
+    }
+
+    @Override public synchronized Submission submit(String sessionId, String requestId, String prompt, String scenario,
+                                                   ModelInfo model, ModelSelection requested, ModelSelection selected, String extensions) {
         var retry = retry(sessionId, requestId, prompt, scenario, requested);
         if (retry != null) return retry;
         return tx.execute(status -> {
@@ -414,10 +419,10 @@ public final class JdbcSessionStore implements SessionStore {
             if (active != null) throw new HarnessException("BUSY", "此会话已有正在执行的任务");
             String id = UUID.randomUUID().toString();
             jdbc.update("""
-                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,workspace,model_profile_id,reasoning_effort,requested_selection)
-                    VALUES (?,?,?,?,?,'QUEUED','','',?,?,?,?,?,?,?)
+                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot)
+                    VALUES (?,?,?,?,?,'QUEUED','','',?,?,?,?,?,?,?,?)
                     """, id, sessionId, requestId, prompt, scenario, now(), model.provider(), model.model(), session(sessionId).workspace(),
-                    selected.profileId(), selected.reasoningEffort(), encode(requested));
+                    selected.profileId(), selected.reasoningEffort(), encode(requested), extensions);
             jdbc.update("UPDATE harness_session SET active_run_id=?,model_profile_id=?,reasoning_effort=? WHERE id=?",
                     id, selected.profileId(), selected.reasoningEffort(), sessionId);
             appendEvent(sessionId, id, "STATE", RunStatus.QUEUED, "");
@@ -471,6 +476,10 @@ public final class JdbcSessionStore implements SessionStore {
 
     @Override public synchronized void commandsUpdated(String runId) {
         tx.executeWithoutResult(status -> appendEvent(run(runId).sessionId(), runId, "COMMAND", null, "命令记录已更新"));
+    }
+
+    @Override public synchronized void pluginsUpdated(String runId) {
+        tx.executeWithoutResult(status -> appendEvent(run(runId).sessionId(), runId, "PLUGIN", null, "插件执行记录已更新"));
     }
 
     private void appendEvent(String sessionId, String runId, String type, RunStatus state, String text) {

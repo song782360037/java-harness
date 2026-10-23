@@ -4,6 +4,8 @@ import ModelRequestDetails from './ModelRequestDetails.vue'
 import ToolDetails from './ToolDetails.vue'
 import FileChanges from './FileChanges.vue'
 import Commands from './Commands.vue'
+import PluginRunDetails from './PluginRunDetails.vue'
+import PluginCommandPicker from './PluginCommandPicker.vue'
 import SettingsPage from './SettingsPage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
@@ -90,7 +92,7 @@ async function sessionDeleted(session: { id: string }) {
   refreshing = false; dirty = false; connected.value = false
   selectedId.value = ''; snapshot.value = null; pending.value = null
   inspectedRunId.value = ''; inspectorTrigger = null
-  toolRevisions.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}
+  toolRevisions.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}; pluginActivity.value = {}
   error.value = ''
   storageSet('harness.session', null)
 }
@@ -110,6 +112,7 @@ function closeSidebarOnEscape(event: KeyboardEvent) {
 }
 const sessionSearch = ref('')
 const promptInput = ref<HTMLTextAreaElement>()
+const pluginCommandPicker = ref<InstanceType<typeof PluginCommandPicker>>()
 const copiedRun = ref('')
 const copyError = ref('')
 let copyTimer: ReturnType<typeof setTimeout> | undefined
@@ -151,6 +154,7 @@ function resizePrompt() {
 watch([fontSize, showSettings], () => { if (!showSettings.value) void nextTick(resizePrompt) })
 // 根据常规偏好处理发送，输入法确认回车保留给输入框。
 function onPromptKeydown(event: KeyboardEvent) {
+  if (pluginCommandPicker.value?.keydown(event)) return
   if (!shouldSendPrompt(event, preferences.value.sendShortcut)) return
   event.preventDefault()
   void send()
@@ -232,7 +236,8 @@ const toolRevisions = ref<Record<string, number>>({})
 const changeRevisions = ref<Record<string, number>>({})
 const commandRevisions = ref<Record<string, number>>({})
 const commandActivity = ref<Record<string, string>>({})
-const activityLabel = (run: Run) => run.status === 'RUNNING' && commandActivity.value[run.id] ? commandActivity.value[run.id] : labels[run.status]
+const pluginActivity = ref<Record<string, string>>({})
+const activityLabel = (run: Run) => run.status === 'RUNNING' ? pluginActivity.value[run.id] || commandActivity.value[run.id] || labels[run.status] : labels[run.status]
 const executionRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}`
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
@@ -350,7 +355,7 @@ function follow(id: string, version: number) {
     const event = JSON.parse(message.data) as RunEvent
     if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
     if (event.type === 'FILE_CHANGE' && event.runId) changeRevisions.value[event.runId] = event.seq
-    if (event.type === 'COMMAND' && event.runId) commandRevisions.value[event.runId] = event.seq
+    if (['COMMAND', 'PLUGIN'].includes(event.type) && event.runId) commandRevisions.value[event.runId] = event.seq
     if (event.type === 'WORKSPACE') void loadWorkspaces().catch(() => {})
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
@@ -384,7 +389,7 @@ async function selectSession(id: string) {
   toolRevisions.value = {}
   changeRevisions.value = {}
   commandRevisions.value = {}
-  commandActivity.value = {}
+  commandActivity.value = {}; pluginActivity.value = {}
   error.value = ''
   loading.value = true
   prompt.value = ''
@@ -585,10 +590,11 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
             <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
             <button type="button" class="execution-trigger" :aria-label="'查看执行详情 · ' + activityLabel(run)" :aria-expanded="inspectedRunId === run.id" aria-controls="execution-inspector" @click="inspectRun(run, $event)"><span v-if="isActive(run)" class="loading-indicator"></span><UiIcon v-else :name="run.status === 'COMPLETED' ? 'check' : 'chevron'" :size="13" /><span>{{ activityLabel(run) }}</span><UiIcon name="chevron" :size="12" /></button>
             <MarkdownContent v-if="run.output" :content="run.output" />
-            <p v-else class="output-placeholder">{{ isActive(run) ? (commandActivity[run.id] ? `${activityLabel(run)}，请查看下方终端卡片。` : '正在分析你的问题…') : '本次没有生成回答。' }}</p>
+            <p v-else class="output-placeholder">{{ isActive(run) ? (pluginActivity[run.id] || commandActivity[run.id] ? `${activityLabel(run)}，请查看下方操作卡片。` : '正在分析你的问题…') : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
             <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
             <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
+            <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
             <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!run.output" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span>{{ run.model }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
           </section>
         </article>
@@ -597,7 +603,8 @@ onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); c
       <div class="composer-dock">
         <form class="composer" @submit.prevent="send">
           <label class="sr-only" for="prompt">输入问题</label>
-          <textarea id="prompt" @input="resizePrompt" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题…' : '描述你的问题，开始一起探索…'" maxlength="4000" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" @keydown="onPromptKeydown" />
+          <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="!!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
+          <textarea id="prompt" @input="resizePrompt" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，输入 / 选择插件命令…' : '描述你的问题，输入 / 选择插件命令…'" maxlength="4000" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId" @keydown="onPromptKeydown" />
           <div v-if="pending" class="pending-note">上次提交结果待确认，重试不会重复创建任务。</div>
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
