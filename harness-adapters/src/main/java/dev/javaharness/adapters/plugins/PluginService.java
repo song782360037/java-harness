@@ -462,10 +462,10 @@ public final class PluginService {
         Path state = Path.of(launch.environment().get("PLUGIN_DATA"));
         if (!state.normalize().startsWith(data)) throw invalid("插件数据目录越界");
         Files.createDirectories(state);
-        if (!state.toRealPath().equals(state)) throw invalid("插件数据目录不允许链接");
+        if (Files.isSymbolicLink(state) || !state.toRealPath().equals(state.toRealPath(LinkOption.NOFOLLOW_LINKS))) throw invalid("插件数据目录不允许链接");
         Path cwd = Path.of(launch.cwd());
         if (cwd.startsWith(state)) Files.createDirectories(cwd);
-        if (!cwd.toRealPath().equals(cwd)) throw invalid("插件工作目录不允许链接");
+        if (Files.isSymbolicLink(cwd) || !cwd.toRealPath().equals(cwd.toRealPath(LinkOption.NOFOLLOW_LINKS))) throw invalid("插件工作目录不允许链接");
         return new PluginMcpClient(launch);
     }
 

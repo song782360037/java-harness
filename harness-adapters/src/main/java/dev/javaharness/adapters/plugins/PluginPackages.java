@@ -21,8 +21,14 @@ public final class PluginPackages {
                           Map<String, JsonNode> servers, Map<String, byte[]> files) {}
 
     public PluginPackages(Path root) {
-        this.root = root.toAbsolutePath().normalize();
-        try { Files.createDirectories(this.root); if (Files.isSymbolicLink(this.root) || !this.root.toRealPath().equals(this.root)) throw new IOException(); }
+        Path absolute = root.toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(absolute);
+            Path real = absolute.toRealPath();
+            // Both forms expand Windows 8.3 aliases; only the default form follows links.
+            if (Files.isSymbolicLink(absolute) || !real.equals(absolute.toRealPath(LinkOption.NOFOLLOW_LINKS))) throw new IOException();
+            this.root = real;
+        }
         catch (IOException error) { throw new IllegalStateException("插件目录不可用"); }
     }
 
