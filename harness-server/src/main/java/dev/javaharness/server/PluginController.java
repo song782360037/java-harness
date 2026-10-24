@@ -24,11 +24,11 @@ public class PluginController {
     @GetMapping("/plugins") public List<PluginService.Installation> list() { return plugins.installations(); }
     @GetMapping("/plugins/{id}") public PluginService.Detail detail(@PathVariable String id) { return plugins.detail(id); }
     @PostMapping(value = "/plugins/import-directory", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public PluginService.Installation directory(@RequestBody ImportDirectory request) { return plugins.activate(plugins.importDirectory(request.path(), request.source())); }
+    public PluginService.Installation directory(@RequestBody ImportDirectory request) { return plugins.installDirectory(request.path(), request.source()); }
     @PostMapping(value = "/plugins/import-zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public PluginService.Installation zip(@RequestParam MultipartFile file, @RequestParam(defaultValue = "local") String source) {
         if (file.isEmpty() || file.getSize() > 16 * 1024 * 1024) throw PluginJson.invalid("ZIP 大小需为 1 字节至 16 MiB");
-        try { return plugins.activate(plugins.importZip(file.getInputStream(), source)); }
+        try { return plugins.installZip(file.getInputStream(), source); }
         catch (java.io.IOException error) { throw PluginJson.invalid("无法读取上传文件"); }
     }
     @GetMapping("/plugin-bindings") public List<PluginService.BindingView> bindings(@RequestParam String scope) { return plugins.bindings(scope); }

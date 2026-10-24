@@ -20,7 +20,7 @@ function blur(event: FocusEvent) { if (!menu.value?.contains(event.relatedTarget
         <button v-if="item.editable" :disabled="locked || pending" @click="menu?.removeAttribute('open'); $emit('edit', item)">编辑</button>
         <button :disabled="locked || pending" @click="menu?.removeAttribute('open'); $emit('remove', item)">{{ item.parentName ? '卸载所属插件' : '卸载' }}</button>
       </div></details>
-      <span class="extension-status"><span v-if="item.enabled" class="extension-enabled-mark" aria-hidden="true"><UiIcon name="check" :size="17" /></span><button class="extension-switch" role="switch" :aria-checked="item.enabled" :aria-label="`${item.enabled ? '停用' : '启用'}${item.parentName || item.title}`" :disabled="locked || pending || !!item.issue && !item.enabled" :aria-busy="pending || undefined" :title="item.parentName ? '切换整个所属插件' : '对所有会话的新任务生效'" @click="$emit('toggle', item)"><span /></button></span>
+      <span class="extension-status"><span v-if="item.enabled" class="extension-enabled-mark" aria-hidden="true"><UiIcon :name="item.issue ? 'warning' : 'check'" :size="17" /></span><button class="extension-switch" role="switch" :aria-checked="item.enabled" :aria-label="`${item.enabled ? '停用' : '启用'}${item.parentName || item.title}`" :disabled="locked || pending || !!item.issue && !item.enabled" :aria-busy="pending || undefined" :title="item.parentName ? '切换整个所属插件' : '对所有会话的新任务生效'" @click="$emit('toggle', item)"><span /></button></span>
     </div>
   </div>
 </template>

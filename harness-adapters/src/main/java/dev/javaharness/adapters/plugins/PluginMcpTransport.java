@@ -129,7 +129,7 @@ final class PluginMcpTransport implements McpClientTransport {
 
     private void receive(String value) throws Exception {
         var node = parse(value);
-        if (node.path("result").path("tools").size() > 128) throw invalid("MCP 工具目录过大");
+        // Discovery enforces the cumulative tool limit after decoding, outside SDK error wrapping.
         if (node.path("result").path("tools").isArray()) for (var tool : node.path("result").path("tools")) {
             schema(tool.path("inputSchema"));
             if (!tool.path("inputSchema").path("type").asText().equals("object")) throw invalid("MCP 工具输入必须是 object");

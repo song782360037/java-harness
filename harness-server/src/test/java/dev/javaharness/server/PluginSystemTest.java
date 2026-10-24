@@ -35,6 +35,8 @@ class PluginSystemTest {
     AtomicBoolean failDiscovery = new AtomicBoolean(), slowDiscovery = new AtomicBoolean();
     AtomicInteger discoveries = new AtomicInteger();
     AtomicReference<String> customHeader = new AtomicReference<>();
+    AtomicBoolean oversizedDirectory = new AtomicBoolean();
+    AtomicBoolean singleToolPage = new AtomicBoolean();
 
     @BeforeEach void setup() {
         var ds = new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
@@ -247,7 +249,10 @@ class PluginSystemTest {
         var broken = plugins.bindings("user").getFirst();
         assertThat(broken.trusted()).isFalse(); assertThat(broken.launches()).isEmpty(); assertThat(broken.launchError()).contains("可执行文件不存在");
         assertThat(plugins.installations()).hasSize(1); assertThat(plugins.detail(item.id()).installation().id()).isEqualTo(item.id());
-        assertThatThrownBy(() -> plugins.prepare(session(), "test")).isInstanceOf(HarnessException.class);
+        try (var extension = plugins.prepare(session(), "test")) {
+            assertThat(extension.instructions()).contains("不可用", "可执行文件不存在");
+            assertThat(extension.snapshot()).contains("loadIssues");
+        }
         var disabled = plugins.save("user", item.name(), new PluginService.SaveBinding(item.id(), false, parse("{}"), Map.of(), false, List.of(), binding.revision()));
         assertThat(disabled.enabled()).isFalse(); assertThat(disabled.launchError()).contains("可执行文件不存在");
         try (var extension = plugins.prepare(session(), "test")) { assertThat(extension.snapshot()).isEqualTo("{}"); }
@@ -502,6 +507,19 @@ class PluginSystemTest {
         }
     }
 
+    /** Directory policy violations must abort rather than look like an optional connection outage. */
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void oversizedDirectoryStillAbortsTheRun(boolean singlePage) throws Exception {
+        var item = plugins.importDirectory(pkg("1.0.0", true).toString(), "local"); trust(enable(item, List.of(), Map.of()));
+        oversizedDirectory.set(true); singleToolPage.set(singlePage); Session session = session();
+        try (var extension = plugins.prepare(session, "ordinary question")) {
+            Run run = submit(session, extension);
+            assertThatThrownBy(() -> extension.open(run.id(), WorkspaceTools.disabled(), cancellation())).hasMessageContaining("MCP 工具目录过大或重名");
+            assertThat(calls.get()).isZero();
+        }
+        assertThat(plugins.detail(item.id()).activeRuns()).isZero();
+    }
+
     void startHttp() throws Exception {
         http = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0); http.setExecutor(workers);
         http.createContext("/mcp", exchange -> {
@@ -518,7 +536,15 @@ class PluginSystemTest {
                 if (!request.has("id")) { exchange.sendResponseHeaders(202, -1); return; }
                 Object result = switch (request.path("method").asText()) {
                     case "initialize" -> Map.of("protocolVersion", request.path("params").path("protocolVersion").asText(), "capabilities", Map.of("tools", Map.of()), "serverInfo", Map.of("name", "fixture", "version", "1"));
-                    case "tools/list" -> Map.of("tools", List.of(Map.of("name", "report", "description", changed.get() ? "changed" : "fixture", "inputSchema", schemaOverride.get() != null ? schemaOverride.get() : Map.of("type", "object", "properties", Map.of("input", Map.of("type", "string")), "required", List.of("input"), "additionalProperties", false))));
+                    case "tools/list" -> {
+                        if (oversizedDirectory.get()) {
+                            boolean next = request.path("params").hasNonNull("cursor");
+                            var tools = java.util.stream.IntStream.range(next ? 128 : 0, next || singleToolPage.get() ? 129 : 128)
+                                    .mapToObj(i -> Map.of("name", "tool_" + i, "inputSchema", Map.of("type", "object", "properties", Map.of(), "additionalProperties", false))).toList();
+                            yield next || singleToolPage.get() ? Map.of("tools", tools) : Map.of("tools", tools, "nextCursor", "page-2");
+                        }
+                        yield Map.of("tools", List.of(Map.of("name", "report", "description", changed.get() ? "changed" : "fixture", "inputSchema", schemaOverride.get() != null ? schemaOverride.get() : Map.of("type", "object", "properties", Map.of("input", Map.of("type", "string")), "required", List.of("input"), "additionalProperties", false))));
+                    }
                     case "tools/call" -> { calls.incrementAndGet(); if (slow.get()) Thread.sleep(30000); yield Map.of("content", List.of(Map.of("type", "text", "text", "fixture-result")), "isError", false); }
                     default -> Map.of();
                 };

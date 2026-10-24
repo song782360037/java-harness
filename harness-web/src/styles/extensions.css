@@ -116,6 +116,14 @@
 .extension-add-form input, .extension-add-form select, .extension-add-form textarea { width: 100%; box-sizing: border-box; }
 .extension-add-form textarea { padding: 12px; border: 1px solid var(--border); color: var(--text); background: var(--surface); border-radius: 8px; font: 12px/1.7 monospace; resize: vertical; }
 .extension-form-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.extension-configuration { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13px; }
+.extension-configuration h3 { margin: 0 0 16px; font-size: 15px; }
+.extension-configuration h4 { margin: 0; }
+.extension-credential { display: flex; flex-wrap: wrap; gap: 8px; }
+.extension-credential > input, .extension-credential > select { flex: 1 1 130px; min-width: 0; }
+.extension-add-form .extension-enable-option { display: flex; align-items: center; }
+.extension-add-form .extension-enable-option input { width: auto; }
+.extension-diagnose { margin-top: 20px; }
 @media (max-width: 1100px) { .extension-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .extension-toolbar { flex-wrap: wrap; gap: 5px; } .extension-tools { margin-left: auto; } .extension-discovery { padding: 12px 26px 30px; } }
 @media (max-width: 800px) { .extension-hero-art { display: none; } .extension-grid { grid-template-columns: minmax(0, 1fr); } .extension-tools { flex-wrap: wrap; width: 100%; gap: 7px; } .extension-search { flex: 1; } .reference-settings .extension-search input:not([type=checkbox]) { width: 100%; } .extension-toolbar { padding: 14px 16px; } .extension-discovery { padding: 18px; } .extension-hero { margin: 0 0 30px; } .extension-hero p { font-size: 19px; } .extension-row { min-height: 76px; } .extension-recommendations { margin-bottom: 28px; } .extension-filterbar { gap: 10px; } .extension-row-action { opacity: 1; } .extension-overlay { padding: 12px; } .extension-modal { max-height: calc(100dvh - 24px); } .extension-modal-heading, .extension-modal-body { padding: 20px; } .extension-modal-footer { padding: 14px 20px; flex-wrap: wrap; } .extension-modal-footer > span { flex-basis: 100%; } .extension-form-columns { grid-template-columns: 1fr; } }
 [data-theme="dark"] .extension-center { --extension-color: #9dc6ae; --extension-tint: #25362d; }

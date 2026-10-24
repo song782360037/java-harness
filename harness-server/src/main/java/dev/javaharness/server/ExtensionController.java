@@ -19,6 +19,9 @@ public class ExtensionController {
     @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
     public void toggle(@PathVariable String id, @RequestBody Toggle request) { plugins.setEnabled(id, request.enabled(), request.revision()); }
     @GetMapping("/installed/{id}/edit") public PluginService.Authoring edit(@PathVariable String id) { return plugins.authoring(id); }
+    @GetMapping("/installed/{id}/configuration") public PluginService.Configuration configuration(@PathVariable String id) { return plugins.configuration(id); }
+    @PostMapping("/installed/{id}/configuration") public PluginService.BindingView configure(@PathVariable String id, @RequestBody PluginService.Configure request) { return plugins.configure(id, request); }
+    @PostMapping("/installed/{id}/diagnose") public java.util.Map<String, Object> diagnose(@PathVariable String id) throws Exception { return plugins.diagnoseConfiguration(id); }
     @PostMapping("/installed/{id}/edit") public PluginService.Installation update(@PathVariable String id, @RequestBody Edit request) { return catalog.update(id, request.revision(), request.form()); }
     @GetMapping public List<ExtensionCatalogService.Item> list() { return catalog.items(); }
     @GetMapping("/items/{id}") public ExtensionCatalogService.Preview preview(@PathVariable String id) { return catalog.preview(id); }

@@ -5,14 +5,15 @@ interface Approval { id: string; pluginName: string; pluginVersion: string; serv
 const props = defineProps<{ runId: string; revision: string; active: boolean }>()
 const emit = defineEmits<{ activity: [value: string] }>()
 const approvals = ref<Approval[]>([]), error = ref(''), busy = ref(false)
+const loadIssues = ref<{ installationId: string; name: string; server: string; message: string }[]>([])
 const labels: Record<string, string> = { PENDING: '等待审批', APPROVED: '已批准', RUNNING: '调用中', COMPLETED: '已完成', FAILED: '调用失败', UNKNOWN: '结果未知', CANCELLED: '已取消', INTERRUPTED: '已中断', REJECTED: '已拒绝' }
 let disposed = false, loading = false, dirty = false, generation = 0
 async function load() {
   if (loading) { dirty = true; return }
   loading = true; const version = generation
   try {
-    const decisions = await api<Approval[]>(`/runs/${props.runId}/external-approvals`)
-    if (!disposed && version === generation) { approvals.value = decisions; if (error.value === '插件记录读取失败，请刷新重试。') error.value = '' }
+    const [decisions, snapshot] = await Promise.all([api<Approval[]>(`/runs/${props.runId}/external-approvals`), api<{ loadIssues?: typeof loadIssues.value }>(`/runs/${props.runId}/plugins`)])
+    if (!disposed && version === generation) { approvals.value = decisions; loadIssues.value = snapshot.loadIssues || []; if (error.value === '插件记录读取失败，请刷新重试。') error.value = '' }
   } catch { if (!disposed) error.value = '插件记录读取失败，请刷新重试。' }
   finally { loading = false; if (dirty && !disposed) { dirty = false; void load() } }
 }
@@ -28,7 +29,8 @@ onMounted(load)
 onUnmounted(() => { disposed = true })
 </script>
 <template>
-  <section v-if="approvals.length || error" class="command-reviews" aria-label="插件与外部工具审批">
+  <section v-if="approvals.length || loadIssues.length || error" class="command-reviews" aria-label="插件与外部工具审批">
+    <details v-if="loadIssues.length" class="command-details"><summary>部分扩展本次不可用（{{ loadIssues.length }}）</summary><p>其他可用能力继续工作，可到设置 → 扩展检查配置并测试连接。</p><p v-for="(issue, index) in loadIssues" :key="index">{{ issue.name }}{{ issue.server ? ' / ' + issue.server : '' }}：{{ issue.message }}</p></details>
     <p v-if="error" role="alert" class="dialog-error">{{ error }} <button type="button" @click="load">刷新</button></p>
     <article v-for="value in approvals" :key="value.id" class="command-card">
       <details :open="['PENDING', 'APPROVED', 'RUNNING', 'UNKNOWN'].includes(value.status)" class="command-details">

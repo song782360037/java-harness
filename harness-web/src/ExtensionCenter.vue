@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api } from './api'
-import { filterExtensions, type ExtensionItem, type ExtensionKind } from './extensions'
+import { filterExtensions, saveAndRefresh, type ExtensionItem, type ExtensionKind } from './extensions'
 import ExtensionRow from './ExtensionRow.vue'
+import ExtensionConfiguration from './ExtensionConfiguration.vue'
 import UiIcon from './UiIcon.vue'
 import './styles/extensions.css'
 
@@ -17,7 +18,8 @@ const current = computed(() => tabs.find(tab => tab.id === kind.value)!)
 const items = ref<ExtensionItem[]>([]), busy = ref(false), error = ref('')
 const toggling = ref(new Set<string>())
 let catalogRequest = 0
-const locked = computed(() => busy.value)
+const configurationBusy = ref(false)
+const locked = computed(() => busy.value || configurationBusy.value)
 const categories = computed(() => ['全部', '官方精选', '自定义', ...new Set(items.value.filter(item => item.kind === kind.value).map(item => item.category))])
 const visible = computed(() => filterExtensions(items.value, kind.value, query.value, category.value, installedOnly.value, sort.value))
 const recommended = computed(() => items.value.filter(item => item.kind === kind.value && item.featured).slice(0, 6))
@@ -81,8 +83,9 @@ async function install() {
   if (!selected.value || locked.value) return
   busy.value = true; dialogError.value = ''
   try {
-    await api<{ id: string }>(`/extensions/catalog/${encodeURIComponent(selected.value.id)}/install`, {})
-    await reload(); busy.value = false; close()
+    const result = await saveAndRefresh(() => api<{ id: string }>(`/extensions/catalog/${encodeURIComponent(selected.value!.id)}/install`, {}), reload)
+    error.value = result.refreshError ? `已安装，列表刷新失败：${result.refreshError}。请重试刷新。` : ''
+    busy.value = false; close()
   } catch (cause) { dialogError.value = message(cause) } finally { busy.value = false }
 }
 function add() {
@@ -93,6 +96,7 @@ async function create() {
   if (locked.value || editing.value && editRevision.value === 0) return
   busy.value = true; dialogError.value = ''
   try {
+    const result = await saveAndRefresh(async () => {
     let value: { id: string }
     if (kind.value === 'plugin' && importMode.value === 'zip') {
       if (!file.value) throw new Error('请选择插件 ZIP 文件。')
@@ -105,9 +109,9 @@ async function create() {
       name: name.value, title: title.value, description: description.value, version: version.value, scope: 'user',
       ...(kind.value === 'skill' ? { content: body.value } : { definition: JSON.parse(body.value) }),
     }; value = await api(editing.value ? `/extensions/installed/${selected.value!.installationId}/edit` : `/extensions/${kind.value === 'skill' ? 'skills' : 'connectors'}`, editing.value ? { revision: editRevision.value, form } : form) }
-    body.value = ''; const values = await reload()
-    selected.value = values.find(item => item.installationId === value.id && !item.parentName) || null
-    if (!selected.value) throw new Error('已安装，请刷新已安装列表后管理。')
+    return value
+    }, reload)
+    error.value = result.refreshError ? `已保存，列表刷新失败：${result.refreshError}。请重试刷新，无需重复提交。` : ''
     busy.value = false; close()
   } catch (cause) { dialogError.value = message(cause) } finally { busy.value = false }
 }
@@ -115,15 +119,32 @@ async function create() {
 async function toggle(item: ExtensionItem) {
   if (locked.value || toggling.value.has(item.installationId)) return
   toggling.value.add(item.installationId); error.value = ''
-  try { await api(`/extensions/installed/${item.installationId}/enabled`, { enabled: !item.enabled, revision: item.revision }); await reload() }
+  try {
+    const result = await saveAndRefresh(() => api(`/extensions/installed/${item.installationId}/enabled`, { enabled: !item.enabled, revision: item.revision }), reload)
+    if (result.refreshError) {
+      items.value = items.value.map(value => value.installationId === item.installationId ? { ...value, enabled: !item.enabled, revision: item.revision + 1 } : value)
+      error.value = `启停已保存，列表刷新失败：${result.refreshError}。请重试刷新。`
+    }
+  }
   catch (cause) { error.value = message(cause); await reload().catch(() => {}) }
   finally { toggling.value.delete(item.installationId) }
 }
 async function remove(item: ExtensionItem) {
   if (locked.value) return
   busy.value = true; error.value = ''
-  try { await api(`/plugins/${item.installationId}/remove`, { uninstall: true }); await reload(); busy.value = false; if (dialog.value) close() }
+  try {
+    const result = await saveAndRefresh(() => api(`/plugins/${item.installationId}/remove`, { uninstall: true }), reload)
+    error.value = result.refreshError ? `已卸载，列表刷新失败：${result.refreshError}。请重试刷新。` : ''
+    busy.value = false; if (dialog.value) close()
+  }
   catch (cause) { error.value = message(cause) } finally { busy.value = false }
+}
+/** Refresh management state after saved settings without remounting the open details. */
+async function configurationSaved() {
+  try {
+    const values = await reload()
+    selected.value = values.find(value => value.id === selected.value?.id) || selected.value
+  } catch (cause) { error.value = `配置已保存，列表刷新失败：${message(cause)}。请重试刷新。` }
 }
 /** Prefill the add form with redacted custom content; null credentials retain saved values. */
 async function edit(item: ExtensionItem) {
@@ -169,7 +190,9 @@ onMounted(refresh)
     <Teleport to="body"><div v-if="dialog" class="extension-overlay" @keydown="keyboard" @click.self="close"><section ref="modal" class="extension-modal" :class="{ 'extension-modal-preview': dialog === 'preview' }" role="dialog" aria-modal="true" aria-labelledby="extension-dialog-title" tabindex="-1">
       <header class="extension-modal-heading"><div><span class="extension-modal-eyebrow">{{ dialog === 'add' ? '自定义扩展' : selected?.official ? 'JAVA HARNESS · 官方扩展' : selected?.parentName ? '插件内组件' : '自定义扩展' }}</span><h2 id="extension-dialog-title">{{ dialog === 'add' ? (editing ? '编辑' : '添加') + current.label : selected?.title }}</h2></div><button class="icon-button" :disabled="locked" aria-label="关闭扩展详情" @click="close"><UiIcon name="close" :size="20" /></button></header>
       <div class="extension-modal-body"><p v-if="dialogError" role="alert" class="extension-feedback">{{ dialogError }}</p>
-        <template v-if="dialog === 'preview' && selected"><p class="extension-preview-description">{{ selected.description }}</p><div class="extension-meta"><span>{{ selected.category }}</span><span>v{{ selected.version }}</span><span v-if="selected.installationId">已安装</span></div><p v-if="selected.parentName" class="extension-callout">由「{{ selected.parentName }}」提供。启停与卸载将作用于整个插件。</p><p v-if="selected.issue" role="alert" class="extension-feedback">{{ selected.issue }}。可卸载后重新安装。</p><p v-if="previewLoading" role="status" class="extension-loading">正在读取详情…</p><pre v-else class="extension-preview-content">{{ content }}</pre></template>
+        <template v-if="dialog === 'preview' && selected"><p class="extension-preview-description">{{ selected.description }}</p><div class="extension-meta"><span>{{ selected.category }}</span><span>v{{ selected.version }}</span><span v-if="selected.installationId">{{ selected.enabled ? '已启用' : selected.issue ? '待配置 / 已停用' : '已停用' }}</span></div><p v-if="selected.parentName" class="extension-callout">由「{{ selected.parentName }}」提供。启停与卸载将作用于整个插件。</p><p v-if="selected.issue" role="alert" class="extension-feedback">{{ selected.issue }}</p><p v-if="previewLoading" role="status" class="extension-loading">正在读取详情…</p><pre v-else class="extension-preview-content">{{ content }}</pre>
+          <ExtensionConfiguration v-if="selected.installationId && !previewLoading" :key="selected.installationId" :installation-id="selected.installationId" :editable="selected.editable" @busy="configurationBusy = $event" @saved="configurationSaved" @edit="edit(selected!)" />
+        </template>
         <form v-if="dialog === 'add'" id="extension-add-form" class="extension-add-form" @submit.prevent="create"><fieldset :disabled="locked">
           <template v-if="kind === 'plugin'"><p class="field-note">安装包含 plugin.json 的 Agent Plugin 包。</p><label>安装方式<select v-model="importMode"><option value="directory">本地目录</option><option value="zip">ZIP 文件</option></select></label><label v-if="importMode === 'directory'">插件目录<input v-model="directory" required placeholder="例如 E:\plugins\my-plugin" /></label><label v-else>ZIP 文件<input type="file" accept=".zip" required @change="file = ($event.target as HTMLInputElement).files?.[0] || null" /></label><label>来源标识<input v-model="source" required maxlength="100" placeholder="local" /></label></template>
           <template v-else><div class="extension-form-columns"><label>名称<input v-model="title" required maxlength="80" placeholder="例如 团队代码审查" /></label><label>唯一标识<input v-model="name" :readonly="editing" required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="40" placeholder="例如 team-review" /></label></div><label>说明<input v-model="description" required maxlength="500" placeholder="这个扩展可以帮你做什么" /></label><div class="extension-form-columns"><label>版本<input v-model="version" required maxlength="40" placeholder="1.0.0" /></label></div>

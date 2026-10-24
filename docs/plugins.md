@@ -90,11 +90,13 @@ Skill 需要 UTF-8 Markdown 和**单行** `description:` frontmatter；暂不解
 
 Streamable HTTP 使用 `{"type":"streamable-http","url":"https://example.com/mcp"}`。HTTP 明文仅允许本机回环；禁止重定向。支持 POST JSON/SSE 响应，不支持独立 GET 订阅、旧 HTTP+SSE、OAuth、sampling、elicitation、图片/音频、MCP Apps 或服务器驱动子任务。
 
-stdio 使用直接 argv 启动，不拼接 shell。`java` 解析为当前运行时的 Java，其余命令需可解析为实际程序。工作目录限安装目录或该绑定的数据目录；相对目录基于安装目录。`PLUGIN_ROOT` 指不可变安装副本，`PLUGIN_DATA` 指平台分配的持久数据目录；默认只传递必要的系统环境变量。配置通过 `${config.key}` 替换，凭据只注入 env/header，不能放入命令参数。
+stdio 的原生程序使用直接 argv 启动。`java` 解析为当前运行时的 Java；Windows 下裸命令在 PATH 中依次查找 `.exe/.com/.cmd/.bat`，支持 npm 提供的 `npx.cmd`。批处理经系统 `cmd.exe /d /v:off /s /c` 启动并逐项加引号；含引号、`%`、`!`、换行或末尾反斜杠的批处理参数会明确拒绝，请改用 `node.exe` 加脚本路径。工作目录限安装目录或该绑定的数据目录；相对目录基于安装目录。`PLUGIN_ROOT` 指不可变安装副本，`PLUGIN_DATA` 指平台分配的持久数据目录；默认只传递必要的系统环境变量。配置通过 `${config.key}` 替换，凭据只注入 env/header，不能放入命令参数。
 
-导入包采用 Schema 默认配置；自定义连接器通过添加/编辑表单维护配置。支持 `type/properties/required/additionalProperties/items/enum/default/minimum/maximum/minLength/maxLength/minItems/maxItems/title/description/$schema`；拒绝 `$ref`、组合/联合类型、正则等未实现约束。Schema 最大递归 12 层。MCP 原始参数 Schema 会完整固定并在调用前校验，不能用 SDK 转换后丢失的字段弱化约束。
+导入包采用 Schema 默认配置；缺少必填配置时保留为已安装、待配置状态，可在详情补全配置与凭据后启用，不必重新导入。安装选择失败会回滚安装记录及绑定，不留下失败操作创建的安装副本。自定义连接器仍通过添加/编辑的同一表单维护。支持 `type/properties/required/additionalProperties/items/enum/default/minimum/maximum/minLength/maxLength/minItems/maxItems/title/description/$schema`；拒绝 `$ref`、组合/联合类型、正则等未实现约束。Schema 最大递归 12 层。MCP 原始参数 Schema 会完整固定并在调用前校验，不能用 SDK 转换后丢失的字段弱化约束。
 
 凭据键示例：`report:env:API_KEY`、`report:header:Authorization`。凭据加密保存在平台数据库，密钥文件沿用 `HARNESS_SETTINGS_KEY_FILE`；API/UI 只返回键名，Run 快照不保存值。自定义编辑通过 null 保留原值、删除键清除。普通配置会进入快照，不应填写密钥。
+
+包配置表单支持保留、替换及删除凭据；无法解密时仍可查看列表、停用、卸载或重填全部凭据。详情中的「测试连接」可检查已保存但停用的配置，只建立连接并读取工具目录，不调用工具，也不改变启用状态。结果仅代表本次检查。保存成功但列表刷新失败时会明确提示刷新，不重复提交修改。
 
 安装/启用授予全部插件启动与 MCP 工具权限，持久化为全局绑定的 `allowedTools: ["*"]`。路径、Schema、协议和调用边界校验继续执行。文件修改与内置命令审核沿用原有行为。
 
@@ -106,7 +108,7 @@ HTTP Header 名称和值按运行时 JDK 校验，允许 `X_API_KEY` 等合法�
 
 - 安装身份：来源 ID + 名称 + 版本；同身份、同内容重复安装复用原记录，同身份异内容拒绝。安装后复制文件，不继续引用源目录。
 - 所有扩展统一全局生效，不再读取工作区覆盖。V12 迁移优先保留用户绑定；没有用户绑定时按 revision 降序、scope 排序选择一份工作区配置，不混合凭据。已停用保持停用；未绑定的有效安装会默认启用。旧绑定完整归档到 harness_plugin_binding_archive；它不参与启停选择，仅保留迁移选中的数据目录归属，避免已有 MCP 状态丢失。
-- 程序缺失等启动配置失效时显示错误，仍可通过列表停用或卸载；运行保持严格校验。
+- 程序缺失、配置失效或凭据不可读时在列表显示异常标记及原因，仍可编辑配置、停用或卸载。
 - 提交 Run 时固定安装版本、配置 revision、非密钥配置、命令选择和权限；首次模型请求前固定 MCP 工具名称及原始 Schema。工具目录变化时旧 Run 调用失败，需开始新任务。
 - 普通停用/升级/卸载对新任务生效；活动任务保留已捕获的版本。立即撤销会取消相关任务和等待中的调用，并关闭诊断/运行连接；已发生的外部副作用不能回滚。
 - 宿主对每个 Run 创建专属 MCP 连接，结束关闭进程/连接。调用等待轮询取消与截止时间；初始化上限 15 秒、单次协议请求上限 30 秒，等待人工审批也计入 Run 总超时。
@@ -117,7 +119,7 @@ HTTP Header 名称和值按运行时 JDK 校验，允许 `X_API_KEY` 等合法�
 
 安装最多 256 个文件、512 个 ZIP 条目、单文件 8 MiB、解压总量 32 MiB；上传 ZIP 上限 16 MiB。拒绝目录符号链接、路径穿越、大小写别名和 Windows 保留文件名。每包 MCP 服务最多 8 个，单连接工具最多 128 个；每 Run 外部调用审批最多 128 次。协议帧/响应限制 1 MiB，工具输出上限 32000 字符，超限明确失败且不自动重试。
 
-任一已启用 MCP 准备失败会导致该 Run 失败，不静默移除工具。包中的 Skill/Command 安装元数据仍可查看；当前不支持在同一包内单独停用某个 MCP 服务。MCP 本地程序可按运行用户权限访问机器，HTTPS 远端可接收调用参数及显式凭据；只启用可信插件。
+普通任务中，单个 MCP 的配置或连接初始化失败只停用本次任务中的相应连接，其余 MCP、Skill 和本地工具继续可用。异常写入 Run 快照、传给模型并在消息下方折叠提示。用户显式选择的插件命令若所属插件连接不可用，会给出错误，避免静默执行不完整工作流。包内容校验失败、取消、撤销、工具名称冲突及总工具数超限仍中止任务；工具调用阶段仍按原有审批与不可重放规则执行。当前不支持在同一包内单独停用某个 MCP 服务。MCP 本地程序可按运行用户权限访问机器，HTTPS 远端可接收调用参数及显式凭据；只启用可信插件。
 
 本版未实现插件市场、自动更新、外部 Java JAR SPI、脚本 Hooks、子 Agent、自定义前端面板、完整 JSON Schema 或 OAuth。
 

@@ -83,7 +83,8 @@ public final class ExtensionCatalogService {
                 var binding = bindings.stream().filter(value -> value.installationId().equals(item.installationId())).findFirst();
                 boolean editable = false;
                 if (!item.installationId().isEmpty() && item.parentName().isEmpty()) try { plugins.authoring(item.installationId()); editable = true; } catch (HarnessException ignored) { }
-                return new Item(item.id(), item.kind(), item.title(), item.description(), item.category(), item.icon(), item.official(), item.featured(), item.version(), item.installationId(), item.parentName(), item.componentId(), item.issue(), binding.map(PluginService.BindingView::enabled).orElse(false), editable, binding.map(PluginService.BindingView::revision).orElse(0L));
+                String issue = item.issue().isEmpty() ? binding.map(PluginService.BindingView::launchError).orElse("") : item.issue();
+                return new Item(item.id(), item.kind(), item.title(), item.description(), item.category(), item.icon(), item.official(), item.featured(), item.version(), item.installationId(), item.parentName(), item.componentId(), issue, binding.map(PluginService.BindingView::enabled).orElse(false), editable, binding.map(PluginService.BindingView::revision).orElse(0L));
             }).toList();
         }
     }
@@ -100,7 +101,7 @@ public final class ExtensionCatalogService {
     /** Install verified first-party bytes and enable them globally without starting a process. */
     public PluginService.Installation install(String id) {
         Bundle bundle = catalog.get(id); if (bundle == null) throw new HarnessException("NOT_FOUND", "官方扩展不存在");
-        return plugins.activate(plugins.importBundle(bundle.files(), OFFICIAL));
+        return plugins.installBundle(bundle.files(), OFFICIAL);
     }
 
     /** Author a standalone Skill without requiring the user to construct a plugin package. */
