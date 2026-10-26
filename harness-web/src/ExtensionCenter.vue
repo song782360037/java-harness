@@ -170,7 +170,7 @@ onMounted(refresh)
       </div>
     </header>
     <div class="extension-discovery">
-      <div class="extension-hero"><div><h1><span>{{ installedOnly ? '管理' : '发现' }}</span><span class="extension-hero-icon"><UiIcon :name="current.icon" :size="24" /></span><em>{{ current.english }}</em></h1><p>{{ installedOnly ? '你的扩展，在这里各就各位。' : current.tagline }}</p><svg class="extension-swoosh" viewBox="0 0 110 16" aria-hidden="true"><path d="M3 13Q55-5 88 5M72 12q15-8 33-3" /></svg></div>
+      <div class="extension-hero"><div><h1>{{ installedOnly ? '管理' : '发现' }}{{ current.label }} <span>{{ current.english }}</span></h1><p>{{ installedOnly ? '查看启停状态，统一管理已安装的扩展。' : current.tagline }}</p></div>
         <div class="extension-hero-art" aria-hidden="true"><span><UiIcon name="branch" :size="27" /></span><span><UiIcon :name="current.icon" :size="32" /></span><span><UiIcon name="flask" :size="28" /></span><span><UiIcon name="code" :size="25" /></span></div>
       </div>
       <p v-if="error" role="alert" class="extension-feedback">{{ error }} <button :disabled="locked" @click="refresh">重试</button></p>

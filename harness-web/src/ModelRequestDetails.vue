@@ -53,8 +53,8 @@ watch(() => props.revision, load)
 </template>
 
 <style scoped>
-.request-details { margin-top: 16px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font-size: calc(12rem / 14); line-height: 1.8; color: var(--muted); }
-summary { cursor: pointer; }
-.request-message { margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; font: calc(11rem / 14)/1.8 'Cascadia Code', Consolas, monospace; max-height: 220px; overflow-y: auto; }
+.request-details { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); font-size: calc(12rem / 14); line-height: 1.75; color: var(--muted); }
+summary { cursor: pointer; color: var(--text); font-weight: 550; }
+.request-message { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font: calc(11rem / 14)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; max-height: 220px; overflow-y: auto; padding: 10px; border-radius: var(--radius-sm); background: var(--subtle); color: var(--text); }
 </style>

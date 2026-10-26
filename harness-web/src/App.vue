@@ -615,7 +615,7 @@ onUnmounted(() => {
   <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
     <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
-      <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="compose" :size="16" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" :size="16" /></button></div>
+      <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="plus" :size="17" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" :size="16" /></button></div>
       <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
       <nav class="session-navigation" aria-label="会话列表">
         <div class="session-section-label">工作区</div>
@@ -650,19 +650,10 @@ onUnmounted(() => {
         <div v-if="loading" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
         <div v-else-if="!snapshot?.runs.length" class="welcome">
           <div class="welcome-copy">
-            <p class="welcome-eyebrow"><span aria-hidden="true"></span>{{ workspaces.find(value => value.id === snapshot?.session.workspaceId)?.name || '想法，从这里启程' }}</p>
-            <h2>{{ snapshot?.session.workspace ? '在项目里，' : '把想法，' }}<br /><span>写成下一步。</span></h2>
-            <p class="welcome-description">{{ snapshot?.session.workspace ? '读懂代码，厘清问题，一起推进手头的工作。' : '连接你的模型与工作区，让每一次探索都有迹可循。' }}</p>
+            <p class="welcome-eyebrow"><span aria-hidden="true"></span>{{ workspaces.find(value => value.id === snapshot?.session.workspaceId)?.name || '新的任务' }}</p>
+            <h2>今天想推进什么？</h2>
+            <p class="welcome-description">{{ snapshot?.session.workspace ? '描述目标或粘贴问题，Harness 会结合项目上下文协助你完成。' : '描述你的目标，或先选择一个工作区，让回答更贴近当前项目。' }}</p>
           </div>
-          <svg class="welcome-art" viewBox="0 0 240 200" fill="none" aria-hidden="true">
-            <rect class="art-frame" x="32" y="16" width="176" height="168" rx="44" transform="rotate(-8 120 100)" />
-            <rect class="art-core" x="45" y="28" width="150" height="144" rx="36" />
-            <path class="art-brackets" d="M94 64H77V136H94M146 64H163V136H146" />
-            <path class="art-link" d="M77 100H163" />
-            <circle class="art-node" cx="120" cy="100" r="7" />
-            <path class="art-orbit" d="M17 151H49M191 48H223M120 4V22M120 178V196" />
-            <circle class="art-terminal" cx="17" cy="151" r="4" /><circle class="art-terminal" cx="223" cy="48" r="4" />
-          </svg>
         </div>
         <article v-for="run in snapshot?.runs" :key="run.id" class="run-card">
           <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>

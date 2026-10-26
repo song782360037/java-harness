@@ -1,16 +1,18 @@
-.appearance-settings { max-width: 820px; margin-top: 32px; }
-.appearance-heading h2 { font-size: calc(16rem / 14); margin: 0 0 8px; }
-.appearance-heading p { font-size: calc(13rem / 14); line-height: 1.7; color: var(--muted); margin: 0 0 24px; }
-.theme-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-.theme-choice { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; text-align: left; min-width: 0; }
+.appearance-settings { max-width: 820px; margin-top: 28px; }
+.appearance-heading h2 { font-size: calc(15rem / 14); margin: 0 0 6px; }
+.appearance-heading p { font-size: calc(12rem / 14); line-height: 1.7; color: var(--muted); margin: 0 0 20px; }
+.theme-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.theme-choice { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; text-align: left; min-width: 0; }
+.theme-choice:hover:not(:disabled) { background: var(--surface); }
 .theme-choice[aria-pressed=true] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.theme-choice-heading { display: flex; justify-content: space-between; align-items: center; margin: 16px 4px 8px; font-size: calc(13rem / 14); }
-.theme-choice-heading strong { font-weight: 500; }
+.theme-choice-heading { display: flex; justify-content: space-between; align-items: center; margin: 14px 4px 6px; font-size: calc(13rem / 14); }
+.theme-choice-heading strong { font-weight: 550; }
+.theme-choice-heading .ui-icon { color: var(--accent); }
 .theme-choice > small { display: block; color: var(--muted); font-size: calc(11rem / 14); margin: 0 4px 6px; line-height: 1.6; }
-.appearance-status { font-size: calc(12rem / 14); color: var(--muted); margin-top: 24px; line-height: 1.8; }
-/* These fixed colors illustrate the choices, independently of the active theme. */
-.theme-preview { --preview-page: #fcfcf9; --preview-side: #f0f1eb; --preview-line: #c4d0c5; --preview-accent: #28694f; display: flex; height: 125px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
-.preview-dark { --preview-page: #252e29; --preview-side: #202823; --preview-line: #5d7262; --preview-accent: #a4dfbb; }
+.appearance-status { font-size: calc(12rem / 14); color: var(--muted); margin-top: 20px; line-height: 1.7; }
+/* Fixed preview colors intentionally illustrate each choice independently of the active theme. */
+.theme-preview { --preview-page: #f8f9f7; --preview-side: #f1f3f0; --preview-line: #c8d0c9; --preview-accent: #2d6a4d; display: flex; height: 120px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); }
+.preview-dark { --preview-page: #1b201d; --preview-side: #171b18; --preview-line: #505c52; --preview-accent: #a2d9b6; }
 .preview-sidebar { display: flex; flex-direction: column; gap: 9px; width: 28%; padding: 15px 8px; background: var(--preview-side); }
 .preview-sidebar i { height: 4px; background: var(--preview-line); border-radius: 3px; }
 .preview-sidebar i:first-child { height: 12px; background: var(--preview-accent); margin-bottom: 4px; }
@@ -18,11 +20,11 @@
 .preview-main > i { background: var(--preview-line); height: 4px; width: 70%; border-radius: 3px; }
 .preview-main > i:nth-child(2) { width: 45%; }
 .preview-composer { margin-top: auto; height: 26px; border: 1px solid var(--preview-line); border-radius: 6px; }
-.preview-system .preview-main { background: linear-gradient(115deg, #fcfcf9 50%, #252e29 50%); }
-.preview-system .preview-composer { border-color: #888; }
+.preview-system .preview-main { background: linear-gradient(115deg, #f8f9f7 50%, #1b201d 50%); }
+.preview-system .preview-composer { border-color: #888888; }
 @media (max-width: 620px) {
   .theme-choices { grid-template-columns: 1fr; gap: 12px; }
-  .theme-choice { display: grid; grid-template-columns: 100px 1fr; column-gap: 16px; align-items: center; }
+  .theme-choice { display: grid; grid-template-columns: 112px 1fr; column-gap: 16px; align-items: center; }
   .theme-preview { grid-row: span 2; height: 80px; }
   .theme-choice-heading { margin: 4px 0; }
   .theme-choice > small { margin: 0; }
