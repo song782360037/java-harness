@@ -32,7 +32,7 @@ public final class PluginService {
                               boolean clearSecrets, List<String> allowedTools, long revision) {}
     public record Command(String id, String description) {}
     public record Authoring(JsonNode definition, List<String> secretKeys, long revision) {}
-    public record Configuration(JsonNode schema, BindingView binding, Map<String, String> servers, boolean credentialsUnavailable) {}
+    public record Configuration(JsonNode schema, BindingView binding, Map<String, String> servers, boolean credentialsUnavailable, boolean selected) {}
     public record Configure(JsonNode config, Map<String, String> secrets, List<String> retainedKeys, boolean enabled, long revision) {}
     public record LoadIssue(String installationId, String name, String server, String message) {}
     private record Captured(Installation installation, PluginPackages.Package pkg, Binding binding, List<PluginMcpClient.Launch> launches,
@@ -134,18 +134,23 @@ public final class PluginService {
         return values.values().stream().filter(Binding::enabled).toList();
     }
 
-    /** Installations have one global selection; grants cover startup and all declared MCP tools. */
+    /** Preserve compatible settings; incompatible versions remain installed for explicit configuration. */
     public Installation activate(Installation item) {
         synchronized (sessions) {
             Binding old = binding("user", item.name());
             if (old != null && old.installationId().equals(item.id())) return item;
             if (old != null && !installation(old.installationId()).source().equals(item.source())) throw new HarnessException("CONFLICT", "同名插件来自不同来源，请先卸载原插件");
-            var pkg = packages.read(item.id(), item.digest()); JsonNode config = defaults(pkg.configSchema(), null);
+            var pkg = packages.read(item.id(), item.digest()); JsonNode config = defaults(pkg.configSchema(), old == null ? null : old.config());
             boolean ready = true;
-            try { validate(pkg.configSchema(), config); } catch (HarnessException missingConfiguration) { ready = false; }
+            try { validate(pkg.configSchema(), config); }
+            catch (HarnessException missingConfiguration) { if (old != null) return item; ready = false; }
+            if (old != null) {
+                try { capture(new Binding("user", item.name(), item.id(), old.enabled(), config, old.secrets(), List.of("*"), "", old.revision())); }
+                catch (HarnessException | IllegalStateException incompatibleSettings) { return item; }
+            }
             if (ready) {
                 save("user", item.name(), new SaveBinding(item.id(), false, config, Map.of(), false, List.of("*"), old == null ? 0 : old.revision()));
-                jdbc.update("UPDATE harness_plugin_binding SET enabled=TRUE WHERE scope='user' AND name=?", item.name());
+                jdbc.update("UPDATE harness_plugin_binding SET enabled=? WHERE scope='user' AND name=?", old == null || old.enabled(), item.name());
             } else {
                 jdbc.update("MERGE INTO harness_plugin_binding KEY(scope,name) VALUES ('user',?,?,FALSE,?,?,'[\"*\"]','',?)",
                         item.name(), item.id(), write(config), old == null ? "" : old.secrets(), old == null ? 1 : old.revision() + 1);
@@ -159,24 +164,14 @@ public final class PluginService {
         synchronized (sessions) {
             Installation item = installation(id); Binding value = binding("user", item.name());
             if (!item.removed() && enabled && revision == 0 && (value == null || !value.installationId().equals(id))) {
-                activate(item); return;
+                activate(item); value = binding("user", item.name());
+                if (!value.installationId().equals(id)) throw new HarnessException("CONFLICT", "请先在详情中配置此版本，当前版本和配置保持不变");
+                revision = value.revision();
             }
             if (value == null) throw new HarnessException("CONFLICT", "扩展已更新，请刷新");
             if (item.removed() || !value.installationId().equals(id) || value.revision() != revision) throw new HarnessException("CONFLICT", "扩展已更新，请刷新");
             if (enabled) validate(packages.read(item.id(), item.digest()).configSchema(), value.config());
             jdbc.update("UPDATE harness_plugin_binding SET enabled=?,allowed_tools='[\"*\"]',revision=revision+1 WHERE scope='user' AND name=?", enabled, item.name());
-        }
-    }
-
-    /** Backfill installations that had no binding before global extension management. */
-    public void initializeGlobal() {
-        synchronized (sessions) {
-            for (Installation item : installations()) if (binding("user", item.name()) == null) {
-                try { activate(item); }
-                catch (HarnessException error) {
-                    jdbc.update("INSERT INTO harness_plugin_binding VALUES ('user',?,?,FALSE,'{}','','[\"*\"]','',1)", item.name(), item.id());
-                }
-            }
         }
     }
 
@@ -218,13 +213,16 @@ public final class PluginService {
     public Configuration configuration(String id) {
         synchronized (sessions) {
             Detail detail = detail(id); Binding value = binding("user", detail.installation().name());
-            if (value != null && !value.installationId().equals(id)) throw new HarnessException("CONFLICT", "请配置当前选中的插件版本");
+            if (detail.installation().removed()) throw new HarnessException("CONFLICT", "此版本已卸载");
+            if (value != null && !installation(value.installationId()).source().equals(detail.installation().source())) throw new HarnessException("CONFLICT", "同名插件来自不同来源，请先卸载原插件");
             if (value == null) throw new HarnessException("CONFLICT", "请先启用此版本");
             var pkg = packages.read(id, detail.installation().digest()); var servers = new TreeMap<String, String>();
             pkg.servers().forEach((name, server) -> servers.put(name, server.path("type").asText()));
+            boolean selected = value.installationId().equals(id);
+            if (!selected) value = new Binding(value.scope(), value.name(), id, value.enabled(), defaults(pkg.configSchema(), value.config()), value.secrets(), value.allowedTools(), "", value.revision());
             boolean unavailable = false;
             try { secretValues(value.secrets()); } catch (IllegalStateException error) { unavailable = true; }
-            return new Configuration(detail.configSchema(), view(value), servers, unavailable);
+            return new Configuration(detail.configSchema(), view(value), servers, unavailable, selected);
         }
     }
 
@@ -232,7 +230,7 @@ public final class PluginService {
     public BindingView configure(String id, Configure request) {
         synchronized (sessions) {
             Installation item = installation(id); Binding old = requiredBinding("user", item.name());
-            if (!old.installationId().equals(id) || old.revision() != request.revision()) throw new HarnessException("CONFLICT", "配置已更新，请重新读取");
+            if (old.revision() != request.revision()) throw new HarnessException("CONFLICT", "配置已更新，请重新读取");
             var secrets = retainedSecrets(old, request.retainedKeys() == null ? Set.of() : new HashSet<>(request.retainedKeys()));
             if (request.secrets() != null) secrets.putAll(request.secrets());
             return tx.execute(status -> {

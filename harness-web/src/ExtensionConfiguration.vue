@@ -4,7 +4,7 @@ import { api } from './api'
 
 interface Schema { type: string; title?: string; description?: string; enum?: unknown[]; properties?: Record<string, Schema>; required?: string[]; additionalProperties?: boolean }
 interface Binding { name: string; config: unknown; secretKeys: string[]; enabled: boolean; revision: number; launchError: string }
-interface Settings { schema: Schema; binding: Binding; servers: Record<string, string>; credentialsUnavailable: boolean }
+interface Settings { schema: Schema; binding: Binding; servers: Record<string, string>; credentialsUnavailable: boolean; selected: boolean }
 interface Credential { server: string; location: string; name: string; value: string; stored: boolean }
 interface Diagnosis { success: boolean; message: string; tools: string[] }
 const props = defineProps<{ installationId: string; editable: boolean }>()
@@ -14,8 +14,8 @@ const busy = ref(false), error = ref(''), notice = ref(''), enabled = ref(false)
 const jsonConfig = ref(''), resetCredentials = ref(false)
 const fields = computed(() => Object.entries(settings.value?.schema.properties || {}))
 const serverNames = computed(() => Object.keys(settings.value?.servers || {}))
-const rawConfig = computed(() => !!settings.value && (settings.value.schema.type !== 'object' || !fields.value.length && settings.value.schema.additionalProperties !== false))
-const configurable = computed(() => rawConfig.value || fields.value.length > 0 || serverNames.value.length > 0)
+const rawConfig = computed(() => !!settings.value && (!settings.value.selected || settings.value.schema.type !== 'object' || !fields.value.length && settings.value.schema.additionalProperties !== false))
+const configurable = computed(() => rawConfig.value || fields.value.length > 0 || serverNames.value.length > 0 || credentials.value.length > 0 || !!settings.value?.binding.secretKeys.length)
 function message(cause: unknown) { return cause instanceof Error ? cause.message : '无法读取扩展配置' }
 function working(value: boolean) { busy.value = value; emit('busy', value) }
 /** Populate redacted credentials; retaining a key never requires displaying its original value. */
@@ -52,7 +52,7 @@ async function save() {
   try {
     if (settings.value.credentialsUnavailable && !resetCredentials.value) throw new Error('请确认替换无法读取的旧凭据，并重新填写所需凭据。')
     const config: Record<string, unknown> = { ...values.value }
-    for (const [key, field] of fields.value) {
+    for (const [key, field] of rawConfig.value ? [] : fields.value) {
       if (config[key] === undefined || config[key] === '' && field.type !== 'string') delete config[key]
       else if (['object', 'array'].includes(field.type) && !field.enum) config[key] = JSON.parse(String(config[key]))
     }
@@ -65,7 +65,7 @@ async function save() {
       else { if (!credential.value) throw new Error('请填写新凭据的值，或移除该项。'); secrets[key] = credential.value }
     }
     const binding = await api<Binding>(`/extensions/installed/${props.installationId}/configuration`, { config: rawConfig.value ? JSON.parse(jsonConfig.value) : config, secrets, retainedKeys, enabled: enabled.value, revision: settings.value.binding.revision })
-    populate({ ...settings.value, binding, credentialsUnavailable: false })
+    populate({ ...settings.value, binding, credentialsUnavailable: false, selected: true })
     notice.value = '配置已保存，对新任务生效。'; emit('saved')
   } catch (cause) { error.value = message(cause) }
   finally { working(false) }
@@ -87,13 +87,15 @@ onMounted(load)
     <p v-if="error" role="alert" class="extension-feedback">{{ error }} <button :disabled="busy" @click="load">重新读取配置</button></p>
     <p v-if="busy && !settings" role="status">正在读取配置…</p>
     <template v-if="settings && configurable">
+      <p v-if="!settings.selected" class="extension-callout">此版本尚未选中，当前版本继续生效。请按新版配置要求修改下方 JSON；保存成功后切换到此版本，启停状态以下方选项为准。</p>
       <p v-if="settings.credentialsUnavailable" class="extension-feedback">原凭据无法读取。请重新填写全部凭据或明确删除旧凭据；保留空值无法恢复连接。</p>
       <p v-if="editable" class="field-note">连接参数使用添加时的同一表单维护。<button :disabled="busy" @click="emit('edit')">编辑连接器</button></p>
       <form v-else class="extension-add-form" @submit.prevent="save">
         <fieldset :disabled="busy">
           <label v-if="rawConfig">配置（JSON）<textarea v-model="jsonConfig" rows="5" spellcheck="false" /></label>
+          <details v-if="!settings.selected"><summary>新版配置要求</summary><pre class="extension-preview-content">{{ JSON.stringify(settings.schema, null, 2) }}</pre></details>
           <label v-if="settings.credentialsUnavailable" class="extension-enable-option"><input v-model="resetCredentials" type="checkbox" /> 替换无法读取的旧凭据，仅保存本次填写的凭据</label>
-          <label v-for="[key, field] in fields" :key="key">
+          <label v-for="[key, field] in rawConfig ? [] : fields" :key="key">
             <span>{{ field.title || key }} <small v-if="settings.schema.required?.includes(key)">必填</small></span>
             <select v-if="field.enum" v-model="values[key]"><option v-for="(option, index) in field.enum" :key="index" :value="option">{{ option }}</option></select>
             <input v-else-if="field.type === 'boolean'" v-model="values[key]" type="checkbox" />
@@ -103,23 +105,23 @@ onMounted(load)
             <input v-else v-model="values[key]" :required="settings.schema.required?.includes(key)" />
             <small v-if="field.description" class="field-note">{{ field.description }}</small>
           </label>
-          <template v-if="serverNames.length">
+          <template v-if="serverNames.length || credentials.length">
             <h4>连接凭据</h4><p class="field-note">密钥加密保存。已保存的凭据留空保留，移除后保存即删除。普通配置项请勿填写密钥。</p>
             <div v-for="(credential, index) in credentials" :key="index" class="extension-credential">
-              <select v-model="credential.server" aria-label="MCP 服务" :disabled="credential.stored" @change="credential.location = settings!.servers[credential.server] === 'stdio' ? 'env' : 'header'"><option v-for="server in serverNames" :key="server" :value="server">{{ server }}</option></select>
+              <select v-model="credential.server" aria-label="MCP 服务" :disabled="credential.stored" @change="credential.location = settings!.servers[credential.server] === 'stdio' ? 'env' : 'header'"><option v-if="credential.stored && !serverNames.includes(credential.server)" :value="credential.server">{{ credential.server }}（新版已移除）</option><option v-for="server in serverNames" :key="server" :value="server">{{ server }}</option></select>
               <input v-model="credential.name" :readonly="credential.stored" :aria-label="credential.location === 'env' ? '环境变量名' : 'Header 名称'" :placeholder="credential.location === 'env' ? 'API_KEY' : 'Authorization'" />
               <input v-model="credential.value" type="password" autocomplete="new-password" aria-label="凭据值" :placeholder="credential.stored ? '已保存（留空保留）' : '填写凭据值'" />
               <button type="button" @click="credentials.splice(index, 1)">移除</button>
             </div>
-            <button type="button" @click="addCredential">添加凭据</button>
+            <button v-if="serverNames.length" type="button" @click="addCredential">添加凭据</button>
           </template>
           <label class="extension-enable-option"><input v-model="enabled" type="checkbox" /> 保存后全局启用</label>
-          <div><button type="submit" class="primary">保存配置</button></div>
+          <div><button type="submit" class="primary">{{ settings.selected ? '保存配置' : '保存并切换版本' }}</button></div>
         </fieldset>
       </form>
       <p v-if="notice" role="status">{{ notice }}</p>
       <div v-if="serverNames.length" class="extension-diagnose">
-        <button :disabled="busy" @click="diagnose">{{ busy ? '处理中…' : '测试连接' }}</button>
+        <button :disabled="busy || !settings.selected" @click="diagnose">{{ busy ? '处理中…' : '测试连接' }}</button>
         <p class="field-note">测试已保存的配置，只连接服务并读取工具目录，不调用工具。结果仅代表本次检查。</p>
         <div v-for="(result, server) in results" :key="server" :class="{ 'extension-feedback': !result.success }" role="status"><strong>{{ server }} · {{ result.success ? '连接成功' : '连接失败' }}</strong><p>{{ result.message }}</p><details v-if="result.success"><summary>可用工具（{{ result.tools.length }}）</summary><ul><li v-for="tool in result.tools" :key="tool">{{ tool }}</li></ul></details></div>
       </div>

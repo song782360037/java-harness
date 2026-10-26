@@ -55,9 +55,7 @@ public class RuntimeConfiguration {
     PluginService pluginService(JdbcTemplate jdbc, PlatformTransactionManager transactions, SessionStore sessions,
             @Value("${harness.plugins.directory:./data/plugins}") String directory,
             @Value("${harness.settings.key-file}") String keyFile) {
-        var plugins = new PluginService(jdbc, new TransactionTemplate(transactions), sessions, new LocalSecretCipher(Path.of(keyFile)), Path.of(directory));
-        plugins.initializeGlobal();
-        return plugins;
+        return new PluginService(jdbc, new TransactionTemplate(transactions), sessions, new LocalSecretCipher(Path.of(keyFile)), Path.of(directory));
     }
 
     @Bean

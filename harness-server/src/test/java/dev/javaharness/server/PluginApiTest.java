@@ -51,6 +51,39 @@ class PluginApiTest {
         assertThat(json.readTree(get("/plugins").body()).isEmpty()).isTrue();
     }
 
+    /** Incompatible imports expose an editable draft while the selected version keeps serving new runs. */
+    @Test void incompatibleVersionCanBeMigratedThroughConfigurationEndpoints() throws Exception {
+        Path plugin = Files.createDirectory(source.resolve("upgrade"));
+        Files.createDirectories(plugin.resolve("dev.javaharness"));
+        Files.writeString(plugin.resolve("plugin.json"), json.writeValueAsString(Map.of("$schema", "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name", "api-upgrade", "version", "1.0.0")));
+        Files.writeString(plugin.resolve("dev.javaharness/config.schema.json"), "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"}},\"required\":[\"project\"],\"additionalProperties\":false}");
+        var first = post("/plugins/import-directory", Map.of("path", plugin.toString(), "source", "test"));
+        assertThat(first.statusCode()).as(first.body()).isEqualTo(200);
+        String firstId = json.readTree(first.body()).path("id").asText();
+        var saved = post("/extensions/installed/" + firstId + "/configuration", Map.of("config", Map.of("project", "demo"), "enabled", true, "revision", 1));
+        assertThat(saved.statusCode()).as(saved.body()).isEqualTo(200);
+        long revision = json.readTree(saved.body()).path("revision").asLong();
+        Files.writeString(plugin.resolve("plugin.json"), json.writeValueAsString(Map.of("$schema", "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name", "api-upgrade", "version", "2.0.0")));
+        Files.writeString(plugin.resolve("dev.javaharness/config.schema.json"), "{\"type\":\"object\",\"properties\":{\"projectId\":{\"type\":\"integer\"}},\"required\":[\"projectId\"],\"additionalProperties\":false}");
+        var next = post("/plugins/import-directory", Map.of("path", plugin.toString(), "source", "test"));
+        assertThat(next.statusCode()).as(next.body()).isEqualTo(200);
+        String nextId = json.readTree(next.body()).path("id").asText();
+        var draft = get("/extensions/installed/" + nextId + "/configuration");
+        assertThat(draft.statusCode()).as(draft.body()).isEqualTo(200);
+        assertThat(json.readTree(draft.body()).path("selected").asBoolean()).isFalse();
+        assertThat(json.readTree(draft.body()).path("binding").path("config").path("project").asText()).isEqualTo("demo");
+        assertThat(json.readTree(get("/extensions/installed/" + firstId + "/configuration").body()).path("selected").asBoolean()).isTrue();
+        var invalid = post("/extensions/installed/" + nextId + "/configuration", Map.of("config", Map.of(), "enabled", true, "revision", revision));
+        assertThat(invalid.statusCode()).as(invalid.body()).isEqualTo(400);
+        assertThat(json.readTree(get("/extensions/installed/" + firstId + "/configuration").body()).path("selected").asBoolean()).isTrue();
+        var migrated = post("/extensions/installed/" + nextId + "/configuration", Map.of("config", Map.of("projectId", 42), "enabled", true, "revision", revision));
+        assertThat(migrated.statusCode()).as(migrated.body()).isEqualTo(200);
+        assertThat(json.readTree(migrated.body()).path("installationId").asText()).isEqualTo(nextId);
+        assertThat(json.readTree(get("/extensions/installed/" + nextId + "/configuration").body()).path("selected").asBoolean()).isTrue();
+        assertThat(post("/plugins/" + nextId + "/remove", Map.of("uninstall", true)).statusCode()).isEqualTo(200);
+        assertThat(post("/plugins/" + firstId + "/remove", Map.of("uninstall", true)).statusCode()).isEqualTo(200);
+    }
+
     /** A multipart upload uses the same validator and remains protected by the local-origin filter. */
     @Test void multipartZipInstallAndForeignOriginProtection() throws Exception {
         var zipped = new ByteArrayOutputStream();

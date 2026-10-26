@@ -75,6 +75,106 @@ class PluginRecoveryTest {
         assertThat(plugins.installations()).extracting(PluginService.Installation::id).containsExactly(current.id());
     }
 
+    /** Compatible upgrades retain user values, credentials and an explicitly disabled selection. */
+    @Test void compatibleUpgradeRetainsConfigurationAndDisablement() {
+        var files = bundle("upgrade", Map.of("api", Map.of("type", "streamable-http", "url", "https://example.com/mcp")));
+        files.put("dev.javaharness/config.schema.json", bytes("{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\",\"default\":\"default-project\"}},\"required\":[\"project\"],\"additionalProperties\":false}"));
+        var first = plugins.installBundle(files, "local");
+        var before = plugins.configure(first.id(), new PluginService.Configure(parse("{\"project\":\"user-project\"}"), Map.of("api:header:X_KEY", "secret"), List.of(), false, 1));
+        files.put("plugin.json", bytes(write(Map.of("$schema", PluginPackages.SCHEMA, "name", "upgrade", "version", "1.0.1"))));
+        var next = plugins.installBundle(files, "local");
+        var after = plugins.configuration(next.id()).binding();
+        assertThat(after.installationId()).isEqualTo(next.id());
+        assertThat(after.config()).isEqualTo(before.config()); assertThat(after.enabled()).isFalse();
+        assertThat(after.secretKeys()).containsExactly("api:header:X_KEY");
+        assertThat(after.revision()).isGreaterThan(before.revision());
+        plugins.setEnabled(first.id(), true, 0);
+        assertThat(plugins.configuration(first.id()).binding().enabled()).isTrue();
+        assertThat(plugins.configuration(first.id()).binding().config()).isEqualTo(before.config());
+    }
+
+    /** Required settings without defaults survive upgrades and new defaults fill only missing keys. */
+    @Test void compatibleUpgradeKeepsRequiredValuesAndAddsDefaults() {
+        var files = bundle("required-upgrade", Map.of());
+        files.put("dev.javaharness/config.schema.json", bytes("{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"}},\"required\":[\"project\"],\"additionalProperties\":false}"));
+        var first = plugins.installBundle(files, "local");
+        plugins.configure(first.id(), new PluginService.Configure(parse("{\"project\":\"user-project\"}"), Map.of(), List.of(), true, 1));
+        files.put("plugin.json", bytes(write(Map.of("$schema", PluginPackages.SCHEMA, "name", "required-upgrade", "version", "1.0.1"))));
+        files.put("dev.javaharness/config.schema.json", bytes("{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"},\"limit\":{\"type\":\"integer\",\"default\":10}},\"required\":[\"project\",\"limit\"],\"additionalProperties\":false}"));
+        var next = plugins.installBundle(files, "local");
+        var after = plugins.configuration(next.id()).binding();
+        assertThat(after.config()).isEqualTo(parse("{\"project\":\"user-project\",\"limit\":10}"));
+        assertThat(after.enabled()).isTrue();
+    }
+
+    /** Incompatible candidates leave the current version intact until valid settings are saved atomically. */
+    @Test void incompatibleUpgradeCanBeConfiguredWithoutBreakingCurrentVersion() {
+        var files = bundle("pending-upgrade", Map.of());
+        files.put("dev.javaharness/config.schema.json", bytes("{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"}},\"required\":[\"project\"],\"additionalProperties\":false}"));
+        var first = plugins.installBundle(files, "local");
+        var before = plugins.configure(first.id(), new PluginService.Configure(parse("{\"project\":\"user-project\"}"), Map.of(), List.of(), true, 1));
+        files.put("plugin.json", bytes(write(Map.of("$schema", PluginPackages.SCHEMA, "name", "pending-upgrade", "version", "2.0.0"))));
+        files.put("dev.javaharness/config.schema.json", bytes("{\"type\":\"object\",\"properties\":{\"projectId\":{\"type\":\"integer\"}},\"required\":[\"projectId\"],\"additionalProperties\":false}"));
+        var next = plugins.installBundle(files, "local");
+        assertThat(plugins.configuration(first.id()).binding()).isEqualTo(before);
+        assertThatThrownBy(() -> plugins.setEnabled(next.id(), true, 0)).hasMessageContaining("配置");
+        var draft = plugins.configuration(next.id());
+        assertThat(draft.selected()).isFalse();
+        assertThat(draft.binding().config()).isEqualTo(before.config());
+        assertThat(draft.schema().path("properties").has("projectId")).isTrue();
+        assertThatThrownBy(() -> plugins.configure(next.id(), new PluginService.Configure(parse("{}"), Map.of(), List.of(), true, before.revision()))).hasMessageContaining("projectId");
+        assertThat(plugins.configuration(first.id()).binding()).isEqualTo(before);
+        plugins.setEnabled(first.id(), false, before.revision());
+        assertThatThrownBy(() -> plugins.configure(next.id(), new PluginService.Configure(parse("{\"projectId\":42}"), Map.of(), List.of(), true, before.revision()))).hasMessageContaining("已更新");
+        var selected = plugins.configure(next.id(), new PluginService.Configure(parse("{\"projectId\":42}"), Map.of(), List.of(), true, before.revision() + 1));
+        assertThat(plugins.configuration(next.id()).selected()).isTrue();
+        assertThat(selected.installationId()).isEqualTo(next.id()); assertThat(selected.enabled()).isTrue();
+        assertThat(selected.config()).isEqualTo(parse("{\"projectId\":42}"));
+    }
+
+    /** Removed MCP credentials remain visible and must be deleted before committing a serverless version. */
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void candidateCanDropCredentialsForRemovedServers(boolean changedSchema) {
+        var files = bundle("removed-server", Map.of("api", Map.of("type", "streamable-http", "url", "https://example.com/mcp")));
+        var first = plugins.installBundle(files, "local");
+        var before = plugins.configure(first.id(), new PluginService.Configure(parse("{}"), Map.of("api:header:X_KEY", "secret"), List.of(), true, 1));
+        files.put("plugin.json", bytes(write(Map.of("$schema", PluginPackages.SCHEMA, "name", "removed-server", "version", "2.0.0"))));
+        files.remove("mcp.json");
+        if (changedSchema) files.put("dev.javaharness/config.schema.json", bytes("{\"type\":\"object\",\"properties\":{\"projectId\":{\"type\":\"integer\"}},\"required\":[\"projectId\"],\"additionalProperties\":false}"));
+        var next = plugins.installBundle(files, "local");
+        var draft = plugins.configuration(next.id());
+        assertThat(draft.selected()).isFalse();
+        assertThat(plugins.configuration(first.id()).binding()).isEqualTo(before);
+        assertThat(draft.servers()).isEmpty(); assertThat(draft.binding().secretKeys()).containsExactly("api:header:X_KEY");
+        var config = parse(changedSchema ? "{\"projectId\":42}" : "{}");
+        assertThatThrownBy(() -> plugins.configure(next.id(), new PluginService.Configure(config, Map.of(), List.of("api:header:X_KEY"), true, before.revision()))).hasMessageContaining("凭据键");
+        assertThat(plugins.configuration(first.id()).binding()).isEqualTo(before);
+        var saved = plugins.configure(next.id(), new PluginService.Configure(config, Map.of(), List.of(), true, before.revision()));
+        assertThat(saved.installationId()).isEqualTo(next.id()); assertThat(saved.secretKeys()).isEmpty();
+    }
+
+    /** Restart restores saved choices and never selects an older version after uninstall or unbinding. */
+    @Test void restartDoesNotReactivateUnselectedVersions() {
+        var files = bundle("restart", Map.of()); var first = plugins.installBundle(files, "local");
+        files.put("plugin.json", bytes(write(Map.of("$schema", PluginPackages.SCHEMA, "name", "restart", "version", "1.0.1"))));
+        var next = plugins.installBundle(files, "local");
+        plugins.remove(next.id(), false, true);
+        plugins = new RuntimeConfiguration().pluginService(jdbc, new DataSourceTransactionManager(jdbc.getDataSource()), sessions, directory.resolve("plugins").toString(), directory.resolve("settings.key").toString());
+        assertThat(plugins.bindings("user")).isEmpty();
+        assertThat(plugins.installations()).extracting(PluginService.Installation::id).containsExactly(first.id());
+        plugins.setEnabled(first.id(), true, 0);
+        var selected = plugins.configuration(first.id()).binding();
+        plugins.unbind("user", first.name(), selected.revision());
+        plugins = new RuntimeConfiguration().pluginService(jdbc, new DataSourceTransactionManager(jdbc.getDataSource()), sessions, directory.resolve("plugins").toString(), directory.resolve("settings.key").toString());
+        assertThat(plugins.bindings("user")).isEmpty();
+        plugins.setEnabled(first.id(), true, 0);
+        selected = plugins.configuration(first.id()).binding();
+        plugins.setEnabled(first.id(), false, selected.revision());
+        var disabled = plugins.configuration(first.id()).binding();
+        plugins = new RuntimeConfiguration().pluginService(jdbc, new DataSourceTransactionManager(jdbc.getDataSource()), sessions, directory.resolve("plugins").toString(), directory.resolve("settings.key").toString());
+        assertThat(plugins.configuration(first.id()).binding()).isEqualTo(disabled);
+    }
+
     /** A deleted executable is visible on its parent and connector while healthy MCP and Skills still execute. */
     @Test void brokenConnectorIsIsolatedWithinTheSamePlugin() throws Exception {
         Path missing = directory.resolve("gone.exe");

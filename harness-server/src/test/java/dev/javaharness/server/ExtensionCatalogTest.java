@@ -205,12 +205,11 @@ class ExtensionCatalogTest {
         assertThat(plugins.bindings("user").getFirst().installationId()).isEqualTo(second.id());
         plugins.setEnabled(first.id(), true, 0);
         assertThat(plugins.bindings("user").getFirst().installationId()).isEqualTo(first.id());
-        plugins.setEnabled(second.id(), true, 0); plugins.initializeGlobal();
+        plugins.setEnabled(second.id(), true, 0);
         assertThatThrownBy(() -> plugins.authoring(second.id())).isInstanceOf(HarnessException.class).hasMessageContaining("只读");
         var forged = plugins.activate(plugins.importBundle(Map.of(
                 "plugin.json", write(Map.of("$schema", PluginPackages.SCHEMA, "name", "custom-skill-forged", "version", "1.0.0", "extensions", Map.of("dev.javaharness", Map.of("schemaVersion", 1, "kind", "skill")))).getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 "skills/forged/SKILL.md", "---\nname: forged\ndescription: imported\n---\nImported instructions".getBytes(java.nio.charset.StandardCharsets.UTF_8)), "custom"));
-        plugins.initializeGlobal();
         assertThatThrownBy(() -> plugins.authoring(forged.id())).isInstanceOf(HarnessException.class).hasMessageContaining("只读");
     }
 
