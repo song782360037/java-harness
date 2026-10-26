@@ -49,14 +49,68 @@ let inspectorTrigger: HTMLElement | null = null
 const collapsedGroups = ref(new Set<string>())
 const sidebarCollapsed = ref(window.innerWidth <= 780)
 const savedSidebarWidth = Number(storageGet('harness.sidebar.width'))
-const sidebarWidth = ref(Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0 ? Math.max(200, Math.min(400, savedSidebarWidth)) : 232)
+const sidebarWidth = ref(Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0 ? Math.max(200, Math.min(400, savedSidebarWidth)) : 248)
 watch(sidebarWidth, value => storageSet('harness.sidebar.width', String(value)))
+const sessionMenuId = ref('')
+const sessionMenuElement = ref<HTMLElement>()
+const sessionMenuPosition = ref<Record<string, string>>({})
+const sessionMenuSession = computed(() => sessions.value.find(session => session.id === sessionMenuId.value))
+let sessionMenuTrigger: HTMLElement | null = null
+function closeSessionMenu(restoreFocus = false) {
+  const trigger = sessionMenuTrigger
+  sessionMenuId.value = ''
+  sessionMenuTrigger = null
+  if (restoreFocus) trigger?.focus()
+}
+async function toggleSessionMenu(session: Session, event: MouseEvent) {
+  if (sessionMenuId.value === session.id) { closeSessionMenu(true); return }
+  const trigger = event.currentTarget as HTMLElement
+  const bounds = trigger.getBoundingClientRect()
+  const width = 144
+  const below = window.innerHeight - bounds.bottom - 12
+  const above = bounds.top - 12
+  const upwards = below < 88 && above > below
+  sessionMenuTrigger = trigger
+  sessionMenuPosition.value = {
+    left: `${Math.max(8, Math.min(bounds.right - width, window.innerWidth - width - 8))}px`,
+    maxHeight: `${Math.max(80, upwards ? above : below)}px`,
+    ...(upwards ? { bottom: `${window.innerHeight - bounds.top + 4}px` } : { top: `${bounds.bottom + 4}px` }),
+  }
+  sessionMenuId.value = session.id
+  await nextTick()
+  sessionMenuElement.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+}
+function outsideSessionMenu(event: PointerEvent) {
+  if (!sessionMenuId.value) return
+  const target = event.target as Node
+  if (!sessionMenuTrigger?.contains(target) && !sessionMenuElement.value?.contains(target)) closeSessionMenu()
+}
+function focusOutsideSessionMenu(event: FocusEvent) {
+  if (!sessionMenuId.value) return
+  const target = event.target as Node
+  if (!sessionMenuTrigger?.contains(target) && !sessionMenuElement.value?.contains(target)) closeSessionMenu()
+}
+function scrollSessionMenu(event: Event) {
+  if (sessionMenuId.value && !sessionMenuElement.value?.contains(event.target as Node)) closeSessionMenu()
+}
+function resizeSessionMenu() { closeSessionMenu() }
+function navigateSessionMenu(event: KeyboardEvent) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  const options = [...(sessionMenuElement.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])]
+  if (!options.length) return
+  event.preventDefault()
+  const index = options.indexOf(event.target as HTMLButtonElement)
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+    : event.key === 'ArrowDown' ? (index + 1) % options.length : (index <= 0 ? options.length : index) - 1
+  options[next]?.focus()
+}
 const renamingSession = ref<Session | null>(null)
 let renameTrigger: HTMLElement | null = null
 let titleRevision = 0
 // 记录重命名入口，关闭弹窗后恢复键盘焦点。
 function openRename(session: Session, event: MouseEvent) {
-  renameTrigger = event.currentTarget as HTMLElement
+  renameTrigger = sessionMenuTrigger || (event.currentTarget as HTMLElement)
+  closeSessionMenu()
   renamingSession.value = session
 }
 // 仅同步标题，保留可能同时刷新的工作区和运行记录。
@@ -76,7 +130,8 @@ const deletingSession = ref<Session | null>(null)
 let deleteTrigger: HTMLElement | null = null
 // 记录删除入口，关闭弹窗后恢复键盘焦点。
 function openDelete(session: Session, event: MouseEvent) {
-  deleteTrigger = event.currentTarget as HTMLElement
+  deleteTrigger = sessionMenuTrigger || (event.currentTarget as HTMLElement)
+  closeSessionMenu()
   deletingSession.value = session
 }
 // 删除成功后移除列表项；删除的是当前会话时，断开实时连接并切换到下一个会话或回到空白页。
@@ -108,7 +163,9 @@ const mobileLayout = window.matchMedia('(max-width: 780px)')
 const isMobile = ref(mobileLayout.matches)
 function onLayoutChange() { isMobile.value = mobileLayout.matches; if (isMobile.value) sidebarCollapsed.value = true }
 function closeSidebarOnEscape(event: KeyboardEvent) {
-  if (event.key === 'Escape' && !event.defaultPrevented && isMobile.value) sidebarCollapsed.value = true
+  if (event.key !== 'Escape' || event.defaultPrevented) return
+  if (sessionMenuId.value) { event.preventDefault(); closeSessionMenu(true); return }
+  if (isMobile.value) sidebarCollapsed.value = true
 }
 const sessionSearch = ref('')
 const promptInput = ref<HTMLTextAreaElement>()
@@ -532,31 +589,54 @@ async function cancel() {
   } catch (cause) { if (version === revision) error.value = cause instanceof Error ? cause.message : '停止失败' }
   finally { cancelling.value = false }
 }
-onMounted(() => { void initialize(); mobileLayout.addEventListener('change', onLayoutChange); document.addEventListener('keydown', closeSidebarOnEscape) })
-onUnmounted(() => { revision++; source?.close(); clearTimeout(reconnectTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer); mobileLayout.removeEventListener('change', onLayoutChange); document.removeEventListener('keydown', closeSidebarOnEscape) })
+onMounted(() => {
+  void initialize()
+  mobileLayout.addEventListener('change', onLayoutChange)
+  document.addEventListener('keydown', closeSidebarOnEscape)
+  document.addEventListener('pointerdown', outsideSessionMenu)
+  document.addEventListener('focusin', focusOutsideSessionMenu)
+  document.addEventListener('scroll', scrollSessionMenu, true)
+  window.addEventListener('resize', resizeSessionMenu)
+})
+onUnmounted(() => {
+  revision++
+  source?.close()
+  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer)
+  mobileLayout.removeEventListener('change', onLayoutChange)
+  document.removeEventListener('keydown', closeSidebarOnEscape)
+  document.removeEventListener('pointerdown', outsideSessionMenu)
+  document.removeEventListener('focusin', focusOutsideSessionMenu)
+  document.removeEventListener('scroll', scrollSessionMenu, true)
+  window.removeEventListener('resize', resizeSessionMenu)
+})
 </script>
 
 <template>
   <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
     <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
-      <div class="brand"><img class="brand-icon" src="/harness-icon.svg" width="34" height="34" alt="" /><span class="brand-copy"><strong>Harness</strong><small>本地编程工作台</small></span><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" /></button></div>
-      <button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="compose" /><span>新对话</span><UiIcon name="plus" :size="15" /></button>
-      <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索会话" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
+      <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="compose" :size="16" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" :size="16" /></button></div>
+      <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
       <nav class="session-navigation" aria-label="会话列表">
-        <section v-for="[path, group] in sessionGroups" :key="path" class="session-group">
-          <h2 class="workspace-group-heading"><button class="group-toggle" :title="group.directories.join('\n') || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon :name="collapsedGroups.has(path) && !sessionSearch ? 'chevron' : 'down'" :size="12" /><UiIcon v-if="path" :name="group.icon" :style="{ color: group.color }" :size="14" /><span>{{ group.label }}</span><small>{{ group.sessions.length }}</small></button><button v-if="path" class="icon-button" :disabled="loading || submitting || workspaceChanging" :aria-label="`在 ${group.label} 新建会话`" title="新建会话" @click="createWorkspaceSession(path)"><UiIcon name="plus" :size="14" /></button></h2>
-          <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId }">
+        <div class="session-section-label">工作区</div>
+        <section v-for="[path, group] in sessionGroups" :key="path" class="session-group" :class="{ collapsed: collapsedGroups.has(path) && !sessionSearch }">
+          <h2 class="workspace-group-heading"><button class="group-toggle" :title="group.directories.join('\n') || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon v-if="path" :name="group.icon" :style="{ color: group.color }" :size="16" /><span>{{ group.label }}</span></button><button v-if="path" class="icon-button workspace-add" :disabled="loading || submitting || workspaceChanging" :aria-label="`在 ${group.label} 新建会话`" title="新建会话" @click="createWorkspaceSession(path)"><UiIcon name="plus" :size="14" /></button></h2>
+          <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId, 'menu-open': sessionMenuId === session.id }">
             <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
-            <button class="icon-button session-rename" :disabled="loading || workspaceChanging" :aria-label="`重命名会话：${session.title}`" title="重命名会话" @click="openRename(session, $event)"><UiIcon name="compose" :size="14" /></button>
-            <button class="icon-button session-delete" :disabled="loading || workspaceChanging || submitting || (session.id === selectedId && (!!current || !!pending))" :aria-label="`删除会话：${session.title}`" title="删除会话" @click="openDelete(session, $event)"><UiIcon name="trash" :size="14" /></button>
+            <button class="icon-button session-more" :disabled="loading || workspaceChanging" :aria-label="`更多操作：${session.title}`" title="更多操作" aria-haspopup="menu" :aria-expanded="sessionMenuId === session.id" :aria-controls="sessionMenuId === session.id ? `session-menu-${session.id}` : undefined" @click="toggleSessionMenu(session, $event)"><UiIcon name="more" :size="16" /></button>
           </div>
         </section>
         <div v-if="!sessionGroups.length" class="sidebar-empty"><UiIcon :name="sessionSearch ? 'search' : 'chat'" :size="22" /><p>{{ sessionSearch ? '没有匹配的会话' : '从一个想法开始' }}</p><small v-if="!sessionSearch">你的工作与对话，将在这里展开。</small></div>
       </nav>
-      <div class="sidebar-footer"><button class="settings-entry" :disabled="settingsBusy || workspaceChanging" @click="openSettings()"><UiIcon name="settings" /><span>设置与偏好</span><UiIcon name="chevron" :size="13" /></button><p class="sidebar-footnote">JAVA HARNESS <span>在本机管理工作区</span></p></div>
+      <div class="sidebar-footer"><button class="settings-entry" :disabled="settingsBusy || workspaceChanging" @click="openSettings()" title="设置与偏好"><img class="sidebar-avatar" src="/harness-icon.svg" width="20" height="20" alt="" /><span>本地工作台</span><UiIcon name="settings" :size="16" /></button></div>
       <SidebarResize v-if="!isMobile && !sidebarCollapsed && !showSettings" v-model:width="sidebarWidth" />
     </aside>
+    <Teleport to="body">
+      <div v-if="sessionMenuSession" :id="`session-menu-${sessionMenuSession.id}`" ref="sessionMenuElement" class="session-menu" :style="sessionMenuPosition" role="menu" :aria-label="`${sessionMenuSession.title} 的操作`" @keydown="navigateSessionMenu">
+        <button type="button" role="menuitem" tabindex="-1" :disabled="loading || workspaceChanging" @click="openRename(sessionMenuSession, $event)"><UiIcon name="edit" :size="13" /><span>重命名</span></button>
+        <button type="button" class="danger" role="menuitem" tabindex="-1" :disabled="loading || workspaceChanging || submitting || (sessionMenuSession.id === selectedId && (!!current || !!pending))" @click="openDelete(sessionMenuSession, $event)"><UiIcon name="trash" :size="15" /><span>删除</span></button>
+      </div>
+    </Teleport>
     <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="sessionRenamed" @close="closeRename" />
     <SessionDeleteDialog v-if="deletingSession" :session="deletingSession" @deleted="sessionDeleted" @close="closeDelete" />
     <main v-show="!showSettings" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">

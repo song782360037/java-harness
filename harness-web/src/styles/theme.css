@@ -2,7 +2,12 @@
   color-scheme: light;
   --page: #fcfcf9;
   --surface: #fff;
-  --sidebar: #f0f1eb;
+  --sidebar: #f6f6f6;
+  --sidebar-text: #2f2f2f;
+  --sidebar-muted: #6b6b6b;
+  --sidebar-faint: #8a8a8a;
+  --sidebar-selected: #e7e7e7;
+  --sidebar-hover: #ededed;
   --subtle: #f2f4ef;
   --selected: #e1ede5;
   --hover: #e8ede6;
@@ -34,7 +39,12 @@
   color-scheme: dark;
   --page: #252e29;
   --surface: #2e3932;
-  --sidebar: #202823;
+  --sidebar: #242424;
+  --sidebar-text: #ececec;
+  --sidebar-muted: #b5b5b5;
+  --sidebar-faint: #858585;
+  --sidebar-selected: #3a3a3a;
+  --sidebar-hover: #323232;
   --subtle: #303b34;
   --selected: #354c3e;
   --hover: #38453b;
