@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { effortLabel, type ModelProfile, type Workspace } from './api'
+import { effortShortLabel, type ModelProfile, type Workspace } from './api'
 import ReasoningSlider from './ReasoningSlider.vue'
 import UiIcon from './UiIcon.vue'
 const props = defineProps<{ profiles: ModelProfile[]; modelId: string; effort: string; disabled: boolean; workspaceId: string; workspaces: Workspace[]; workspaceDisabled: boolean }>()
@@ -114,7 +114,7 @@ function outsideResize() { close() }
     </div>
     <span class="selector-divider" aria-hidden="true"></span>
     <div class="selector-anchor effort-anchor">
-      <button id="composer-effort" ref="effortButton" type="button" class="composer-chip effort-chip" :disabled="disabled" :aria-expanded="open === 'effort'" aria-controls="effort-options" aria-label="选择思考强度" @click="toggle('effort')"><UiIcon name="reasoning" :size="15" /><span>{{ effortLabel(effort).split(' · ')[0] }}</span><UiIcon class="chevron" name="down" :size="12" /></button>
+      <button id="composer-effort" ref="effortButton" type="button" class="composer-chip effort-chip" :disabled="disabled" :aria-expanded="open === 'effort'" aria-controls="effort-options" aria-label="选择思考强度" @click="toggle('effort')"><UiIcon name="reasoning" :size="15" /><span>{{ effortShortLabel(effort) }}</span><UiIcon class="chevron" name="down" :size="12" /></button>
       <div v-if="open === 'effort'" id="effort-options" :style="menuPosition" ref="panel" class="selector-popover effort-popover" aria-label="思考强度">
         <ReasoningSlider :model-value="effort" :disabled="disabled" @update:model-value="emit('effort', $event)" />
       </div>

@@ -22,11 +22,16 @@ const configurationBusy = ref(false)
 const locked = computed(() => busy.value || configurationBusy.value)
 const categories = computed(() => ['全部', '官方精选', '自定义', ...new Set(items.value.filter(item => item.kind === kind.value).map(item => item.category))])
 const visible = computed(() => filterExtensions(items.value, kind.value, query.value, category.value, installedOnly.value, sort.value))
-const recommended = computed(() => items.value.filter(item => item.kind === kind.value && item.featured).slice(0, 6))
+// 全部条目都是推荐时，推荐区与下方列表完全重复，此时不显示。
+const recommended = computed(() => {
+  const ofKind = items.value.filter(item => item.kind === kind.value)
+  const featured = ofKind.filter(item => item.featured)
+  return featured.length < ofKind.length ? featured.slice(0, 6) : []
+})
 const dialog = ref<'preview' | 'add' | null>(null), selected = ref<ExtensionItem | null>(null), content = ref(''), dialogError = ref('')
 const previewLoading = ref(false)
 let previewRequest = 0
-const modal = ref<HTMLElement>(), previousFocus = ref<HTMLElement>()
+const modal = ref<HTMLDialogElement>(), previousFocus = ref<HTMLElement>()
 const editing = ref(false), editRevision = ref(0)
 const name = ref(''), title = ref(''), description = ref(''), version = ref('1.0.0'), body = ref(''), directory = ref(''), source = ref('local')
 const file = ref<File | null>(null), importMode = ref('directory')
@@ -47,26 +52,40 @@ async function refresh() {
   try { await reload() } catch (cause) { error.value = message(cause) } finally { busy.value = false }
 }
 function message(cause: unknown) { return cause instanceof Error ? cause.message : '扩展操作失败，请重试。' }
-/** Keep keyboard focus within the open modal and return it to the invoking control. */
+/** 原生模态框隔离背景，关闭时恢复触发入口。 */
 async function show(mode: 'preview' | 'add') {
   if (!dialog.value) previousFocus.value = document.activeElement as HTMLElement
   dialog.value = mode; dialogError.value = ''
-  await nextTick(); modal.value?.focus()
+  await nextTick()
+  if (!modal.value?.open) modal.value?.showModal()
 }
 function close() {
   if (locked.value) return
+  modal.value?.close()
   previewRequest++; previewLoading.value = false
   dialog.value = null; selected.value = null; content.value = ''; body.value = ''; file.value = null
   void nextTick(() => previousFocus.value?.isConnected ? previousFocus.value.focus() : document.querySelector<HTMLElement>('.extension-add')?.focus())
 }
-function keyboard(event: KeyboardEvent) {
-  if (event.key === 'Escape') { event.preventDefault(); close() }
-  if (event.key !== 'Tab') return
-  const controls = Array.from(modal.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]') || []).filter(element => element.getClientRects().length)
-  const first = controls[0], last = controls[controls.length - 1]
-  if (!first) { event.preventDefault(); return }
-  if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.value)) { event.preventDefault(); last?.focus() }
-  else if (!event.shiftKey && (document.activeElement === last || document.activeElement === modal.value)) { event.preventDefault(); first.focus() }
+/** 浏览器可能忽略 cancel 拦截直接关闭：忙碌时重新打开，否则同步清理状态。 */
+function closed() {
+  if (!dialog.value) return
+  // 在 close 事件中同步 showModal 会让之后的关闭不再触发 close 事件，需延后到下一个任务。
+  if (locked.value) { setTimeout(() => { if (dialog.value && !modal.value?.open) modal.value?.showModal() }); return }
+  close()
+}
+let pressedOutside = false
+/** 记录本次点击是否从遮罩上开始。 */
+function pressStart(event: MouseEvent) { pressedOutside = onBackdrop(event) }
+/** 判断指针是否落在弹窗外的遮罩上；内部空白和滚动条不算。 */
+function onBackdrop(event: MouseEvent) {
+  const bounds = modal.value?.getBoundingClientRect()
+  if (event.target !== modal.value || !bounds) return false
+  return event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom
+}
+/** 按下和松开都在遮罩上才关闭，避免从弹窗内拖选文字到外部时误关。 */
+function outsideModal(event: MouseEvent) {
+  if (pressedOutside && onBackdrop(event)) close()
+  pressedOutside = false
 }
 async function preview(item: ExtensionItem) {
   if (locked.value) return
@@ -176,18 +195,17 @@ onMounted(refresh)
       <p v-if="error" role="alert" class="extension-feedback">{{ error }} <button :disabled="locked" @click="refresh">重试</button></p>
       <p v-if="busy && !dialog" role="status" class="extension-loading">正在读取扩展…</p>
       <section v-if="!installedOnly && !query && category === '全部' && recommended.length" class="extension-recommendations" aria-label="官方推荐">
-        <h2>官方推荐 <UiIcon name="chevron" :size="14" /></h2>
+        <h2>官方推荐</h2>
         <div class="extension-grid"><ExtensionRow v-for="item in recommended" :key="item.id" :item="item" :locked="locked" :pending="toggling.has(item.installationId)" @preview="preview" @toggle="toggle" @edit="edit" @remove="remove" /></div>
       </section>
       <section class="extension-list" :aria-label="`${installedOnly ? '已安装' : '全部'}${current.label}`">
-        <h2 v-if="kind !== 'connector' || installedOnly">{{ installedOnly ? '已安装' : '全部' }}{{ current.label }}<small>{{ visible.length }}</small></h2>
+        <h2>{{ installedOnly ? '已安装' : '全部' }}{{ current.label }}<small>{{ visible.length }}</small></h2>
         <div class="extension-filterbar"><nav class="extension-categories" aria-label="分类"><button v-for="value in categories" :key="value" :class="{ active: category === value }" :aria-pressed="category === value" @click="category = value">{{ value }}</button></nav><div class="extension-sort" aria-label="排序"><button :class="{ active: sort === 'featured' }" :aria-pressed="sort === 'featured'" @click="sort = 'featured'">推荐</button><button :class="{ active: sort === 'name' }" :aria-pressed="sort === 'name'" @click="sort = 'name'">名称</button></div></div>
         <div class="extension-grid"><ExtensionRow v-for="item in visible" :key="item.id" :item="item" :locked="locked" :pending="toggling.has(item.installationId)" @preview="preview" @toggle="toggle" @edit="edit" @remove="remove" /></div>
         <div v-if="!visible.length && !busy" class="extension-empty"><UiIcon :name="current.icon" :size="32" /><h3>{{ query ? '没有找到匹配的扩展' : installedOnly ? '还没有安装' + current.label : '这个分类还没有扩展' }}</h3><p>{{ query ? '试试其他关键词，或切换分类。' : '从官方目录选择，或添加自己的' + current.label + '。' }}</p><button :disabled="locked" @click="add">添加{{ current.label }}</button></div>
       </section>
-      <p class="extension-catalog-note">Java Harness 官方提供 · 支持自定义添加<span>安装后全局启用 · 可随时停用</span></p>
     </div>
-    <Teleport to="body"><div v-if="dialog" class="extension-overlay" @keydown="keyboard" @click.self="close"><section ref="modal" class="extension-modal" :class="{ 'extension-modal-preview': dialog === 'preview' }" role="dialog" aria-modal="true" aria-labelledby="extension-dialog-title" tabindex="-1">
+    <Teleport to="body"><dialog v-if="dialog" ref="modal" class="extension-modal" :class="{ 'extension-modal-preview': dialog === 'preview' }" aria-labelledby="extension-dialog-title" @keydown.esc.stop @cancel.prevent="close" @close="closed" @mousedown="pressStart" @click="outsideModal">
       <header class="extension-modal-heading"><div><span class="extension-modal-eyebrow">{{ dialog === 'add' ? '自定义扩展' : selected?.official ? 'JAVA HARNESS · 官方扩展' : selected?.parentName ? '插件内组件' : '自定义扩展' }}</span><h2 id="extension-dialog-title">{{ dialog === 'add' ? (editing ? '编辑' : '添加') + current.label : selected?.title }}</h2></div><button class="icon-button" :disabled="locked" aria-label="关闭扩展详情" @click="close"><UiIcon name="close" :size="20" /></button></header>
       <div class="extension-modal-body"><p v-if="dialogError" role="alert" class="extension-feedback">{{ dialogError }}</p>
         <template v-if="dialog === 'preview' && selected"><p class="extension-preview-description">{{ selected.description }}</p><div class="extension-meta"><span>{{ selected.category }}</span><span>v{{ selected.version }}</span><span v-if="selected.installationId">{{ selected.enabled ? '已启用' : selected.issue ? '待配置 / 已停用' : '已停用' }}</span></div><p v-if="selected.parentName" class="extension-callout">由「{{ selected.parentName }}」提供。启停与卸载将作用于整个插件。</p><p v-if="selected.issue" role="alert" class="extension-feedback">{{ selected.issue }}</p><p v-if="previewLoading" role="status" class="extension-loading">正在读取详情…</p><pre v-else class="extension-preview-content">{{ content }}</pre>
@@ -201,6 +219,6 @@ onMounted(refresh)
         </fieldset></form>
       </div>
       <footer class="extension-modal-footer"><span>{{ dialog === 'add' ? '保存后全局生效，并允许插件所需的工具调用' : dialog === 'preview' && selected?.parentName ? '此组件随所属插件统一管理' : '启用后对新任务生效' }}</span><button :disabled="locked" @click="close">关闭</button><button v-if="dialog === 'add'" form="extension-add-form" class="primary" :disabled="locked || editing && editRevision === 0">{{ busy ? '保存中…' : editing ? '保存修改' : '添加' + current.label }}</button><button v-else-if="dialog === 'preview' && selected?.issue" :disabled="locked || previewLoading" @click="selected && remove(selected)">卸载此版本</button><button v-else-if="dialog === 'preview' && !selected?.installationId" class="primary" :disabled="locked || previewLoading || !selected" @click="install">{{ busy ? '处理中…' : '安装' }}</button></footer>
-    </section></div></Teleport>
+    </dialog></Teleport>
   </section>
 </template>

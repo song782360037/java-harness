@@ -96,19 +96,19 @@ defineExpose({ keydown, open, activeId })
   </section>
 </template>
 <style scoped>
-.slash-command-menu { position: absolute; z-index: 12; left: 0; right: 0; bottom: calc(100% + 8px); padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); color: var(--text); display: flex; flex-direction: column; overflow: hidden; }
-header, footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; font-size: calc(12rem / 14); color: var(--muted); }
+.slash-command-menu { position: absolute; z-index: 12; left: 0; right: 0; bottom: calc(100% + 8px); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); color: var(--text); display: flex; flex-direction: column; overflow: hidden; }
+header, footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; font-size: var(--font-caption); color: var(--muted); }
 header > span { display: flex; align-items: center; gap: 6px; font-weight: 550; }
-header small, footer { font-size: calc(11rem / 14); }
-footer { border-top: 1px solid var(--border); margin-top: 6px; flex-wrap: wrap; }
+header small, footer { font-size: var(--font-caption); }
+footer { border-top: 0.5px solid var(--border); margin-top: 6px; flex-wrap: wrap; }
 footer > span { margin-left: auto; }
 .slash-command-options { overflow-y: auto; min-height: 0; max-height: min(250px, 32dvh); overscroll-behavior: contain; }
 .slash-command-options button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; border: 0; background: transparent; padding: 10px; border-radius: var(--radius-md); }
 .slash-command-options button.active { background: var(--accent-soft); color: var(--accent); }
 .slash-command-options button > span { min-width: 0; }
 .slash-command-options strong, .slash-command-options small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slash-command-options strong { font-size: calc(13rem / 14); font-weight: 550; }
-.slash-command-options small { font-size: calc(11rem / 14); color: var(--muted); margin-top: 5px; }
-p { font-size: calc(12rem / 14); color: var(--muted); padding: 8px 10px; line-height: 1.7; }
-p button { padding: 4px 8px; font-size: calc(11rem / 14); }
+.slash-command-options strong { font-size: var(--font-body); font-weight: 550; }
+.slash-command-options small { font-size: var(--font-caption); color: var(--muted); margin-top: 5px; }
+p { font-size: var(--font-caption); color: var(--muted); padding: 8px 10px; line-height: 1.7; }
+p button { padding: 4px 8px; font-size: var(--font-caption); }
 </style>

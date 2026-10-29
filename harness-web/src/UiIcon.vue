@@ -15,6 +15,7 @@ const paths: Record<string, string> = {
   scan: 'M8 3H4v4m12-4h4v4M4 17v4h4m8 0h4v-4M7 12h10M12 7v10',
   copy: 'M8 8h12v12H8zM16 4H4v12', stop: 'M7 7h10v10H7z',
   cube: 'm12 3 9 5v9l-9 5-9-5V8l9-5ZM3 8l9 5 9-5m-9 5v9M7.5 5.5l9 5',
+  puzzle: 'M10 4a2 2 0 1 1 4 0v2h4a1 1 0 0 1 1 1v4h-2a2 2 0 1 0 0 4h2v4a1 1 0 0 1-1 1h-4v-2a2 2 0 1 0-4 0v2H6a1 1 0 0 1-1-1v-4h2a2 2 0 1 0 0-4H5V7a1 1 0 0 1 1-1h4V4Z',
   palette: 'M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 0-4 2 2 0 0 1 0-4h4a4 4 0 0 0 4-4c0-4-5-6-9-6ZM7 9h.01M10 6h.01M15 6h.01M6 13h.01',
   edit: 'm15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',

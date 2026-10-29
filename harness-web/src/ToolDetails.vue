@@ -29,8 +29,8 @@ watch(() => props.revision, load)
   </div>
 </template>
 <style scoped>
-.tool-list { margin-top: 16px; font-size: calc(12rem / 14); }
-.tool-card { margin-top: 10px; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); }
+.tool-list { margin-top: 16px; font-size: var(--font-caption); }
+.tool-card { margin-top: 10px; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--surface); border: 0.5px solid var(--border); }
 summary { cursor: pointer; overflow-wrap: anywhere; line-height: 1.7; font-weight: 550; color: var(--text); }
-pre { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font: calc(11rem / 14)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; }
+pre { padding: 12px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font: var(--font-caption)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; }
 </style>

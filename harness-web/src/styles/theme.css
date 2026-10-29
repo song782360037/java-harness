@@ -1,4 +1,8 @@
 :root {
+  --font-caption: max(12px, calc(12rem / 14));
+  --font-body: 1rem;
+  --font-heading: calc(18rem / 14);
+  --font-title: calc(24rem / 14);
   color-scheme: light;
   --page: #f8f9f7;
   --surface: #ffffff;

@@ -15,13 +15,13 @@ const autoScroll = computed({ get: () => preferences.value.autoScroll, set: valu
       <PreferenceSelect id="send-shortcut" :model-value="sendShortcut" :options="shortcuts" @update:model-value="updatePreferences({ sendShortcut: $event === 'enter' ? 'enter' : 'modifier-enter' })" />
     </div>
     <div class="preference-row">
-      <div class="preference-copy"><label id="font-size-label" for="font-size">全局字号</label><p id="font-size-help">调整整个工作台的文字大小，包括侧栏、设置、菜单和聊天内容。</p></div>
+      <div class="preference-copy"><label id="font-size-label" for="font-size">全局字号</label><p id="font-size-help">调整整个工作台的文字大小。</p></div>
       <PreferenceSelect id="font-size" :model-value="fontSize" :options="fontSizes" @update:model-value="updatePreferences({ chatFontSize: $event === 'small' || $event === 'large' ? $event : 'standard' })" />
     </div>
     <div class="preference-row">
       <div class="preference-copy"><label for="auto-scroll">自动跟随最新消息</label><p id="auto-scroll-help">位于对话底部时跟随新内容；向上阅读时暂停。关闭后新内容不会自动滚动。</p></div>
       <input id="auto-scroll" v-model="autoScroll" type="checkbox" aria-describedby="auto-scroll-help" />
     </div>
-    <p class="preferences-status" role="status">{{ preferencesPersistent ? '更改立即生效，已保存在此浏览器。' : '浏览器无法保存偏好，更改仅在当前页面生效。' }}</p>
+    <p v-if="!preferencesPersistent" class="preferences-status" role="status">浏览器无法保存偏好，更改仅在当前页面生效。</p>
   </section>
 </template>

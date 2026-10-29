@@ -1,33 +1,33 @@
 .command-reviews { margin-top: 24px; min-width: 0; }
-.command-reviews h3 { margin: 0 0 10px; font-size: calc(12rem / 14); font-weight: 600; color: var(--text); }
+.command-reviews h3 { margin: 0 0 10px; font-size: var(--font-caption); font-weight: 600; color: var(--text); }
 .command-reviews h3 > span { color: var(--muted); font-weight: 400; margin-left: 6px; }
-.command-card { margin: 10px 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
-.command-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--subtle); border-bottom: 1px solid var(--border); font-size: calc(12rem / 14); }
+.command-card { margin: 10px 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
+.command-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--subtle); border-bottom: 0.5px solid var(--border); font-size: var(--font-caption); }
 .command-status { color: var(--muted); font-weight: 550; }
 .command-status[data-status="PENDING"], .command-status[data-status="TIMED_OUT"], .command-status[data-status="OUTPUT_LIMIT"] { color: var(--warning); }
 .command-status[data-status="COMPLETED"] { color: var(--success); }
 .command-status[data-status="FAILED"], .command-status[data-status="INTERRUPTED"] { color: var(--danger); }
-.command-purpose { margin: 14px; font-size: calc(13rem / 14); line-height: 1.6; overflow-wrap: anywhere; }
-.command-source { margin: 0 14px 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; font: calc(12rem / 14)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; }
-.command-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; padding: 0 14px 12px; font-size: calc(11rem / 14); color: var(--muted); }
+.command-purpose { margin: 14px; font-size: var(--font-body); line-height: 1.6; overflow-wrap: anywhere; }
+.command-source { margin: 0 14px 12px; padding: 12px 14px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; font: var(--font-caption)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; }
+.command-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; padding: 0 14px 12px; font-size: var(--font-caption); color: var(--muted); }
 .command-meta > span { overflow-wrap: anywhere; min-width: 0; }
-.command-notice { padding: 0 14px; color: var(--muted); font-size: calc(12rem / 14); line-height: 1.7; }
-.command-output { border-top: 1px solid var(--border); }
-.command-output summary { padding: 11px 14px; color: var(--muted); cursor: pointer; font-size: calc(12rem / 14); }
-.command-output > div > span { padding: 0 14px; font-size: calc(11rem / 14); color: var(--muted); }
-.command-output pre { margin: 6px 0 12px; padding: 10px 14px; max-height: 280px; overflow: auto; font-size: calc(12rem / 14); line-height: 1.6; white-space: pre; color: var(--text); background: var(--subtle); }
-.command-card footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--border); background: var(--subtle); }
-.command-card footer > span { color: var(--muted); font-size: calc(12rem / 14); flex: 1 1 200px; overflow-wrap: anywhere; }
+.command-notice { padding: 0 14px; color: var(--muted); font-size: var(--font-caption); line-height: 1.7; }
+.command-output { border-top: 0.5px solid var(--border); }
+.command-output summary { padding: 11px 14px; color: var(--muted); cursor: pointer; font-size: var(--font-caption); }
+.command-output > div > span { padding: 0 14px; font-size: var(--font-caption); color: var(--muted); }
+.command-output pre { margin: 6px 0 12px; padding: 10px 14px; max-height: 280px; overflow: auto; font-size: var(--font-caption); line-height: 1.6; white-space: pre; color: var(--text); background: var(--subtle); }
+.command-card footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-top: 0.5px solid var(--border); background: var(--subtle); }
+.command-card footer > span { color: var(--muted); font-size: var(--font-caption); flex: 1 1 200px; overflow-wrap: anywhere; }
 .command-card footer > div { display: flex; gap: 8px; }
-.command-card button { padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font-size: calc(12rem / 14); }
+.command-card button { padding: 6px 10px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font-size: var(--font-caption); }
 .command-card button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.command-details > summary { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; font-size: calc(11rem / 14); list-style: none; }
+.command-details > summary { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; font-size: var(--font-caption); list-style: none; }
 .command-details > summary::-webkit-details-marker { display: none; }
-.command-details > summary::before { content: '›'; font-size: calc(16rem / 14); color: var(--muted); }
+.command-details > summary::before { content: '›'; font-size: var(--font-heading); color: var(--muted); }
 .command-details[open] > summary::before { transform: rotate(90deg); }
 .command-summary-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .command-status { flex-shrink: 0; }
-.command-failure { margin: 0; padding: 0 14px 12px; font-size: calc(11rem / 14); line-height: 1.7; color: var(--danger); overflow-wrap: anywhere; }
+.command-failure { margin: 0; padding: 0 14px 12px; font-size: var(--font-caption); line-height: 1.7; color: var(--danger); overflow-wrap: anywhere; }
 @media (max-width: 520px) {
   .command-card footer > div { width: 100%; }
   .command-card footer button { flex: 1; min-height: 40px; }

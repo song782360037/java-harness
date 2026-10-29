@@ -12,11 +12,11 @@ const currentWorkspace = computed(() => props.workspaces.find(workspace => works
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
 const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'plugins'>(props.initialSection)
 const pageTitle = ref<HTMLElement>()
-const sections = [{ id: 'general', label: '常规', icon: 'settings', description: '调整输入和阅读偏好，更改立即生效。' },
-  { id: 'appearance', label: '外观', icon: 'palette', description: '让工作台更符合你的习惯。' },
-  { id: 'models', label: '模型与提供商', icon: 'cube', description: '连接你的模型服务，在对话中自由切换。' },
-  { id: 'workspace', label: '工作区', icon: 'folder', description: '管理工作区名称、目录和外观，多个会话可使用同一工作区。' },
-  { id: 'plugins', label: '扩展', icon: 'cube', description: '发现并管理插件、技能与 MCP 连接器。' }] as const
+const sections = [{ id: 'general', label: '常规', icon: 'settings' },
+  { id: 'appearance', label: '外观', icon: 'palette' },
+  { id: 'models', label: '模型与提供商', icon: 'cube' },
+  { id: 'workspace', label: '工作区', icon: 'folder' },
+  { id: 'plugins', label: '扩展', icon: 'puzzle' }] as const
 const sectionInfo = computed(() => sections.find(item => item.id === section.value)!)
 const workspaceBusy = ref(false)
 const pluginBusy = ref(false)
@@ -171,13 +171,10 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
         <button class="back-button" aria-label="返回工作区" title="返回工作区" :disabled="busy || workspaceBusy || pluginBusy" @click="emit('close')"><UiIcon name="back" :size="16" /><span>返回工作区</span></button>
         <p class="nav-group-label">基础设置</p>
         <button v-for="item in sections" :key="item.id" :class="{ selected: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" :disabled="busy || workspaceBusy || pluginBusy" @click="section = item.id"><UiIcon :name="item.icon" :size="17" />{{ item.label }}</button>
-        <div class="settings-local-note">本地运行 · 配置保存在本机</div>
       </nav>
       <div class="settings-content" :class="{ 'extensions-content': section === 'plugins', 'model-settings-content': section === 'models' }">
         <div class="settings-content-inner">
-          <p class="settings-eyebrow">工作台设置</p>
-          <h1 id="settings-title" ref="pageTitle" class="reference-title" tabindex="-1">{{ sectionInfo.label }}</h1>
-          <div class="settings-section-heading"><p>{{ sectionInfo.description }}</p><button v-if="section === 'models'" class="reload-models" :disabled="busy" aria-label="重新加载配置" @click="load"><UiIcon name="refresh" :size="15" /><span>重新加载</span></button></div>
+          <div class="settings-title-row"><h1 id="settings-title" ref="pageTitle" class="reference-title" tabindex="-1">{{ sectionInfo.label }}</h1><button v-if="section === 'models'" class="reload-models" :disabled="busy" aria-label="重新加载配置" @click="load"><UiIcon name="refresh" :size="15" /><span>重新加载</span></button></div>
           <p v-if="error && section === 'models' && !editingModel" role="alert" class="dialog-error">{{ error }}</p>
           <p v-if="notice && section === 'models'" role="status" class="saved-note">{{ notice }}</p>
           <GeneralSettings v-show="section === 'general'" />
@@ -192,7 +189,6 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                 </button>
               </div>
               <button class="add-provider" :disabled="busy" @click="createProvider"><UiIcon name="plus" :size="16" /> 添加提供商</button>
-              <div class="provider-rail-note"><UiIcon name="cube" :size="17" /><strong>一个连接，多个模型</strong><p>同一提供商下的模型共享服务地址和 API Key。</p></div>
             </aside>
             <div class="provider-detail">
               <template v-if="provider">
@@ -222,11 +218,10 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                       </div>
                     </details>
                   </fieldset>
-                  <div class="provider-save"><span>此提供商下的模型共享，新任务生效</span><button type="submit" class="primary" :disabled="busy || editingModel">{{ busy ? '处理中…' : '保存提供商' }}</button></div>
+                  <div class="provider-save"><button type="submit" class="primary" :disabled="busy || editingModel">{{ busy ? '处理中…' : '保存提供商' }}</button></div>
                 </form>
                 <section class="provider-model-list" aria-labelledby="model-list-title">
                   <div class="model-list-heading"><div><h3 id="model-list-title">模型</h3><span>{{ providerModels.length }}</span></div><button type="button" class="add-model" :disabled="busy || !provider.id" @click="createModel"><UiIcon name="plus" :size="14" /> 添加模型</button></div>
-                  <p class="model-list-description">添加后即可在对话中选择，按模型分别设置运行参数。</p>
                   <div v-if="providerModels.length" class="model-rows">
                     <div class="model-table-heading" aria-hidden="true"><span>显示名称 / 模型 ID</span><span>默认思考强度</span><span>操作</span></div>
                     <div v-for="item in providerModels" :key="item.id" class="model-row" :class="{ editing: editingModel && form?.id === item.id }">
@@ -247,10 +242,10 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
             </div>
           </section>
           <section v-show="section === 'workspace'" aria-label="工作区配置">
-            <div v-if="session && !creatingWorkspace" class="workspace-context"><span class="configuration-icon"><UiIcon :name="currentWorkspace?.icon || 'folder'" :style="{ color: currentWorkspace?.color }" :size="19" /></span><div><strong>{{ currentWorkspace?.name || session.title }}</strong><p>{{ workspaceSummary(session.workspace) || '仅聊天 · 尚未选择目录' }}</p></div><span class="subtle-badge">当前工作区</span></div>
+            <div v-if="session && !creatingWorkspace" class="workspace-context"><span class="configuration-icon"><UiIcon :name="currentWorkspace?.icon || 'folder'" :style="{ color: currentWorkspace?.color }" :size="19" /></span><div><strong>{{ currentWorkspace?.name || session.title }}</strong><p>{{ workspaceSummary(session.workspace) || '仅聊天，尚未选择目录' }}</p></div><span class="subtle-badge">当前工作区</span></div>
             <WorkspaceSettings :key="creatingWorkspace ? 'new' : session?.workspaceId || session?.id" class="settings-card" :session-id="creatingWorkspace ? undefined : session?.id" :initial-path="creatingWorkspace ? '' : session?.workspace || ''" :initial-workspace="creatingWorkspace ? undefined : currentWorkspace" :disabled="!creatingWorkspace && workspaceDisabled" @busy="workspaceBusy = $event" @saved="emit('workspaceSaved', $event)" @cancel="emit('close')" />
           </section>
-          <p v-if="section === 'models'" class="settings-footnote">保存后对新任务生效 · 连接与模型权限会在发送消息时验证</p>
+          <p v-if="section === 'models'" class="settings-footnote">保存后对新任务生效，连接与模型权限会在发送消息时验证</p>
         </div>
       </div>
     </div>

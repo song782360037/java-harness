@@ -6,7 +6,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const levels = reasoningDepthOptions
 const index = computed(() => Math.max(0, levels.findIndex(option => option.value === props.modelValue)))
 const progress = computed(() => index.value / (levels.length - 1))
-const depth = computed(() => levels[index.value]!.label.split(' · ')[0])
+const depth = computed(() => levels[index.value]!.short)
 // 只改变本次强度选择，沿用已有的请求参数值。
 function choose(value: string) { if (!props.disabled && value !== props.modelValue) emit('update:modelValue', value) }
 // 松开滑块时也确认选择，兼容旧配置直接点选最左档。
@@ -23,10 +23,10 @@ function update(event: Event) { choose(levels[(event.target as HTMLInputElement)
 </template>
 <style scoped>
 .reasoning-control { padding: 14px 12px 12px; }
-.reasoning-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--muted); font-size: calc(12rem / 14); }
+.reasoning-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--muted); font-size: var(--font-caption); }
 .reasoning-heading > span { color: var(--text); font-weight: 550; }
 .reasoning-range { position: relative; height: 44px; }
-.reasoning-track { position: absolute; inset: 9px 0; overflow: hidden; border-radius: 20px; background: var(--subtle); border: 1px solid var(--border); }
+.reasoning-track { position: absolute; inset: 9px 0; overflow: hidden; border-radius: 20px; background: var(--subtle); border: 0.5px solid var(--border); }
 .reasoning-fill { position: absolute; inset: 0 auto 0 0; width: calc(18px + (100% - 36px) * var(--reasoning-progress)); background: var(--accent-soft); }
 .reasoning-ticks { position: absolute; inset: 0 17px; display: flex; align-items: center; justify-content: space-between; }
 .reasoning-ticks i { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); opacity: .55; }

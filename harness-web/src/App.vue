@@ -30,12 +30,11 @@ const model = computed(() => selectedProfile.value?.model)
 const showSettings = ref(false)
 const settingsSection = ref<'general' | 'models' | 'workspace'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
-// 根字号控制全局文字，缩放比例用于保留欢迎标题的响应式字号。
+// 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
 watch(fontSize, value => {
   document.documentElement.style.setProperty('--app-font-size', `${value}px`)
-  document.documentElement.style.setProperty('--app-font-scale', String(value / 14))
 }, { immediate: true })
-const sendShortcutHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送 · Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
+const sendShortcutHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
 const creatingWorkspace = ref(false)
 const settingsBusy = ref(false)
 const workspaceSaving = ref(false)
@@ -138,6 +137,7 @@ function openDelete(session: Session, event: MouseEvent) {
 async function sessionDeleted(session: { id: string }) {
   sessions.value = sessions.value.filter(value => value.id !== session.id)
   storageSet(`harness.pending.${session.id}`, null)
+  saveDraft(session.id, '')
   if (session.id !== selectedId.value) return
   const next = sessions.value[0]?.id
   if (next) { await selectSession(next); return }
@@ -146,6 +146,7 @@ async function sessionDeleted(session: { id: string }) {
   clearTimeout(reconnectTimer); clearTimeout(refreshTimer); refreshTimer = undefined
   refreshing = false; dirty = false; connected.value = false
   selectedId.value = ''; snapshot.value = null; pending.value = null
+  prompt.value = readDraft('')
   inspectedRunId.value = ''; inspectorTrigger = null
   toolRevisions.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}; pluginActivity.value = {}
   error.value = ''
@@ -298,7 +299,8 @@ const activityLabel = (run: Run) => run.status === 'RUNNING' ? pluginActivity.va
 const executionRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}`
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
-const prompt = ref('')
+const draftCache = new Map<string, string>()
+const prompt = ref(readDraft(''))
 const error = ref('')
 const connected = ref(false)
 const loading = ref(false)
@@ -306,9 +308,21 @@ const submitting = ref(false)
 const cancelling = ref(false)
 const pending = ref<Submission | null>(null)
 const timeline = ref<HTMLElement>()
+const awayFromLatest = ref(false)
 const current = computed(() => snapshot.value?.runs.find(isActive))
 const inspectedRun = computed(() => snapshot.value?.runs.find(run => run.id === inspectedRunId.value))
 watch(prompt, resizePrompt, { flush: 'post' })
+// 同步保存，避免会话切换后把上一条草稿写入新会话。
+watch(prompt, value => saveDraft(selectedId.value, value), { flush: 'sync' })
+// 在当前滚动容器内恢复跟读，不改变用户的自动跟随偏好。
+function trackTimeline() {
+  const node = timeline.value
+  awayFromLatest.value = !!node && node.scrollHeight - node.scrollTop - node.clientHeight >= 100
+}
+function goToLatest() {
+  timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
+  trackTimeline()
+}
 const labels: Record<RunStatus, string> = {
   QUEUED: '排队中', RUNNING: '正在执行', CANCELLING: '正在停止', COMPLETED: '已完成',
   CANCELLED: '已停止', FAILED: '执行失败', TIMED_OUT: '已超时', INTERRUPTED: '已中断',
@@ -336,6 +350,12 @@ function storageSet(key: string, value: string | null) {
     else localStorage.setItem(key, value)
   } catch { /* The current tab still works without local storage. */ }
 }
+// 存储不可用时仍在当前标签页保留每个会话的草稿。
+function readDraft(id: string) { return draftCache.get(id) ?? storageGet(`harness.draft.${id || 'home'}`) ?? '' }
+function saveDraft(id: string, value: string) {
+  draftCache.set(id, value)
+  storageSet(`harness.draft.${id || 'home'}`, value || null)
+}
 function setPending(value: Submission | null) {
   pending.value = value
   storageSet(`harness.pending.${selectedId.value}`, value ? JSON.stringify(value) : null)
@@ -360,6 +380,8 @@ async function refresh(id: string, version: number) {
     await nextTick()
     if (initialLoad || preferences.value.autoScroll) timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
   }
+  await nextTick()
+  trackTimeline()
   return value
 }
 function scheduleRefresh(id: string, version: number, delay = 200) {
@@ -430,6 +452,7 @@ function restartStream() {
   follow(id, version)
 }
 async function selectSession(id: string) {
+  awayFromLatest.value = false
   inspectedRunId.value = ''; inspectorTrigger = null
   closeSettings()
   const version = ++revision
@@ -449,7 +472,7 @@ async function selectSession(id: string) {
   commandActivity.value = {}; pluginActivity.value = {}
   error.value = ''
   loading.value = true
-  prompt.value = ''
+  prompt.value = readDraft(id)
   pending.value = null
   try {
     const saved = storageGet(`harness.pending.${id}`)
@@ -499,7 +522,7 @@ async function send() {
   try { ready = await addSession(draft.trim().slice(0, 40), '') }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { prompt.value = draft; submitting.value = false }
-  if (ready) await submit()
+  if (ready) { saveDraft('', ''); await submit() }
 }
 function settingsSaved(value: ModelProfile) {
   profileRevision++
@@ -514,6 +537,7 @@ async function profileDeleted(id: string) {
   profiles.value = profiles.value.filter(profile => profile.id !== id)
 }
 async function workspaceSaved(session: Session) {
+  const fromHome = !selectedId.value
   const creating = creatingWorkspace.value || !snapshot.value
   const draft = prompt.value
   const profile = selectedProfileId.value
@@ -526,6 +550,7 @@ async function workspaceSaved(session: Session) {
     if (creating) {
       await selectSession(session.id)
       prompt.value = draft; selectedProfileId.value = profile; reasoningEffort.value = effort
+      if (fromHome) saveDraft('', '')
     }
     else if (selectedId.value === session.id) await refresh(session.id, revision)
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '刷新会话失败' }
@@ -646,7 +671,7 @@ onUnmounted(() => {
       </header>
       <div v-if="error" class="error-banner" role="alert">{{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button></div>
       <div class="workbench-body" :class="{ 'has-inspector': inspectedRun }"><div class="chat-panel">
-      <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading">
+      <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading" @scroll.passive="trackTimeline">
         <div v-if="loading" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
         <div v-else-if="!snapshot?.runs.length" class="welcome">
           <div class="welcome-copy">
@@ -659,7 +684,7 @@ onUnmounted(() => {
           <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>
           <section class="response" :aria-label="run.model + ' 的回答'">
             <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
-            <button type="button" class="execution-trigger" :aria-label="'查看执行详情 · ' + activityLabel(run)" :aria-expanded="inspectedRunId === run.id" aria-controls="execution-inspector" @click="inspectRun(run, $event)"><span v-if="isActive(run)" class="loading-indicator"></span><UiIcon v-else :name="run.status === 'COMPLETED' ? 'check' : 'chevron'" :size="13" /><span>{{ activityLabel(run) }}</span><UiIcon name="chevron" :size="12" /></button>
+            <button type="button" class="execution-trigger" :aria-label="'查看执行详情，' + activityLabel(run)" :aria-expanded="inspectedRunId === run.id" aria-controls="execution-inspector" @click="inspectRun(run, $event)"><span v-if="isActive(run)" class="loading-indicator"></span><UiIcon v-else :name="run.status === 'COMPLETED' ? 'check' : 'chevron'" :size="13" /><span>{{ activityLabel(run) }}</span><UiIcon name="chevron" :size="12" /></button>
             <MarkdownContent v-if="run.output" :content="run.output" />
             <p v-else class="output-placeholder">{{ isActive(run) ? (pluginActivity[run.id] || commandActivity[run.id] ? `${activityLabel(run)}，请查看下方操作卡片。` : '正在分析你的问题…') : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
@@ -672,6 +697,7 @@ onUnmounted(() => {
         <p v-if="copyError" role="status" class="run-notice">{{ copyError }}</p>
       </div>
       <div class="composer-dock">
+        <button v-if="awayFromLatest && snapshot?.runs.length" type="button" class="latest-message" @click="goToLatest"><UiIcon name="down" :size="14" />回到最新</button>
         <form class="composer" @submit.prevent="send">
           <label class="sr-only" for="prompt">输入问题</label>
           <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="!!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
@@ -692,7 +718,7 @@ onUnmounted(() => {
         <header class="inspector-header"><h2 id="inspector-title" ref="inspectorHeading" tabindex="-1">执行详情</h2><button type="button" class="icon-button" aria-label="关闭执行详情" @click="closeInspector"><UiIcon name="close" :size="16" /></button></header>
         <div class="inspector-content">
           <dl class="execution-metadata"><dt>状态</dt><dd>{{ activityLabel(inspectedRun) }}</dd><dt>模型</dt><dd>{{ inspectedRun.model }}</dd><dt>思考强度</dt><dd>{{ effortLabel(inspectedRun.reasoningEffort) }}</dd><dt v-if="inspectedRun.workspace">工作区目录</dt><dd v-if="inspectedRun.workspace">{{ workspaceSummary(inspectedRun.workspace) }}</dd></dl>
-          <p v-if="inspectedRun.context" class="run-detail">携带 {{ inspectedRun.context.includedTurns }} 轮历史<span v-if="inspectedRun.context.droppedTurns"> · 已裁剪 {{ inspectedRun.context.droppedTurns }} 轮</span><span v-if="inspectedRun.context.excludedTurns"> · 已跳过 {{ inspectedRun.context.excludedTurns }} 条</span><span v-if="inspectedRun.context.tokens"> · 约 {{ inspectedRun.context.tokens }} / {{ inspectedRun.context.maxTokens }} tokens</span></p>
+          <p v-if="inspectedRun.context" class="run-detail">携带 {{ inspectedRun.context.includedTurns }} 轮历史<span v-if="inspectedRun.context.droppedTurns">，已裁剪 {{ inspectedRun.context.droppedTurns }} 轮</span><span v-if="inspectedRun.context.excludedTurns">，已跳过 {{ inspectedRun.context.excludedTurns }} 条</span><span v-if="inspectedRun.context.tokens">，约 {{ inspectedRun.context.tokens }} / {{ inspectedRun.context.maxTokens }} tokens</span></p>
           <ToolDetails :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
           <ModelRequestDetails v-if="inspectedRun.context" :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
         </div>

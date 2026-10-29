@@ -16,7 +16,7 @@ function blur(event: FocusEvent) { if (!menu.value?.contains(event.relatedTarget
       <span v-if="!item.installationId" class="extension-row-action"><UiIcon name="plus" :size="17" /></span>
     </button>
     <div v-if="item.installationId" class="extension-row-controls">
-      <details ref="menu" class="extension-row-menu" @focusout="blur" @keydown.esc.prevent="menu?.removeAttribute('open')"><summary :aria-label="`${item.title} 更多操作`">···</summary><div>
+      <details ref="menu" class="extension-row-menu" @focusout="blur" @keydown.esc.prevent="menu?.removeAttribute('open')"><summary :aria-label="`${item.title} 更多操作`"><UiIcon name="more" :size="16" /></summary><div>
         <button v-if="item.editable" :disabled="locked || pending" @click="menu?.removeAttribute('open'); $emit('edit', item)">编辑</button>
         <button :disabled="locked || pending" @click="menu?.removeAttribute('open'); $emit('remove', item)">{{ item.parentName ? '卸载所属插件' : '卸载' }}</button>
       </div></details>

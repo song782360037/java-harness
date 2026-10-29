@@ -42,7 +42,7 @@ onUnmounted(() => { disposed = true })
   <section v-if="commands.length || error" class="command-reviews" aria-label="命令执行与审批">
     <h3>终端 <span>{{ commands.length }}</span></h3>
     <p v-if="error" class="dialog-error" role="alert">{{ error }} <button type="button" @click="retry">刷新记录</button></p>
-    <article v-for="command in commands" :key="command.id" class="command-card" :aria-label="`${command.purpose} · ${labels[command.status] || command.status}`">
+    <article v-for="command in commands" :key="command.id" class="command-card" :aria-label="`${command.purpose}，${labels[command.status] || command.status}`">
       <details class="command-details" :open="['PENDING', 'APPROVED', 'RUNNING', 'STOPPING'].includes(command.status)">
       <summary><span class="command-summary-title">{{ command.purpose }}</span><span class="command-status" :data-status="command.status">{{ labels[command.status] || command.status }}</span></summary>
       <header><strong>{{ command.shell }}</strong></header>

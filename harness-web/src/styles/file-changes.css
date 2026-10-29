@@ -1,18 +1,18 @@
 .file-changes { margin: 22px 0; }
-.file-changes > h3 { display: flex; gap: 8px; align-items: center; font-size: calc(12rem / 14); font-weight: 600; }
+.file-changes > h3 { display: flex; gap: 8px; align-items: center; font-size: var(--font-caption); font-weight: 600; }
 .file-changes > h3 > span { color: var(--muted); font-weight: 400; }
-.file-change-card { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
-.file-change-heading { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--subtle); border-bottom: 1px solid var(--border); }
-.file-change-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; text-align: left; background: transparent; border: 0; padding: 5px 0; font-size: calc(12rem / 14); }
+.file-change-card { margin: 12px 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
+.file-change-heading { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--subtle); border-bottom: 0.5px solid var(--border); }
+.file-change-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; text-align: left; background: transparent; border: 0; padding: 5px 0; font-size: var(--font-caption); }
 .file-change-toggle > span { overflow-wrap: anywhere; }
 .file-change-toggle > small { color: var(--muted); white-space: nowrap; }
-.change-status { font-size: calc(11rem / 14); white-space: nowrap; color: var(--muted); }
+.change-status { font-size: var(--font-caption); white-space: nowrap; color: var(--muted); }
 .change-status.applied { color: var(--success); }
 .change-status.conflict, .change-status.uncertain { color: var(--danger); }
 .change-status.pending { color: var(--warning); }
-.diff-format, .change-detail { color: var(--muted); font-size: calc(11rem / 14); line-height: 1.7; margin: 10px 12px; overflow-wrap: anywhere; }
-.diff-scroll { max-height: 440px; overflow: auto; border-block: 1px solid var(--border); }
-.diff-table { width: 100%; border-collapse: collapse; font: calc(12rem / 14)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; }
+.diff-format, .change-detail { color: var(--muted); font-size: var(--font-caption); line-height: 1.7; margin: 10px 12px; overflow-wrap: anywhere; }
+.diff-scroll { max-height: 440px; overflow: auto; border-block: 0.5px solid var(--border); }
+.diff-table { width: 100%; border-collapse: collapse; font: var(--font-caption)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; }
 .diff-table td { padding: 1px 6px; vertical-align: top; }
 .diff-table .line-number { color: var(--muted); text-align: right; user-select: none; width: 40px; min-width: 40px; font-variant-numeric: tabular-nums; }
 .diff-sign { width: 16px; user-select: none; }
@@ -22,10 +22,10 @@
 .diff-table .remove { background: var(--danger-bg); color: var(--text); }
 .diff-table .remove .diff-sign { color: var(--danger); }
 .diff-table .note { background: var(--subtle); color: var(--muted); }
-.full-file-content { margin: 12px; font-size: calc(11rem / 14); }
+.full-file-content { margin: 12px; font-size: var(--font-caption); }
 .full-file-content summary { color: var(--muted); cursor: pointer; }
-.full-file-content h4 { font-size: calc(11rem / 14); font-weight: 550; }
-.full-file-content pre { max-height: 360px; overflow: auto; padding: 12px; background: var(--subtle); border-radius: var(--radius-md); font: calc(12rem / 14)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; tab-size: 4; }
-.file-change-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); background: var(--subtle); }
-.file-change-actions > span { flex: 1; min-width: 130px; color: var(--muted); font-size: calc(11rem / 14); }
-.file-change-actions > button { padding: 6px 10px; font-size: calc(11rem / 14); }
+.full-file-content h4 { font-size: var(--font-caption); font-weight: 550; }
+.full-file-content pre { max-height: 360px; overflow: auto; padding: 12px; background: var(--subtle); border-radius: var(--radius-md); font: var(--font-caption)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; tab-size: 4; }
+.file-change-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 0.5px solid var(--border); background: var(--subtle); }
+.file-change-actions > span { flex: 1; min-width: 130px; color: var(--muted); font-size: var(--font-caption); }
+.file-change-actions > button { padding: 6px 10px; font-size: var(--font-caption); }
