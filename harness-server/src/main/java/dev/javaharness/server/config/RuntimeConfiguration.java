@@ -6,16 +6,19 @@ import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.adapters.settings.HarnessSettings;
 import dev.javaharness.adapters.settings.JdbcSettingsStore;
 import dev.javaharness.adapters.settings.LocalSecretCipher;
+import dev.javaharness.adapters.usage.LocalAgentUsageReader;
 import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.SettingsService;
+import dev.javaharness.server.service.UsageStatisticsService;
 import dev.javaharness.server.web.EventController;
 import dev.javaharness.spi.run.AgentEngine;
 import dev.javaharness.spi.run.RunConfigurationSource;
 import dev.javaharness.spi.session.SessionStore;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.ZoneId;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
 import org.springframework.context.ApplicationListener;
@@ -36,6 +39,11 @@ public class RuntimeConfiguration {
     @DependsOnDatabaseInitialization
     SessionStore sessionStore(JdbcTemplate jdbc, PlatformTransactionManager transactions) {
         return new JdbcSessionStore(jdbc, new TransactionTemplate(transactions));
+    }
+
+    @Bean
+    UsageStatisticsService usageStatisticsService(SessionStore sessions, @Value("${user.home}") String home) {
+        return new UsageStatisticsService(sessions, new LocalAgentUsageReader(Path.of(home)), ZoneId.systemDefault());
     }
 
     @Bean

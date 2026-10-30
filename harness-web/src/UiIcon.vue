@@ -33,6 +33,7 @@ const paths: Record<string, string> = {
   heart: 'M12 21 3 12C-1 7 5 1 10 6l2 2 2-2c5-5 11 1 7 6l-9 9Z',
   globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',
   terminal: 'M3 4h18v16H3V4Zm4 4 4 4-4 4m6 0h4',
+  chart: 'M4 20h16M7 16v-5m5 5V6m5 10v-8',
   gamepad: 'M7 7h10a4 4 0 0 1 4 4l1 7c0 3-3 4-5 1l-2-2H9l-2 2c-2 3-5 2-5-1l1-7a4 4 0 0 1 4-4ZM6 12h4M8 10v4m7-2h.01m3 2h.01',
 }
 </script>

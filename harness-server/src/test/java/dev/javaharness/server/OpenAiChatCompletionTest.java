@@ -18,6 +18,7 @@ import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
 import dev.javaharness.spi.session.SessionUsage;
+import dev.javaharness.spi.session.UsageEntry;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolExecution;
 import java.io.IOException;
@@ -25,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -261,6 +263,11 @@ class OpenAiChatCompletionTest {
                 assertThat(usage.durationMillis()).isNotNegative();
                 assertThat(usage.lastInputTokens()).isEqualTo(200);
             });
+            // The ledger outlives the session for global statistics.
+            store.deleteSession(first.sessionId());
+            assertThat(store.usageSince(Instant.EPOCH))
+                    .extracting(UsageEntry::inputTokens, UsageEntry::outputTokens, UsageEntry::cachedTokens)
+                    .containsExactly(tuple(120, 30, 80), tuple(200, 10, 150));
         }
     }
 

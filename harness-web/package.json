@@ -10,7 +10,7 @@
     "dev": "vite",
     "typecheck": "vue-tsc --noEmit",
     "test:theme": "node --test tests/theme.test.mjs",
-    "test": "node --experimental-strip-types --test tests/theme.test.mjs tests/preferences.test.mjs tests/markdown.test.mjs tests/fileDiff.test.mjs tests/extensions.test.mjs tests/pluginCommands.test.mjs tests/executionTimeline.test.mjs",
+    "test": "node --experimental-strip-types --test tests/theme.test.mjs tests/preferences.test.mjs tests/markdown.test.mjs tests/fileDiff.test.mjs tests/extensions.test.mjs tests/pluginCommands.test.mjs tests/executionTimeline.test.mjs tests/usage.test.mjs",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview"
   },

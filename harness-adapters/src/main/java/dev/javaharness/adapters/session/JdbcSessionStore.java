@@ -18,6 +18,7 @@ import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionSnapshot;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.session.SessionUsage;
+import dev.javaharness.spi.session.UsageEntry;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolExecution;
 import dev.javaharness.spi.workspace.Workspace;
@@ -610,9 +611,39 @@ public final class JdbcSessionStore implements SessionStore {
                     runId,
                     step);
             if (updated == 0) throw new HarnessException("CONFLICT", "模型步骤不存在");
+            jdbc.update(
+                    """
+                    MERGE INTO harness_usage_ledger(run_id,step,provider,model,input_tokens,output_tokens,cached_tokens,recorded_at)
+                    KEY(run_id,step) VALUES (?,?,?,?,?,?,?,?)
+                    """,
+                    runId,
+                    step,
+                    run.provider(),
+                    run.model(),
+                    usage.inputTokens(),
+                    usage.outputTokens(),
+                    usage.cachedTokens(),
+                    now());
             // Clients refetch the snapshot; the event only signals a change.
             appendEvent(run.sessionId(), runId, "USAGE", null, "");
         });
+    }
+
+    @Override
+    public synchronized List<UsageEntry> usageSince(Instant from) {
+        return jdbc.query(
+                """
+                SELECT recorded_at,provider,model,input_tokens,output_tokens,cached_tokens
+                FROM harness_usage_ledger WHERE recorded_at>=? ORDER BY recorded_at
+                """,
+                (rs, row) -> new UsageEntry(
+                        instant(rs, "recorded_at"),
+                        rs.getString("provider"),
+                        rs.getString("model"),
+                        rs.getInt("input_tokens"),
+                        rs.getInt("output_tokens"),
+                        rs.getInt("cached_tokens")),
+                from.atOffset(ZoneOffset.UTC));
     }
 
     @Override

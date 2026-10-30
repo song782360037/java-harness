@@ -12,6 +12,7 @@ import dev.javaharness.spi.run.RunStep;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolExecution;
 import dev.javaharness.spi.workspace.Workspace;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -74,6 +75,8 @@ public interface SessionStore {
     void appendReasoning(String runId, int step, String text);
     /** Record the provider-reported usage of a running step. */
     void recordUsage(String runId, int step, ModelUsage usage);
+    /** Ledger entries recorded at or after the instant, including those of deleted sessions. */
+    List<UsageEntry> usageSince(Instant from);
     /** Steps recorded since request snapshots began; empty for legacy runs. */
     List<RunStep> steps(String runId);
 

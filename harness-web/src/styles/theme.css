@@ -33,6 +33,8 @@
   --info: #315f9f;
   --info-bg: #eaf0f8;
   --warning: #85561f;
+  --source-rose: #b04a6f;
+  --source-violet: #6e56a8;
   --warning-bg: #fbf0e3;
   --danger: #a43e35;
   --danger-hover: #91372f;
@@ -77,6 +79,8 @@
   --info: #acc5ea;
   --info-bg: #29374a;
   --warning: #e2bd90;
+  --source-rose: #eba4bd;
+  --source-violet: #c3b4ec;
   --warning-bg: #413526;
   --danger: #ecb0a7;
   --danger-hover: #f0c1b9;
