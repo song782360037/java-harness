@@ -2,14 +2,23 @@ package dev.javaharness.server.web;
 
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.session.SessionStore;
-import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/sessions")
@@ -23,9 +32,11 @@ public class EventController {
     }
 
     @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter events(@PathVariable String id, @RequestParam(defaultValue = "0") long after,
-                             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
-                             HttpServletResponse response) {
+    public SseEmitter events(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "0") long after,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
+            HttpServletResponse response) {
         long cursor = after;
         if (lastEventId != null && !lastEventId.isBlank()) {
             try {
@@ -62,7 +73,10 @@ public class EventController {
                 var batch = store.events(sessionId, cursor, 128);
                 for (var event : batch) {
                     if (done.get()) return;
-                    emitter.send(SseEmitter.event().id(Long.toString(event.seq())).name("run-event").data(event));
+                    emitter.send(SseEmitter.event()
+                            .id(Long.toString(event.seq()))
+                            .name("run-event")
+                            .data(event));
                     cursor = event.seq();
                 }
                 if (System.nanoTime() - heartbeat > TimeUnit.SECONDS.toNanos(5)) {

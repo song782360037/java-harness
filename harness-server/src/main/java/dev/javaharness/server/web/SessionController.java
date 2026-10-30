@@ -11,11 +11,17 @@ import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionSnapshot;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.tool.ToolExecution;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api")
@@ -25,7 +31,8 @@ public class SessionController {
     private final WorkspaceDirectories directories;
     private final SessionNamingService naming;
 
-    public SessionController(SessionStore store, AgentEngine engine, WorkspaceDirectories directories, SessionNamingService naming) {
+    public SessionController(
+            SessionStore store, AgentEngine engine, WorkspaceDirectories directories, SessionNamingService naming) {
         this.store = store;
         this.engine = engine;
         this.directories = directories;
@@ -33,9 +40,13 @@ public class SessionController {
     }
 
     public record CreateSession(String title, String workspace, String workspaceId) {}
+
     public record ChangeWorkspace(String workspace, String workspaceId) {}
+
     public record RenameSession(String title) {}
-    public record SubmitRun(String requestId, String prompt, String scenario, String modelProfileId, String reasoningEffort) {}
+
+    public record SubmitRun(
+            String requestId, String prompt, String scenario, String modelProfileId, String reasoningEffort) {}
 
     @GetMapping("/sessions")
     public List<Session> sessions() {
@@ -99,14 +110,21 @@ public class SessionController {
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
         var selection = new ModelSelection(request.modelProfileId(), request.reasoningEffort());
-        var result = engine.submit(id, request.requestId(), request.prompt(),
-                request.scenario() == null ? "NORMAL" : request.scenario(), selection);
+        var result = engine.submit(
+                id,
+                request.requestId(),
+                request.prompt(),
+                request.scenario() == null ? "NORMAL" : request.scenario(),
+                selection);
         // 首个任务创建成功即触发 AI 命名，与任务执行并行；占位标题用于识别用户是否已手动改名。
         if (result.created()) {
             var snapshot = store.snapshot(id);
-            if (snapshot.runs().size() == 1) naming.nameFromFirstMessage(id, result.run().prompt(), selection, snapshot.session().title());
+            if (snapshot.runs().size() == 1)
+                naming.nameFromFirstMessage(
+                        id, result.run().prompt(), selection, snapshot.session().title());
         }
-        return ResponseEntity.status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK).body(result.run());
+        return ResponseEntity.status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK)
+                .body(result.run());
     }
 
     @PostMapping(value = "/runs/{id}/cancel", consumes = MediaType.APPLICATION_JSON_VALUE)

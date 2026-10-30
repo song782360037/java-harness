@@ -58,14 +58,14 @@ public final class SessionNamingService implements AutoCloseable {
                     String title = generateWithinTimeout(prompt, selection);
                     if (!title.isEmpty()) store.renameSessionIfTitle(sessionId, placeholder, title);
                 } catch (Exception error) {
-                    System.getLogger(getClass().getName()).log(System.Logger.Level.INFO,
-                            "Session naming skipped for " + sessionId, error);
+                    System.getLogger(getClass().getName())
+                            .log(System.Logger.Level.INFO, "Session naming skipped for " + sessionId, error);
                 }
             });
         } catch (RuntimeException error) {
             // 服务关闭窗口内执行器已拒绝任务，静默放弃命名。
-            System.getLogger(getClass().getName()).log(System.Logger.Level.INFO,
-                    "Session naming not scheduled for " + sessionId, error);
+            System.getLogger(getClass().getName())
+                    .log(System.Logger.Level.INFO, "Session naming not scheduled for " + sessionId, error);
         }
     }
 
@@ -92,17 +92,30 @@ public final class SessionNamingService implements AutoCloseable {
             String instructions = "请用不超过 10 个字符概括以下内容的主题作为会话标题，只输出标题本身，不要输出标点、引号、换行或解释。\n\n";
             int tokens = new TokenBudget(configuration.tokenCounter())
                     .message(new ModelMessage("user", instructions + clipped));
-            var request = new ModelRequest(UUID.randomUUID().toString(), configuration.modelInfo().model(), "NORMAL",
+            var request = new ModelRequest(
+                    UUID.randomUUID().toString(),
+                    configuration.modelInfo().model(),
+                    "NORMAL",
                     List.of(new ModelMessage("user", instructions + clipped)),
-                    new ContextSummary(0, 0, 0, instructions.length() + clipped.length(), 0, tokens, configuration.contextWindowTokens()));
-            return normalize(resources.model().complete(request, () -> {}, text -> {}).text());
+                    new ContextSummary(
+                            0,
+                            0,
+                            0,
+                            instructions.length() + clipped.length(),
+                            0,
+                            tokens,
+                            configuration.contextWindowTokens()));
+            return normalize(
+                    resources.model().complete(request, () -> {}, text -> {}).text());
         }
     }
 
     /** 按码点截断，避免切断代理对。 */
     private static String clip(String text, int limit) {
-        return text.codePoints().limit(limit)
-                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
+        return text.codePoints()
+                .limit(limit)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
+                .toString();
     }
 
     /** 清洗模型输出：取首行、去包裹引号与 markdown 符号、按码点截断到标题上限；空串表示保留原标题。 */
@@ -113,7 +126,8 @@ public final class SessionNamingService implements AutoCloseable {
         return clip(title, MAX_TITLE_LENGTH);
     }
 
-    @Override public void close() {
+    @Override
+    public void close() {
         workers.shutdown();
         try {
             if (!workers.awaitTermination(5, TimeUnit.SECONDS)) workers.shutdownNow();

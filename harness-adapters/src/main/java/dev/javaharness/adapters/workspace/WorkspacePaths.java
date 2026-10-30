@@ -1,7 +1,10 @@
 package dev.javaharness.adapters.workspace;
 
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Locale;
 import java.util.Set;
@@ -12,12 +15,17 @@ import java.util.Set;
  * family cannot drift from the rules the file tools already enforce.
  */
 final class WorkspacePaths {
-    static final Set<String> EXCLUDED = Set.of(".git", ".idea", "node_modules", "target", "dist", ".ssh", ".aws", ".azure");
+    static final Set<String> EXCLUDED =
+            Set.of(".git", ".idea", "node_modules", "target", "dist", ".ssh", ".aws", ".azure");
     private final Path root;
 
-    WorkspacePaths(Path root) { this.root = root; }
+    WorkspacePaths(Path root) {
+        this.root = root;
+    }
 
-    Path root() { return root; }
+    Path root() {
+        return root;
+    }
 
     boolean excluded(Path path) {
         for (Path part : root.relativize(path)) if (protectedName(part.toString())) return true;
@@ -32,8 +40,13 @@ final class WorkspacePaths {
 
     private static boolean protectedName(String part) {
         String name = part.toLowerCase(Locale.ROOT);
-        return EXCLUDED.contains(name) || name.startsWith(".env") || name.endsWith(".pem") || name.endsWith(".key")
-                || name.endsWith(".p12") || name.endsWith(".pfx") || name.endsWith(".jks");
+        return EXCLUDED.contains(name)
+                || name.startsWith(".env")
+                || name.endsWith(".pem")
+                || name.endsWith(".key")
+                || name.endsWith(".p12")
+                || name.endsWith(".pfx")
+                || name.endsWith(".jks");
     }
 
     /** Validates a model-supplied workspace-relative, slash-separated path that must exist. */
@@ -56,8 +69,12 @@ final class WorkspacePaths {
     }
 
     private Path normalize(String relative) {
-        if (relative.length() > 2048 || relative.contains(":") || relative.contains("\\") || relative.startsWith("/")
-                || relative.indexOf('\0') >= 0) throw new IllegalArgumentException("Relative slash-separated paths required");
+        if (relative.length() > 2048
+                || relative.contains(":")
+                || relative.contains("\\")
+                || relative.startsWith("/")
+                || relative.indexOf('\0') >= 0)
+            throw new IllegalArgumentException("Relative slash-separated paths required");
         return root.resolve(relative).normalize();
     }
 
@@ -79,5 +96,7 @@ final class WorkspacePaths {
         if (!path.toRealPath().startsWith(root)) throw new IOException("Resolved outside root");
     }
 
-    String relative(Path path) { return root.relativize(path).toString().replace('\\', '/'); }
+    String relative(Path path) {
+        return root.relativize(path).toString().replace('\\', '/');
+    }
 }

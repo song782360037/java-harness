@@ -22,8 +22,7 @@ public final class SimulatedModelProvider implements TestModelProvider {
                 Thread.sleep(100);
             }
         }
-        emit("这是一段本地模拟输出，用于验证任务执行、流式展示和会话恢复。\n"
-                + "当前尚未连接真实模型，也不会读取文件或执行命令。", cancellation, onText);
+        emit("这是一段本地模拟输出，用于验证任务执行、流式展示和会话恢复。\n" + "当前尚未连接真实模型，也不会读取文件或执行命令。", cancellation, onText);
     }
 
     private void emit(String text, Cancellation cancellation, Consumer<String> onText) throws Exception {

@@ -7,5 +7,9 @@ import dev.javaharness.spi.model.ModelProvider;
 @FunctionalInterface
 public interface TestModelProvider extends ModelProvider {
     ModelInfo INFO = new ModelInfo("simulated", "local-simulator", true);
-    @Override default ModelInfo info() { return INFO; }
+
+    @Override
+    default ModelInfo info() {
+        return INFO;
+    }
 }

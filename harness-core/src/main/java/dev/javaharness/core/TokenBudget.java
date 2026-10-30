@@ -21,7 +21,10 @@ public final class TokenBudget {
     public int message(ModelMessage message) {
         int tokens = MESSAGE_OVERHEAD + counter.count(message.role()) + counter.count(message.content());
         for (ToolCall call : message.toolCalls()) {
-            tokens += TOOL_OVERHEAD + counter.count(call.id()) + counter.count(call.name()) + counter.count(call.arguments());
+            tokens += TOOL_OVERHEAD
+                    + counter.count(call.id())
+                    + counter.count(call.name())
+                    + counter.count(call.arguments());
         }
         if (message.toolCallId() != null) tokens += counter.count(message.toolCallId());
         return tokens;
@@ -36,7 +39,10 @@ public final class TokenBudget {
     public int tools(List<ToolDefinition> tools) {
         int tokens = 0;
         for (ToolDefinition tool : tools) {
-            tokens += TOOL_OVERHEAD + counter.count(tool.name()) + counter.count(tool.description()) + value(tool.parameters());
+            tokens += TOOL_OVERHEAD
+                    + counter.count(tool.name())
+                    + counter.count(tool.description())
+                    + value(tool.parameters());
         }
         return tokens;
     }

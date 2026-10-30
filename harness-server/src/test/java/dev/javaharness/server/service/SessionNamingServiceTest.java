@@ -1,8 +1,8 @@
 package dev.javaharness.server.service;
 
+import static org.assertj.core.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
-import static org.assertj.core.api.Assertions.*;
 
 class SessionNamingServiceTest {
     @Test
@@ -20,7 +20,8 @@ class SessionNamingServiceTest {
         // 前端首条消息创建路径：标题为 prompt trim 后截断 40 字符。
         assertThat(SessionNamingService.isPlaceholder("介绍一下这个项目", "介绍一下这个项目")).isTrue();
         String longPrompt = "x".repeat(50);
-        assertThat(SessionNamingService.isPlaceholder("x".repeat(40), longPrompt)).isTrue();
+        assertThat(SessionNamingService.isPlaceholder("x".repeat(40), longPrompt))
+                .isTrue();
         assertThat(SessionNamingService.isPlaceholder("我的项目", "介绍一下这个项目")).isFalse();
         assertThat(SessionNamingService.isPlaceholder("新会话2", "任意输入")).isFalse();
     }

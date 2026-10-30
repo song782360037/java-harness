@@ -16,6 +16,7 @@ public final class GatedNamingProvider implements TestModelProvider {
     public volatile CountDownLatch releaseNaming = new CountDownLatch(1);
     /** 命名请求完成（stream 返回）时置位。 */
     public volatile CountDownLatch namingCompleted = new CountDownLatch(1);
+
     public volatile int namingCalls;
 
     @Override

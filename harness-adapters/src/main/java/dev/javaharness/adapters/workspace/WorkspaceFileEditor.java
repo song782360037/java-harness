@@ -2,10 +2,18 @@ package dev.javaharness.adapters.workspace;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.charset.*;
-import java.nio.file.*;
-import java.nio.file.attribute.*;
-import java.util.*;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.util.Locale;
+import java.util.Set;
 
 /** UTF-8 file snapshots and bounded writes. Paths are revalidated immediately before publication. */
 final class WorkspaceFileEditor {
@@ -19,21 +27,32 @@ final class WorkspaceFileEditor {
     }
 
     Path resolve(String relative) throws IOException {
-        if (relative == null || relative.isBlank() || relative.length() > 2048 || relative.startsWith("/")
-                || relative.contains("\\") || relative.contains(":") || relative.indexOf('\0') >= 0)
-            throw new IOException("Invalid relative path");
+        if (relative == null
+                || relative.isBlank()
+                || relative.length() > 2048
+                || relative.startsWith("/")
+                || relative.contains("\\")
+                || relative.contains(":")
+                || relative.indexOf('\0') >= 0) throw new IOException("Invalid relative path");
         Path current = root;
         for (String part : relative.split("/", -1)) {
             String name = part.toLowerCase(Locale.ROOT);
-            if (part.isEmpty() || part.equals(".") || part.equals("..") || part.endsWith(".") || part.endsWith(" ")
-                    || LocalWorkspaceTools.EXCLUDED.contains(name) || name.startsWith(".env")
+            if (part.isEmpty()
+                    || part.equals(".")
+                    || part.equals("..")
+                    || part.endsWith(".")
+                    || part.endsWith(" ")
+                    || LocalWorkspaceTools.EXCLUDED.contains(name)
+                    || name.startsWith(".env")
                     || name.matches(".*\\.(pem|key|p12|pfx|jks)")
                     || name.matches("(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?"))
                 throw new IOException("Excluded path");
             current = current.resolve(part);
             if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
                 var attrs = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                if (attrs.isSymbolicLink() || attrs.isOther() || !current.toRealPath().startsWith(root))
+                if (attrs.isSymbolicLink()
+                        || attrs.isOther()
+                        || !current.toRealPath().startsWith(root))
                     throw new IOException("Unsupported link or special file");
             }
         }
@@ -47,18 +66,27 @@ final class WorkspaceFileEditor {
         ByteBuffer bytes = ByteBuffer.allocate(MAX_BYTES + 1);
         try (var channel = Files.newByteChannel(path, Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
             if (channel.size() > MAX_BYTES) throw new IOException("File too large");
-            while (bytes.hasRemaining() && channel.read(bytes) >= 0) { /* Bounded snapshot. */ }
+            while (bytes.hasRemaining() && channel.read(bytes) >= 0) {
+                /* Bounded snapshot. */
+            }
         }
         if (bytes.position() > MAX_BYTES) throw new IOException("File too large");
         bytes.flip();
-        String value = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(bytes).toString();
+        String value = StandardCharsets.UTF_8
+                .newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .decode(bytes)
+                .toString();
         validate(value);
         return value;
     }
 
     static void validate(String text) throws IOException {
-        if (text == null || text.indexOf('\0') >= 0 || !StandardCharsets.UTF_8.newEncoder().canEncode(text)
-                || text.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IOException("Invalid UTF-8 text or size");
+        if (text == null
+                || text.indexOf('\0') >= 0
+                || !StandardCharsets.UTF_8.newEncoder().canEncode(text)
+                || text.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES)
+            throw new IOException("Invalid UTF-8 text or size");
     }
 
     static String replace(String before, String oldText, String newText) throws IOException {
@@ -67,7 +95,8 @@ final class WorkspaceFileEditor {
         String old = oldText.replace("\r\n", "\n").replace("\n", newline);
         String replacement = newText.replace("\r\n", "\n").replace("\n", newline);
         int offset = before.indexOf(old);
-        if (offset < 0 || before.indexOf(old, offset + 1) >= 0) throw new IOException("Replacement must match exactly once");
+        if (offset < 0 || before.indexOf(old, offset + 1) >= 0)
+            throw new IOException("Replacement must match exactly once");
         String after = before.substring(0, offset) + replacement + before.substring(offset + old.length());
         validate(after);
         if (before.equals(after)) throw new IOException("No change");
@@ -75,7 +104,8 @@ final class WorkspaceFileEditor {
     }
 
     boolean matches(Path path, String before) throws IOException {
-        return before == null ? !Files.exists(path, LinkOption.NOFOLLOW_LINKS)
+        return before == null
+                ? !Files.exists(path, LinkOption.NOFOLLOW_LINKS)
                 : Files.exists(path, LinkOption.NOFOLLOW_LINKS) && before.equals(read(path));
     }
 
@@ -86,9 +116,11 @@ final class WorkspaceFileEditor {
             Files.writeString(temp, after, StandardCharsets.UTF_8);
             if (before != null) {
                 var posix = Files.getFileAttributeView(target, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-                if (posix != null) Files.setPosixFilePermissions(temp, posix.readAttributes().permissions());
+                if (posix != null)
+                    Files.setPosixFilePermissions(temp, posix.readAttributes().permissions());
                 var acl = Files.getFileAttributeView(target, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-                if (acl != null) Files.getFileAttributeView(temp, AclFileAttributeView.class).setAcl(acl.getAcl());
+                if (acl != null)
+                    Files.getFileAttributeView(temp, AclFileAttributeView.class).setAcl(acl.getAcl());
             }
             // Revalidate both the parent chain and content after preparing the replacement.
             target = resolve(relative);

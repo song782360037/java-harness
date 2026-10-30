@@ -23,7 +23,12 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /** Single-process coordinator. The gate orders submit, output, cancel and final settlement. */
 public final class DefaultAgentEngine implements AgentEngine {
@@ -49,13 +54,25 @@ public final class DefaultAgentEngine implements AgentEngine {
         this(store, model, timeout, maxContextTokens, WorkspaceTools.disabled(), DEFAULT_MAX_TOOLS_PER_REQUEST);
     }
 
-    public DefaultAgentEngine(SessionStore store, ModelProvider model, Duration timeout, int maxContextTokens, WorkspaceTools tools, int maxToolsPerRequest) {
+    public DefaultAgentEngine(
+            SessionStore store,
+            ModelProvider model,
+            Duration timeout,
+            int maxContextTokens,
+            WorkspaceTools tools,
+            int maxToolsPerRequest) {
         this(store, fixedConfiguration(model, timeout, maxContextTokens, tools, maxToolsPerRequest));
     }
 
-    private static RunConfigurationSource fixedConfiguration(ModelProvider model, Duration timeout, int maxContextTokens, WorkspaceTools tools, int maxToolsPerRequest) {
-        var fixed = new RunConfiguration(model.info(), timeout, maxContextTokens, RunConfiguration.outputFor(maxContextTokens),
-                maxToolsPerRequest, TokenCounter.approximate(),
+    private static RunConfigurationSource fixedConfiguration(
+            ModelProvider model, Duration timeout, int maxContextTokens, WorkspaceTools tools, int maxToolsPerRequest) {
+        var fixed = new RunConfiguration(
+                model.info(),
+                timeout,
+                maxContextTokens,
+                RunConfiguration.outputFor(maxContextTokens),
+                maxToolsPerRequest,
+                TokenCounter.approximate(),
                 workspace -> new RunConfiguration.Resources(model, tools, () -> {}));
         return () -> fixed;
     }
@@ -67,13 +84,14 @@ public final class DefaultAgentEngine implements AgentEngine {
     }
 
     @Override
-    public synchronized SessionStore.Submission submit(String sessionId, String requestId,
-                                                       String prompt, String scenario) {
+    public synchronized SessionStore.Submission submit(
+            String sessionId, String requestId, String prompt, String scenario) {
         return submit(sessionId, requestId, prompt, scenario, ModelSelection.DEFAULT);
     }
 
-    @Override public synchronized SessionStore.Submission submit(String sessionId, String requestId, String prompt,
-                                                                String scenario, ModelSelection selection) {
+    @Override
+    public synchronized SessionStore.Submission submit(
+            String sessionId, String requestId, String prompt, String scenario, ModelSelection selection) {
         if (closed) throw new HarnessException("UNAVAILABLE", "服务正在停止");
         var retry = store.retry(sessionId, requestId, prompt, scenario, selection);
         if (retry != null) return retry;
@@ -83,11 +101,25 @@ public final class DefaultAgentEngine implements AgentEngine {
         synchronized (store) {
             extension = configurations.extensions(store.snapshot(sessionId).session(), prompt);
             try {
-                submission = store.submit(sessionId, requestId, prompt, scenario, configuration.modelInfo(), selection, configuration.selection(), extension.snapshot());
+                submission = store.submit(
+                        sessionId,
+                        requestId,
+                        prompt,
+                        scenario,
+                        configuration.modelInfo(),
+                        selection,
+                        configuration.selection(),
+                        extension.snapshot());
                 if (submission.created()) extension.submitted(submission.run().id());
-            } catch (RuntimeException error) { extension.close(); throw error; }
+            } catch (RuntimeException error) {
+                extension.close();
+                throw error;
+            }
         }
-        if (!submission.created()) { extension.close(); return submission; }
+        if (!submission.created()) {
+            extension.close();
+            return submission;
+        }
         var task = new Task();
         tasks.put(submission.run().id(), task);
         try {
@@ -131,14 +163,17 @@ public final class DefaultAgentEngine implements AgentEngine {
                 if (task.stopReason != null) return;
                 store.transition(run.id(), RunStatus.RUNNING, "");
                 final String timedRunId = run.id();
-                deadline = timer.schedule(() -> requestStop(timedRunId, task, RunStatus.TIMED_OUT),
-                        configuration.timeout().toMillis(), TimeUnit.MILLISECONDS);
+                deadline = timer.schedule(
+                        () -> requestStop(timedRunId, task, RunStatus.TIMED_OUT),
+                        configuration.timeout().toMillis(),
+                        TimeUnit.MILLISECONDS);
             }
             resources = configuration.resources().open(run.workspace());
             ModelProvider model = resources.model();
             ModelProvider.Cancellation cancellation = () -> {
                 synchronized (this) {
-                    if (task.stopReason != null || Thread.currentThread().isInterrupted()) throw new InterruptedException("run stopped");
+                    if (task.stopReason != null || Thread.currentThread().isInterrupted())
+                        throw new InterruptedException("run stopped");
                 }
             };
             WorkspaceTools tools = extension.open(run.id(), resources.tools(), cancellation);
@@ -153,12 +188,14 @@ public final class DefaultAgentEngine implements AgentEngine {
             int historyBudget = contextWindowTokens - reserved - TokenBudget.safety(contextWindowTokens);
             long timeoutNanos = configuration.timeout().toNanos();
             long deadlineNanos = System.nanoTime() + timeoutNanos;
-            long finalReserveNanos = toolEnabled ? Math.min(Duration.ofSeconds(30).toNanos(), timeoutNanos / 5) : 0;
+            long finalReserveNanos =
+                    toolEnabled ? Math.min(Duration.ofSeconds(30).toNanos(), timeoutNanos / 5) : 0;
             if (historyBudget < 256) throw new ModelException("模型上下文窗口不足以容纳系统指引、工具定义和输出预留，请提高上下文窗口或降低最大输出");
             synchronized (this) {
                 if (task.stopReason != null) return;
                 run = store.bindWorkspace(run.id(), tools.workspace());
-                request = new ConversationContext(counter, historyBudget).build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
+                request = new ConversationContext(counter, historyBudget)
+                        .build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
             }
             final String runId = run.id();
             java.util.function.Consumer<String> onText = text -> {
@@ -174,17 +211,39 @@ public final class DefaultAgentEngine implements AgentEngine {
             boolean finalRequest = false;
             for (int step = 1; ; step = Math.incrementExact(step)) {
                 cancellation.check();
-                String instructions = finalRequest ? extension.instructions() + AgentInstructions.forFinalAnswer() : normalInstructions;
+                String instructions = finalRequest
+                        ? extension.instructions() + AgentInstructions.forFinalAnswer()
+                        : normalInstructions;
                 List<ToolDefinition> requestTools = finalRequest ? List.of() : tools.definitions();
-                int characters = instructions.length() + messages.stream().mapToInt(ModelMessage::characters).sum();
+                int characters = instructions.length()
+                        + messages.stream().mapToInt(ModelMessage::characters).sum();
                 int tokens = budget.input(messages, instructions, requestTools);
                 if (tokens + maxOutputTokens + TokenBudget.safety(tokens) > contextWindowTokens)
                     throw new ModelException("工具轮次超过上下文 token 容量（约 " + tokens + "），请缩小问题范围或提高上下文窗口");
-                var summary = new ContextSummary(request.context().includedTurns(), request.context().droppedTurns(),
-                        request.context().excludedTurns(), characters, 0, tokens, contextWindowTokens);
-                var next = new ModelRequest(runId, run.model(), run.scenario(), messages, summary, step,
-                        tools.workspace(), requestTools, instructions, finalRequest, configuration.selection().reasoningEffort());
-                synchronized (this) { cancellation.check(); store.saveModelRequest(next); }
+                var summary = new ContextSummary(
+                        request.context().includedTurns(),
+                        request.context().droppedTurns(),
+                        request.context().excludedTurns(),
+                        characters,
+                        0,
+                        tokens,
+                        contextWindowTokens);
+                var next = new ModelRequest(
+                        runId,
+                        run.model(),
+                        run.scenario(),
+                        messages,
+                        summary,
+                        step,
+                        tools.workspace(),
+                        requestTools,
+                        instructions,
+                        finalRequest,
+                        configuration.selection().reasoningEffort());
+                synchronized (this) {
+                    cancellation.check();
+                    store.saveModelRequest(next);
+                }
                 // Reasoning streams token by token; batch it so each write and event covers ~2 KB or 300 ms.
                 final int currentStep = step;
                 var reasoning = new StringBuilder();
@@ -200,7 +259,8 @@ public final class DefaultAgentEngine implements AgentEngine {
                 };
                 java.util.function.Consumer<String> onReasoning = text -> {
                     reasoning.append(text);
-                    if (reasoning.length() >= 2048 || System.nanoTime() - flushedAt[0] >= 300_000_000L) flushReasoning.run();
+                    if (reasoning.length() >= 2048 || System.nanoTime() - flushedAt[0] >= 300_000_000L)
+                        flushReasoning.run();
                 };
                 ModelTurn turn = model.complete(next, cancellation, onText, onReasoning);
                 // A failed stream may lose its last unflushed slice; reasoning is display-only.
@@ -213,35 +273,55 @@ public final class DefaultAgentEngine implements AgentEngine {
                     break;
                 }
                 if (finalRequest) {
-                    synchronized (this) { cancellation.check(); store.beginTools(runId, step, turn.calls()); }
-                    for (ToolCall call : turn.calls()) synchronized (this) {
+                    synchronized (this) {
                         cancellation.check();
-                        store.updateTool(runId, call.id(), "SKIPPED", "收尾请求不执行工具");
+                        store.beginTools(runId, step, turn.calls());
                     }
+                    for (ToolCall call : turn.calls())
+                        synchronized (this) {
+                            cancellation.check();
+                            store.updateTool(runId, call.id(), "SKIPPED", "收尾请求不执行工具");
+                        }
                     throw new ModelException("收尾请求仍返回工具调用；请检查服务的工具协议兼容性");
                 }
                 if (tools.definitions().isEmpty()) throw new ModelException("未配置工作区，无法执行工具");
                 if (turn.calls().size() > ToolCall.MAX_BATCH_SIZE) throw new ModelException("单次模型响应返回的工具调用超过解析上限");
-                for (ToolCall call : turn.calls()) if (!callIds.add(call.id())) throw new ModelException("模型返回重复的工具调用 ID");
-                synchronized (this) { cancellation.check(); store.beginTools(runId, step, turn.calls()); }
+                for (ToolCall call : turn.calls())
+                    if (!callIds.add(call.id())) throw new ModelException("模型返回重复的工具调用 ID");
+                synchronized (this) {
+                    cancellation.check();
+                    store.beginTools(runId, step, turn.calls());
+                }
                 boolean timeExhausted = toolEnabled && deadlineNanos - System.nanoTime() <= finalReserveNanos;
                 for (int index = 0; index < turn.calls().size(); index++) {
                     ToolCall call = turn.calls().get(index);
-                    if (!timeExhausted && toolEnabled && deadlineNanos - System.nanoTime() <= finalReserveNanos) timeExhausted = true;
+                    if (!timeExhausted && toolEnabled && deadlineNanos - System.nanoTime() <= finalReserveNanos)
+                        timeExhausted = true;
                     WorkspaceTools.Result result;
                     if (timeExhausted) {
                         result = new WorkspaceTools.Result(false, "剩余时间不足以继续执行工具，本调用未执行；请基于已有证据生成收尾回答。");
-                        synchronized (this) { cancellation.check(); store.updateTool(runId, call.id(), "SKIPPED", result.output()); }
+                        synchronized (this) {
+                            cancellation.check();
+                            store.updateTool(runId, call.id(), "SKIPPED", result.output());
+                        }
                     } else if (index >= maxToolsPerRequest) {
-                        result = new WorkspaceTools.Result(false, "本模型配置单次最多执行 " + maxToolsPerRequest
-                                + " 个工具，本调用未执行。请先使用已完成的结果；若仍需此工具，请在下一次响应中重新请求。");
-                        synchronized (this) { cancellation.check(); store.updateTool(runId, call.id(), "SKIPPED", result.output()); }
+                        result = new WorkspaceTools.Result(
+                                false,
+                                "本模型配置单次最多执行 " + maxToolsPerRequest + " 个工具，本调用未执行。请先使用已完成的结果；若仍需此工具，请在下一次响应中重新请求。");
+                        synchronized (this) {
+                            cancellation.check();
+                            store.updateTool(runId, call.id(), "SKIPPED", result.output());
+                        }
                     } else {
-                        synchronized (this) { cancellation.check(); store.updateTool(runId, call.id(), "RUNNING", ""); }
+                        synchronized (this) {
+                            cancellation.check();
+                            store.updateTool(runId, call.id(), "RUNNING", "");
+                        }
                         result = tools.execute(runId, call, cancellation);
                         synchronized (this) {
                             cancellation.check();
-                            store.updateTool(runId, call.id(), result.success() ? "COMPLETED" : "FAILED", result.output());
+                            store.updateTool(
+                                    runId, call.id(), result.success() ? "COMPLETED" : "FAILED", result.output());
                         }
                     }
                     messages.add(new ModelMessage("tool", result.output(), java.util.List.of(), call.id()));
@@ -256,20 +336,28 @@ public final class DefaultAgentEngine implements AgentEngine {
             failure = error.getMessage();
         } catch (Exception error) {
             failure = "模型执行失败";
-            System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING, "Run " + run.id() + " failed", error);
+            System.getLogger(getClass().getName())
+                    .log(System.Logger.Level.WARNING, "Run " + run.id() + " failed", error);
         } finally {
             if (deadline != null) deadline.cancel(false);
-            try { extension.close(); }
-            catch (RuntimeException error) { if (failure == null) failure = "释放插件资源失败"; }
+            try {
+                extension.close();
+            } catch (RuntimeException error) {
+                if (failure == null) failure = "释放插件资源失败";
+            }
             if (resources != null) {
-                try { resources.close(); }
-                catch (RuntimeException error) { if (failure == null) failure = "释放模型连接失败"; }
+                try {
+                    resources.close();
+                } catch (RuntimeException error) {
+                    if (failure == null) failure = "释放模型连接失败";
+                }
             }
             synchronized (this) {
                 // A cancellation racing with settlement must not interrupt its database transaction.
                 Thread.interrupted();
                 try {
-                    RunStatus outcome = task.stopReason != null ? task.stopReason
+                    RunStatus outcome = task.stopReason != null
+                            ? task.stopReason
                             : failure == null ? RunStatus.COMPLETED : RunStatus.FAILED;
                     String detail = switch (outcome) {
                         case CANCELLED -> "已停止";
@@ -306,7 +394,7 @@ public final class DefaultAgentEngine implements AgentEngine {
     /** Split into store-sized chunks without separating a surrogate pair. */
     private static List<String> chunks(CharSequence text) {
         var result = new java.util.ArrayList<String>();
-        for (int offset = 0; offset < text.length();) {
+        for (int offset = 0; offset < text.length(); ) {
             int end = Math.min(offset + 4096, text.length());
             if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) end--;
             result.add(text.subSequence(offset, end).toString());

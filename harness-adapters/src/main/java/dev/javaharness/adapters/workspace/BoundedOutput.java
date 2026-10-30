@@ -7,10 +7,14 @@ final class BoundedOutput {
     private final StringBuilder text = new StringBuilder();
     boolean truncated;
 
-    BoundedOutput() { this(LIMIT); }
+    BoundedOutput() {
+        this(LIMIT);
+    }
 
     /** Larger limits are for parsing, where a short buffer would silently under-count. */
-    BoundedOutput(int limit) { this.limit = limit; }
+    BoundedOutput(int limit) {
+        this.limit = limit;
+    }
 
     synchronized void add(String value) {
         int remaining = limit - text.length();
@@ -23,7 +27,11 @@ final class BoundedOutput {
     }
 
     /** Accumulated text without the truncation notice, for callers that parse instead of display. */
-    synchronized String raw() { return text.toString(); }
+    synchronized String raw() {
+        return text.toString();
+    }
 
-    synchronized String finish() { return text + (truncated ? "\n[结果已截断，请缩小范围或分段读取]" : ""); }
+    synchronized String finish() {
+        return text + (truncated ? "\n[结果已截断，请缩小范围或分段读取]" : "");
+    }
 }

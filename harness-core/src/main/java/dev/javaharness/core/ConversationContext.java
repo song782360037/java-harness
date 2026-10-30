@@ -29,14 +29,22 @@ public final class ConversationContext {
     }
 
     public ModelRequest build(Run current, List<Run> history) {
-        return build(current, history, run -> List.of(new ModelMessage("user", run.prompt()), new ModelMessage("assistant", run.output())));
+        return build(
+                current,
+                history,
+                run -> List.of(new ModelMessage("user", run.prompt()), new ModelMessage("assistant", run.output())));
     }
 
-    public ModelRequest build(Run current, List<Run> history, java.util.function.Function<Run, List<ModelMessage>> transcript) {
-        var eligible = history.stream().filter(run -> run.sessionId().equals(current.sessionId())
-                && !run.id().equals(current.id()) && run.status() == RunStatus.COMPLETED
-                && !run.provider().equals("simulated") && !run.output().isBlank()
-                && (run.workspace().isEmpty() || run.workspace().equals(current.workspace()))).toList();
+    public ModelRequest build(
+            Run current, List<Run> history, java.util.function.Function<Run, List<ModelMessage>> transcript) {
+        var eligible = history.stream()
+                .filter(run -> run.sessionId().equals(current.sessionId())
+                        && !run.id().equals(current.id())
+                        && run.status() == RunStatus.COMPLETED
+                        && !run.provider().equals("simulated")
+                        && !run.output().isBlank()
+                        && (run.workspace().isEmpty() || run.workspace().equals(current.workspace())))
+                .toList();
         var turns = eligible.stream().map(transcript).toList();
         int tokens = budget.message(new ModelMessage("user", current.prompt()));
         int characters = current.prompt().length();
@@ -55,8 +63,18 @@ public final class ConversationContext {
             messages.addAll(turns.get(i));
         }
         messages.add(new ModelMessage("user", current.prompt()));
-        return new ModelRequest(current.id(), current.model(), current.scenario(), messages,
-                new ContextSummary(eligible.size() - first, first, history.size() - eligible.size(),
-                        characters, 0, tokens, maxTokens));
+        return new ModelRequest(
+                current.id(),
+                current.model(),
+                current.scenario(),
+                messages,
+                new ContextSummary(
+                        eligible.size() - first,
+                        first,
+                        history.size() - eligible.size(),
+                        characters,
+                        0,
+                        tokens,
+                        maxTokens));
     }
 }

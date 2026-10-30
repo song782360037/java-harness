@@ -1,5 +1,8 @@
 package dev.javaharness.server;
 
+import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
+
 import dev.javaharness.adapters.SimulatedModelProvider;
 import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.core.DefaultAgentEngine;
@@ -12,21 +15,22 @@ import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.workspace.WorkspaceTools;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import java.nio.file.Path;
-import java.time.Duration;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.*;
-import java.util.stream.Collectors;
-import static org.assertj.core.api.Assertions.*;
-import static org.awaitility.Awaitility.await;
 
 class RuntimeTest {
     private JdbcTemplate jdbc;
@@ -39,30 +43,49 @@ class RuntimeTest {
 
     private void open(String url) {
         var ds = new DriverManagerDataSource(url, "sa", "");
-        Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
+        Flyway.configure()
+                .dataSource(ds)
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
         jdbc = new JdbcTemplate(ds);
         store = new JdbcSessionStore(jdbc, new TransactionTemplate(new DataSourceTransactionManager(ds)));
     }
 
-    private static String key() { return UUID.randomUUID().toString(); }
-
-    private void settled(String id) {
-        await().atMost(Duration.ofSeconds(5)).until(() -> !store.run(id).status().active());
+    private static String key() {
+        return UUID.randomUUID().toString();
     }
 
-    @Test void renamePreservesActiveRunAndOtherSessionFields() {
-        Session session = store.createSession("原名称", java.nio.file.Path.of("").toAbsolutePath().toString());
+    private void settled(String id) {
+        await().atMost(Duration.ofSeconds(5))
+                .until(() -> !store.run(id).status().active());
+    }
+
+    @Test
+    void renamePreservesActiveRunAndOtherSessionFields() {
+        Session session = store.createSession(
+                "原名称", java.nio.file.Path.of("").toAbsolutePath().toString());
         Session other = store.snapshot(store.createSession("其他会话").id()).session();
-        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO).run();
+        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO)
+                .run();
         store.transition(run.id(), RunStatus.RUNNING, "");
         store.appendText(run.id(), "输出");
         var before = store.snapshot(session.id());
         Session renamed = store.renameSession(session.id(), "  " + "名".repeat(100) + "  ");
-        assertThat(renamed).isEqualTo(new Session(session.id(), "名".repeat(100), before.session().createdAt(),
-                session.workspace(), before.session().modelProfileId(), before.session().reasoningEffort(), session.workspaceId()));
+        assertThat(renamed)
+                .isEqualTo(new Session(
+                        session.id(),
+                        "名".repeat(100),
+                        before.session().createdAt(),
+                        session.workspace(),
+                        before.session().modelProfileId(),
+                        before.session().reasoningEffort(),
+                        session.workspaceId()));
         assertThat(store.snapshot(session.id()).runs()).isEqualTo(before.runs());
         assertThat(store.snapshot(other.id()).session()).isEqualTo(other);
-        assertThat(jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?", String.class, session.id())).isEqualTo(run.id());
+        assertThat(jdbc.queryForObject(
+                        "SELECT active_run_id FROM harness_session WHERE id=?", String.class, session.id()))
+                .isEqualTo(run.id());
         var event = store.events(session.id(), before.lastSeq(), 10).getFirst();
         assertThat(event.type()).isEqualTo("TITLE");
         assertThat(event.runId()).isNull();
@@ -70,7 +93,8 @@ class RuntimeTest {
         assertThat(store.snapshot(session.id()).lastSeq()).isEqualTo(before.lastSeq() + 1);
     }
 
-    @Test void failedRenameEventRollsBackTitleAndSequence() {
+    @Test
+    void failedRenameEventRollsBackTitleAndSequence() {
         Session session = store.createSession("原名称");
         Session before = store.snapshot(session.id()).session();
         jdbc.execute("ALTER TABLE harness_event ADD CONSTRAINT test_title_event CHECK (event_type <> 'TITLE')");
@@ -80,7 +104,8 @@ class RuntimeTest {
         jdbc.execute("ALTER TABLE harness_event DROP CONSTRAINT test_title_event");
     }
 
-    @Test void renamedSessionSurvivesFileStoreReopen(@TempDir Path directory) {
+    @Test
+    void renamedSessionSurvivesFileStoreReopen(@TempDir Path directory) {
         String url = "jdbc:h2:file:" + directory.resolve("rename").toString().replace('\\', '/');
         open(url);
         Session session = store.createSession("原名称");
@@ -93,7 +118,8 @@ class RuntimeTest {
         jdbc.execute("SHUTDOWN");
     }
 
-    @Test void queuedRunCapturesSettingsAtSubmissionAndRetriesDoNotReopenResources() {
+    @Test
+    void queuedRunCapturesSettingsAtSubmissionAndRetriesDoNotReopenResources() {
         var opened = new java.util.concurrent.atomic.AtomicInteger();
         var released = new java.util.concurrent.atomic.AtomicInteger();
         TestModelProvider provider = (request, cancellation, text) -> text.accept(request.model());
@@ -101,8 +127,10 @@ class RuntimeTest {
             opened.incrementAndGet();
             return new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), released::incrementAndGet);
         };
-        var old = new RunConfiguration(new ModelInfo("openai-compatible", "old", true), Duration.ofSeconds(5), 32000, 32, factory);
-        var changed = new RunConfiguration(new ModelInfo("openai-compatible", "new", true), Duration.ofSeconds(5), 64000, 2, factory);
+        var old = new RunConfiguration(
+                new ModelInfo("openai-compatible", "old", true), Duration.ofSeconds(5), 32000, 32, factory);
+        var changed = new RunConfiguration(
+                new ModelInfo("openai-compatible", "new", true), Duration.ofSeconds(5), 64000, 2, factory);
         var source = new java.util.concurrent.atomic.AtomicReference<>(old);
         try (var engine = new DefaultAgentEngine(store, source::get)) {
             String session = store.createSession("snapshot").id();
@@ -115,7 +143,8 @@ class RuntimeTest {
             settled(first.id());
             assertThat(store.run(first.id()).output()).isEqualTo("old");
             assertThat(store.run(first.id()).context().maxTokens()).isEqualTo(16000);
-            assertThat(engine.submit(session, requestId, "hello", "NORMAL").created()).isFalse();
+            assertThat(engine.submit(session, requestId, "hello", "NORMAL").created())
+                    .isFalse();
             Run next = engine.submit(session, key(), "next", "NORMAL").run();
             settled(next.id());
             assertThat(store.run(next.id()).output()).isEqualTo("new");
@@ -125,14 +154,24 @@ class RuntimeTest {
         }
     }
 
-    @Test void cancellationClosesPerRunResourcesBeforeReleasingTheSession() throws Exception {
+    @Test
+    void cancellationClosesPerRunResourcesBeforeReleasingTheSession() throws Exception {
         var entered = new CountDownLatch(1);
         var released = new java.util.concurrent.atomic.AtomicInteger();
-        TestModelProvider provider = (request, cancellation, text) -> { entered.countDown(); new CountDownLatch(1).await(); };
-        var config = new RunConfiguration(provider.info(), Duration.ofSeconds(5), 32000, 32,
-                workspace -> new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), released::incrementAndGet));
+        TestModelProvider provider = (request, cancellation, text) -> {
+            entered.countDown();
+            new CountDownLatch(1).await();
+        };
+        var config = new RunConfiguration(
+                provider.info(),
+                Duration.ofSeconds(5),
+                32000,
+                32,
+                workspace ->
+                        new RunConfiguration.Resources(provider, WorkspaceTools.disabled(), released::incrementAndGet));
         try (var engine = new DefaultAgentEngine(store, () -> config)) {
-            var run = engine.submit(store.createSession("cancel").id(), key(), "hello", "NORMAL").run();
+            var run = engine.submit(store.createSession("cancel").id(), key(), "hello", "NORMAL")
+                    .run();
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
             engine.cancel(run.id());
             settled(run.id());
@@ -150,10 +189,15 @@ class RuntimeTest {
             var snapshot = store.snapshot(session.id());
             var events = store.events(session.id(), 0, 256);
             assertThat(store.run(run.id()).status()).isEqualTo(RunStatus.COMPLETED);
-            assertThat(events.stream().filter(e -> e.type().equals("TEXT")).map(RunEvent::text).collect(Collectors.joining()))
-                    .isEqualTo(store.run(run.id()).output()).contains("你好 🌱");
+            assertThat(events.stream()
+                            .filter(e -> e.type().equals("TEXT"))
+                            .map(RunEvent::text)
+                            .collect(Collectors.joining()))
+                    .isEqualTo(store.run(run.id()).output())
+                    .contains("你好 🌱");
             assertThat(events.getLast().seq()).isEqualTo(snapshot.lastSeq());
-            for (int i = 0; i < events.size(); i++) assertThat(events.get(i).seq()).isEqualTo(i + 1);
+            for (int i = 0; i < events.size(); i++)
+                assertThat(events.get(i).seq()).isEqualTo(i + 1);
             assertThat(store.events(session.id(), 2, 256)).allMatch(e -> e.seq() > 2);
             assertThatThrownBy(() -> store.events(session.id(), snapshot.lastSeq() + 1, 10))
                     .isInstanceOf(HarnessException.class);
@@ -163,29 +207,36 @@ class RuntimeTest {
     @Test
     void simultaneousDuplicateRequestsHaveOneIdentityAndBusyRejectsOtherInput() throws Exception {
         try (var engine = new DefaultAgentEngine(store, new SimulatedModelProvider(0), Duration.ofSeconds(30));
-             var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+                var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             Session session = store.createSession("并发");
             String requestId = key();
             var start = new CountDownLatch(1);
-            var futures = java.util.stream.IntStream.range(0, 8).mapToObj(i -> callers.submit(() -> {
-                start.await();
-                return engine.submit(session.id(), requestId, "等待", "SLOW");
-            })).toList();
+            var futures = java.util.stream.IntStream.range(0, 8)
+                    .mapToObj(i -> callers.submit(() -> {
+                        start.await();
+                        return engine.submit(session.id(), requestId, "等待", "SLOW");
+                    }))
+                    .toList();
             start.countDown();
             var results = new java.util.ArrayList<SessionStore.Submission>();
             for (var future : futures) results.add(future.get(10, TimeUnit.SECONDS));
-            assertThat(results.stream().filter(SessionStore.Submission::created)).hasSize(1);
+            assertThat(results.stream().filter(SessionStore.Submission::created))
+                    .hasSize(1);
             assertThat(results.stream().map(r -> r.run().id()).distinct()).hasSize(1);
             assertThat(store.snapshot(session.id()).runs()).hasSize(1);
             assertThatThrownBy(() -> engine.submit(session.id(), key(), "其他请求", "NORMAL"))
-                    .isInstanceOf(HarnessException.class).hasMessageContaining("已有");
+                    .isInstanceOf(HarnessException.class)
+                    .hasMessageContaining("已有");
             assertThatThrownBy(() -> engine.submit(session.id(), requestId, "更换输入", "SLOW"))
-                    .isInstanceOf(HarnessException.class).hasMessageContaining("requestId");
+                    .isInstanceOf(HarnessException.class)
+                    .hasMessageContaining("requestId");
             String runId = results.getFirst().run().id();
             engine.cancel(runId);
             settled(runId);
-            assertThat(engine.submit(session.id(), requestId, "等待", "SLOW").created()).isFalse();
-            assertThat(engine.submit(session.id(), key(), "下一次", "NORMAL").created()).isTrue();
+            assertThat(engine.submit(session.id(), requestId, "等待", "SLOW").created())
+                    .isFalse();
+            assertThat(engine.submit(session.id(), key(), "下一次", "NORMAL").created())
+                    .isTrue();
         }
     }
 
@@ -198,8 +249,11 @@ class RuntimeTest {
             started.countDown();
             boolean done = false;
             while (!done) {
-                try { done = release.await(100, TimeUnit.MILLISECONDS); }
-                catch (InterruptedException ignored) { /* Simulate delayed cooperative cleanup. */ }
+                try {
+                    done = release.await(100, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException ignored) {
+                    /* Simulate delayed cooperative cleanup. */
+                }
             }
             text.accept("迟到文本");
         };
@@ -260,7 +314,8 @@ class RuntimeTest {
     @Test
     void failedEventInsertRollsBackOutputAndSequence() {
         Session session = store.createSession("事务");
-        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO).run();
+        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO)
+                .run();
         store.transition(run.id(), RunStatus.RUNNING, "");
         long before = store.snapshot(session.id()).lastSeq();
         jdbc.execute("ALTER TABLE harness_event ADD CONSTRAINT test_text_limit CHECK (LENGTH(event_text) <= 2)");
@@ -279,7 +334,8 @@ class RuntimeTest {
         var runIds = new java.util.ArrayList<String>();
         for (RunStatus status : List.of(RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.CANCELLING)) {
             var session = store.createSession(status.name());
-            var run = store.submit(session.id(), key(), "保留", "NORMAL", TestModelProvider.INFO).run();
+            var run = store.submit(session.id(), key(), "保留", "NORMAL", TestModelProvider.INFO)
+                    .run();
             if (status != RunStatus.QUEUED) {
                 store.transition(run.id(), RunStatus.RUNNING, "");
                 store.appendText(run.id(), "持久化内容");
@@ -296,7 +352,9 @@ class RuntimeTest {
             long seq = store.snapshot(run.sessionId()).lastSeq();
             store.recoverInterruptedRuns();
             assertThat(store.snapshot(run.sessionId()).lastSeq()).isEqualTo(seq);
-            assertThat(store.submit(run.sessionId(), key(), "新请求", "NORMAL", TestModelProvider.INFO).created()).isTrue();
+            assertThat(store.submit(run.sessionId(), key(), "新请求", "NORMAL", TestModelProvider.INFO)
+                            .created())
+                    .isTrue();
         }
         assertThat(store.run(runIds.get(1)).output()).isEqualTo("持久化内容");
         jdbc.execute("SHUTDOWN");
@@ -305,13 +363,16 @@ class RuntimeTest {
     @Test
     void terminalStateCannotBeRevivedAndInvalidInputLeavesNoRun() {
         Session session = store.createSession("边界");
-        assertThatThrownBy(() -> store.submit(session.id(), key(), " ", "NORMAL", TestModelProvider.INFO)).isInstanceOf(HarnessException.class);
+        assertThatThrownBy(() -> store.submit(session.id(), key(), " ", "NORMAL", TestModelProvider.INFO))
+                .isInstanceOf(HarnessException.class);
         assertThat(store.snapshot(session.id()).runs()).isEmpty();
-        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO).run();
+        Run run = store.submit(session.id(), key(), "test", "NORMAL", TestModelProvider.INFO)
+                .run();
         store.transition(run.id(), RunStatus.RUNNING, "");
         store.transition(run.id(), RunStatus.COMPLETED, "");
         long seq = store.snapshot(session.id()).lastSeq();
-        assertThatThrownBy(() -> store.transition(run.id(), RunStatus.RUNNING, "")).isInstanceOf(HarnessException.class);
+        assertThatThrownBy(() -> store.transition(run.id(), RunStatus.RUNNING, ""))
+                .isInstanceOf(HarnessException.class);
         assertThatThrownBy(() -> store.appendText(run.id(), "late")).isInstanceOf(HarnessException.class);
         assertThat(store.snapshot(session.id()).lastSeq()).isEqualTo(seq);
     }
