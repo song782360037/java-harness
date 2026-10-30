@@ -38,6 +38,10 @@ public interface SessionStore {
     void beginTools(String runId, int step, List<ToolCall> calls);
     void updateTool(String runId, String callId, String status, String output);
     List<ToolExecution> tools(String runId);
+    /** Append display-only reasoning to a running step; text beyond the step budget is dropped. */
+    void appendReasoning(String runId, int step, String text);
+    /** Steps recorded since request snapshots began; empty for legacy runs. */
+    List<RunStep> steps(String runId);
     Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model);
     Submission submit(String sessionId, String requestId, String prompt, String scenario, ModelInfo model,
                       ModelSelection requested, ModelSelection selected);

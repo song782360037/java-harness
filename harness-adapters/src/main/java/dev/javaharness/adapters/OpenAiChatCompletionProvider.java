@@ -57,6 +57,12 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
 
     @Override
     public ModelTurn complete(ModelRequest request, Cancellation cancellation, Consumer<String> onText) throws Exception {
+        return complete(request, cancellation, onText, ignored -> {});
+    }
+
+    @Override
+    public ModelTurn complete(ModelRequest request, Cancellation cancellation, Consumer<String> onText,
+                              Consumer<String> onReasoning) throws Exception {
         if (!info.configured()) throw new ModelException("请在页面的模型配置中设置模型名称和 API Key");
         if (!request.scenario().equals("NORMAL")) throw new ModelException("真实模型不支持模拟场景");
         cancellation.check();
@@ -90,7 +96,7 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                     throw new ModelException("模型响应不是 SSE 数据流");
                 }
                 return parse(new InputStreamReader(body, StandardCharsets.UTF_8.newDecoder()
-                        .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)), cancellation, onText);
+                        .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)), cancellation, onText, onReasoning);
             }
         } catch (InterruptedException error) {
             // If headers won the race with interruption, dispose of their otherwise unclaimed body.
@@ -152,7 +158,7 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
         }
     }
 
-    private ModelTurn parse(Reader reader, Cancellation cancellation, Consumer<String> onText) throws Exception {
+    private ModelTurn parse(Reader reader, Cancellation cancellation, Consumer<String> onText, Consumer<String> onReasoning) throws Exception {
         // Read bounded lines ourselves: BufferedReader.readLine would permit an unbounded upstream line.
         var input = new BufferedReader(reader);
         var line = new StringBuilder();
@@ -175,7 +181,7 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                         if (!stopped) throw new ModelException("模型流缺少正常结束原因");
                         return state.result();
                     }
-                    stopped = consume(event, stopped, state, onText);
+                    stopped = consume(event, stopped, state, onText, onReasoning);
                 }
                 data.setLength(0);
                 eventSize = 0;
@@ -189,7 +195,8 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
         throw new ModelException("模型数据流提前结束，已保留部分输出；请手动重试");
     }
 
-    private boolean consume(String event, boolean stopped, TurnState state, Consumer<String> onText) throws Exception {
+    private boolean consume(String event, boolean stopped, TurnState state, Consumer<String> onText,
+                            Consumer<String> onReasoning) throws Exception {
         JsonNode root = json.readTree(event);
         if (root == null || !root.isObject() || root.has("error")) throw new ModelException("模型返回错误或无效数据");
         JsonNode choices = root.path("choices");
@@ -231,19 +238,16 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
         if (delta.hasNonNull("refusal") && !delta.path("refusal").asText().isEmpty()) {
             throw new ModelException("模型拒绝回答此请求");
         }
-        // reasoning_content is intentionally not emitted or persisted as the assistant's final answer.
+        // Reasoning is shown in the timeline only; it is never part of the answer or resent to the model.
+        JsonNode reasoning = delta.hasNonNull("reasoning_content") ? delta.get("reasoning_content") : delta.get("reasoning");
+        if (reasoning != null && reasoning.isTextual()) emit(reasoning.asText(), onReasoning);
         JsonNode content = delta.get("content");
         if (content != null && !content.isNull()) {
             if (!content.isTextual()) throw new ModelException("模型文本格式无效");
             String text = content.asText();
             if (state.text.length() + text.length() > 100_000) throw new ModelException("单步模型输出超过字符限制");
             state.text.append(text);
-            for (int offset = 0; offset < text.length();) {
-                int end = Math.min(offset + 4096, text.length());
-                if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) end--;
-                onText.accept(text.substring(offset, end));
-                offset = end;
-            }
+            emit(text, onText);
         }
         JsonNode finish = choice.get("finish_reason");
         if (finish == null || finish.isNull()) return false;
@@ -256,6 +260,16 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
             case "insufficient_system_resource" -> "模型服务资源不足，已保留部分输出";
             default -> "模型以非正常原因结束，已保留部分输出";
         });
+    }
+
+    /** Split into store-sized chunks without separating a surrogate pair. */
+    private static void emit(String text, Consumer<String> target) {
+        for (int offset = 0; offset < text.length();) {
+            int end = Math.min(offset + 4096, text.length());
+            if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) end--;
+            target.accept(text.substring(offset, end));
+            offset = end;
+        }
     }
 
     private static void append(StringBuilder target, JsonNode value, int limit) throws ModelException {

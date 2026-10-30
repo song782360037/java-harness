@@ -51,6 +51,11 @@ public final class JdbcSessionStore implements SessionStore {
         return rs.getObject(name, OffsetDateTime.class).toInstant();
     }
 
+    private static Instant optionalInstant(ResultSet rs, String name) throws SQLException {
+        OffsetDateTime value = rs.getObject(name, OffsetDateTime.class);
+        return value == null ? null : value.toInstant();
+    }
+
     private static OffsetDateTime now() {
         return OffsetDateTime.now(ZoneOffset.UTC);
     }
@@ -100,6 +105,7 @@ public final class JdbcSessionStore implements SessionStore {
             jdbc.update("DELETE FROM harness_file_change WHERE run_id IN (" + runs + ")", sessionId);
             jdbc.update("DELETE FROM harness_command WHERE run_id IN (" + runs + ")", sessionId);
             jdbc.update("DELETE FROM harness_tool WHERE run_id IN (" + runs + ")", sessionId);
+            jdbc.update("DELETE FROM harness_step WHERE run_id IN (" + runs + ")", sessionId);
             jdbc.update("DELETE FROM harness_model_request WHERE run_id IN (" + runs + ")", sessionId);
             jdbc.update("DELETE FROM harness_model_step WHERE run_id IN (" + runs + ")", sessionId);
             jdbc.update("DELETE FROM harness_conversation WHERE run_id IN (" + runs + ")", sessionId);
@@ -285,6 +291,11 @@ public final class JdbcSessionStore implements SessionStore {
                 if (prior.size() != request.step() - 1) throw new HarnessException("CONFLICT", "模型步骤不连续");
                 jdbc.update("INSERT INTO harness_model_step(run_id,step,request_json) VALUES (?,?,?)", run.id(), request.step(), encode(request));
             }
+            // A request snapshot starts the step; later text belongs to it until the next snapshot.
+            OffsetDateTime started = now();
+            jdbc.update("UPDATE harness_step SET finished_at=? WHERE run_id=? AND finished_at IS NULL", started, run.id());
+            jdbc.update("INSERT INTO harness_step(run_id,step,output_start,started_at) VALUES (?,?,?,?)",
+                    run.id(), request.step(), run.output().length(), started);
             jdbc.update("UPDATE harness_run SET context_summary=? WHERE id=?", encode(request.context()), run.id());
             appendEvent(run.sessionId(), run.id(), "CONTEXT", null, encode(request.context()));
         });
@@ -356,7 +367,9 @@ public final class JdbcSessionStore implements SessionStore {
             if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止");
             String expected = next.equals("RUNNING") || next.equals("SKIPPED") ? "PENDING" : "RUNNING";
             if (!List.of("RUNNING", "COMPLETED", "FAILED", "SKIPPED").contains(next)) throw new IllegalArgumentException("Invalid tool status");
-            int updated = jdbc.update("UPDATE harness_tool SET status=?,output=? WHERE run_id=? AND call_id=? AND status=?", next, output, runId, callId, expected);
+            String time = next.equals("RUNNING") ? "started_at" : "finished_at";
+            int updated = jdbc.update("UPDATE harness_tool SET status=?,output=?," + time + "=? WHERE run_id=? AND call_id=? AND status=?",
+                    next, output, now(), runId, callId, expected);
             if (updated != 1) throw new HarnessException("CONFLICT", "工具状态不匹配");
             appendEvent(run.sessionId(), runId, "TOOL", null, "工具状态已更新");
         });
@@ -366,7 +379,36 @@ public final class JdbcSessionStore implements SessionStore {
         run(runId);
         return jdbc.query("SELECT * FROM harness_tool WHERE run_id=? ORDER BY step,ordinal", (rs, row) ->
                 new ToolExecution(runId, rs.getInt("step"), rs.getString("call_id"), rs.getString("name"),
-                        rs.getString("arguments"), rs.getString("status"), rs.getString("output")), runId);
+                        rs.getString("arguments"), rs.getString("status"), rs.getString("output"),
+                        optionalInstant(rs, "started_at"), optionalInstant(rs, "finished_at")), runId);
+    }
+
+    @Override public synchronized void appendReasoning(String runId, int step, String text) {
+        if (text == null || text.length() > 4096) throw new IllegalArgumentException("Invalid reasoning chunk");
+        if (text.isEmpty()) return;
+        tx.executeWithoutResult(status -> {
+            Run run = run(runId);
+            if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止接收输出");
+            var stored = jdbc.queryForList("SELECT reasoning FROM harness_step WHERE run_id=? AND step=?", String.class, runId, step);
+            if (stored.isEmpty()) throw new HarnessException("CONFLICT", "模型步骤不存在");
+            // Reasoning is display-only: an over-long trace is cut at the budget and later chunks are ignored.
+            int remaining = 100_000 - stored.getFirst().length();
+            if (remaining <= 0) return;
+            int end = Math.min(remaining, text.length());
+            if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) end--;
+            String kept = text.substring(0, end) + (end < text.length() ? "…" : "");
+            jdbc.update("UPDATE harness_step SET reasoning=?,reasoning_at=? WHERE run_id=? AND step=?",
+                    stored.getFirst() + kept, now(), runId, step);
+            // Clients refetch steps; the event only signals a change.
+            appendEvent(run.sessionId(), runId, "REASONING", null, "");
+        });
+    }
+
+    @Override public synchronized List<RunStep> steps(String runId) {
+        run(runId);
+        return jdbc.query("SELECT * FROM harness_step WHERE run_id=? ORDER BY step", (rs, row) ->
+                new RunStep(rs.getInt("step"), rs.getInt("output_start"), rs.getString("reasoning"), instant(rs, "started_at"),
+                        optionalInstant(rs, "reasoning_at"), optionalInstant(rs, "finished_at")), runId);
     }
 
     @Override
@@ -447,8 +489,12 @@ public final class JdbcSessionStore implements SessionStore {
             if (!allowed) throw new HarnessException("CONFLICT", "非法执行状态转换");
             jdbc.update("UPDATE harness_run SET status=?,detail=? WHERE id=?", next.name(), detail, runId);
             if (!next.active()) {
-                jdbc.update("UPDATE harness_tool SET status=?,output=? WHERE run_id=? AND status IN ('PENDING','RUNNING')",
-                        next == RunStatus.INTERRUPTED ? "INTERRUPTED" : "CANCELLED", "任务已结束，工具未完成；不会自动重跑", runId);
+                // After a restart, the last recorded event is a better end time than the recovery moment.
+                OffsetDateTime finished = next != RunStatus.INTERRUPTED ? now() : jdbc.queryForObject(
+                        "SELECT MAX(created_at) FROM harness_event WHERE run_id=?", OffsetDateTime.class, runId);
+                jdbc.update("UPDATE harness_tool SET status=?,output=?,finished_at=? WHERE run_id=? AND status IN ('PENDING','RUNNING')",
+                        next == RunStatus.INTERRUPTED ? "INTERRUPTED" : "CANCELLED", "任务已结束，工具未完成；不会自动重跑", finished, runId);
+                jdbc.update("UPDATE harness_step SET finished_at=? WHERE run_id=? AND finished_at IS NULL", finished, runId);
                 jdbc.update("UPDATE harness_session SET active_run_id=NULL WHERE id=? AND active_run_id=?",
                         run.sessionId(), runId);
             }

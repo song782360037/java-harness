@@ -167,7 +167,26 @@ public final class DefaultAgentEngine implements AgentEngine {
                 var next = new ModelRequest(runId, run.model(), run.scenario(), messages, summary, step,
                         tools.workspace(), requestTools, instructions, finalRequest, configuration.selection().reasoningEffort());
                 synchronized (this) { cancellation.check(); store.saveModelRequest(next); }
-                ModelTurn turn = model.complete(next, cancellation, onText);
+                // Reasoning streams token by token; batch it so each write and event covers ~2 KB or 300 ms.
+                final int currentStep = step;
+                var reasoning = new StringBuilder();
+                long[] flushedAt = {System.nanoTime()};
+                Runnable flushReasoning = () -> {
+                    synchronized (this) {
+                        if (task.stopReason == null && !Thread.currentThread().isInterrupted()) {
+                            for (String chunk : chunks(reasoning)) store.appendReasoning(runId, currentStep, chunk);
+                        }
+                    }
+                    reasoning.setLength(0);
+                    flushedAt[0] = System.nanoTime();
+                };
+                java.util.function.Consumer<String> onReasoning = text -> {
+                    reasoning.append(text);
+                    if (reasoning.length() >= 2048 || System.nanoTime() - flushedAt[0] >= 300_000_000L) flushReasoning.run();
+                };
+                ModelTurn turn = model.complete(next, cancellation, onText, onReasoning);
+                // A failed stream may lose its last unflushed slice; reasoning is display-only.
+                flushReasoning.run();
                 cancellation.check();
                 messages.add(new ModelMessage("assistant", turn.text(), turn.calls(), null));
                 if (turn.calls().isEmpty()) {
@@ -264,5 +283,17 @@ public final class DefaultAgentEngine implements AgentEngine {
             workers.shutdownNow();
             Thread.currentThread().interrupt();
         }
+    }
+
+    /** Split into store-sized chunks without separating a surrogate pair. */
+    private static List<String> chunks(CharSequence text) {
+        var result = new java.util.ArrayList<String>();
+        for (int offset = 0; offset < text.length();) {
+            int end = Math.min(offset + 4096, text.length());
+            if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) end--;
+            result.add(text.subSequence(offset, end).toString());
+            offset = end;
+        }
+        return result;
     }
 }

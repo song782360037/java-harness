@@ -11,6 +11,7 @@ const paths: Record<string, string> = {
   plus: 'M12 5v14M5 12h14', close: 'm6 6 12 12M6 18 18 6', check: 'm5 12 4 4L19 6', more: 'M5 12h.01M12 12h.01M19 12h.01',
   warning: 'M12 3 2 21h20L12 3ZM12 9v5m0 3v.1',
   code: 'm8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16',
+  file: 'M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5ZM14 3v5h5',
   branch: 'M7 6v12M17 6v4a3 3 0 0 1-3 3h-4M9 4a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM19 4a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM9 20a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z',
   scan: 'M8 3H4v4m12-4h4v4M4 17v4h4m8 0h4v-4M7 12h10M12 7v10',
   copy: 'M8 8h12v12H8zM16 4H4v12', stop: 'M7 7h10v10H7z',

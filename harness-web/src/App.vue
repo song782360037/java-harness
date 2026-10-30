@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import ModelRequestDetails from './ModelRequestDetails.vue'
-import ToolDetails from './ToolDetails.vue'
+import RunTimeline from './RunTimeline.vue'
 import FileChanges from './FileChanges.vue'
 import Commands from './Commands.vue'
 import PluginRunDetails from './PluginRunDetails.vue'
@@ -13,9 +12,8 @@ import SidebarResize from './SidebarResize.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionDeleteDialog from './SessionDeleteDialog.vue'
 import UiIcon from './UiIcon.vue'
-import MarkdownContent from './MarkdownContent.vue'
 import { preferences, shouldSendPrompt } from './preferences'
-import { api, ApiError, isActive, effortLabel, normalizeReasoningDepth, type Run, type RunEvent, type RunStatus,
+import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, type Run, type RunEvent, type RunStatus,
   type Session, type Snapshot, type Submission, type ModelProfile, type Workspace } from './api'
 import { workspaceSummary } from './workspaces'
 
@@ -42,9 +40,6 @@ const workspaceSyncing = ref(false)
 const workspaceChanging = computed(() => workspaceSaving.value || workspaceSyncing.value)
 const workspaceDialog = ref<HTMLDialogElement>()
 const browsingWorkspace = ref(false)
-const inspectedRunId = ref('')
-const inspectorHeading = ref<HTMLElement>()
-let inspectorTrigger: HTMLElement | null = null
 const collapsedGroups = ref(new Set<string>())
 const sidebarCollapsed = ref(window.innerWidth <= 780)
 const savedSidebarWidth = Number(storageGet('harness.sidebar.width'))
@@ -147,8 +142,7 @@ async function sessionDeleted(session: { id: string }) {
   refreshing = false; dirty = false; connected.value = false
   selectedId.value = ''; snapshot.value = null; pending.value = null
   prompt.value = readDraft('')
-  inspectedRunId.value = ''; inspectorTrigger = null
-  toolRevisions.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}; pluginActivity.value = {}
+  toolRevisions.value = {}; stepRevisions.value = {}; answers.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}; pluginActivity.value = {}
   error.value = ''
   storageSet('harness.session', null)
 }
@@ -217,21 +211,6 @@ function onPromptKeydown(event: KeyboardEvent) {
   event.preventDefault()
   void send()
 }
-// 在详情面板中查看本轮执行信息。
-async function inspectRun(run: Run, event: MouseEvent) {
-  inspectorTrigger = event.currentTarget as HTMLElement
-  inspectedRunId.value = run.id
-  await nextTick()
-  inspectorHeading.value?.focus()
-}
-// 关闭详情并返回原入口。
-async function closeInspector() {
-  const trigger = inspectorTrigger
-  inspectedRunId.value = ''
-  inspectorTrigger = null
-  await nextTick()
-  if (trigger?.isConnected) trigger.focus()
-}
 // 从工作区菜单打开目录选择弹窗。
 async function browseWorkspace(workspace?: Workspace) {
   if (current.value || submitting.value || pending.value || loading.value || workspaceChanging.value) return
@@ -275,7 +254,7 @@ async function workspacePicked(session: Session) {
   }
 }
 async function copyAnswer(run: Run) {
-  try { await navigator.clipboard.writeText(run.output); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
+  try { await navigator.clipboard.writeText(answerOf(run)); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
   catch { copyError.value = '复制失败，请选择回答内容手动复制。' }
 }
 function openSettings(section: 'general' | 'models' | 'workspace' = 'general', creating = false) {
@@ -291,12 +270,30 @@ function navigateSession(id: string) {
   else void selectSession(id)
 }
 const toolRevisions = ref<Record<string, number>>({})
+const stepRevisions = ref<Record<string, number>>({})
 const changeRevisions = ref<Record<string, number>>({})
 const commandRevisions = ref<Record<string, number>>({})
 const commandActivity = ref<Record<string, string>>({})
 const pluginActivity = ref<Record<string, string>>({})
 const activityLabel = (run: Run) => run.status === 'RUNNING' ? pluginActivity.value[run.id] || commandActivity.value[run.id] || labels[run.status] : labels[run.status]
-const executionRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}`
+// 上下文字符数随每个新步骤变化，SSE 静默失效时快照轮询仍能触发时间线刷新。
+const timelineRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}:${stepRevisions.value[run.id] ?? 0}:${connected.value}`
+// 时间线拆分出的最终回答，复制和空回答提示以它为准。
+const answers = ref<Record<string, string>>({})
+const answerOf = (run: Run) => answers.value[run.id] ?? run.output
+// 时间线异步加载会改变高度，跟随最新时重新贴底。
+function timelineLoaded() {
+  if (!preferences.value.autoScroll || awayFromLatest.value) return
+  timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
+  trackTimeline()
+}
+// 上下文与工作区说明放在模型信息的悬浮提示中。
+function contextTitle(run: Run) {
+  const context = run.context
+  const parts = context ? [`携带 ${context.includedTurns} 轮历史`, context.droppedTurns ? `已裁剪 ${context.droppedTurns} 轮` : '', context.excludedTurns ? `已跳过 ${context.excludedTurns} 条` : ''] : []
+  if (run.workspace) parts.push(`工作区：${workspaceSummary(run.workspace)}`)
+  return parts.filter(Boolean).join('，')
+}
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
 const draftCache = new Map<string, string>()
@@ -310,7 +307,6 @@ const pending = ref<Submission | null>(null)
 const timeline = ref<HTMLElement>()
 const awayFromLatest = ref(false)
 const current = computed(() => snapshot.value?.runs.find(isActive))
-const inspectedRun = computed(() => snapshot.value?.runs.find(run => run.id === inspectedRunId.value))
 watch(prompt, resizePrompt, { flush: 'post' })
 // 同步保存，避免会话切换后把上一条草稿写入新会话。
 watch(prompt, value => saveDraft(selectedId.value, value), { flush: 'sync' })
@@ -433,6 +429,7 @@ function follow(id: string, version: number) {
     if (version !== revision || source !== stream) return
     const event = JSON.parse(message.data) as RunEvent
     if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
+    if (['CONTEXT', 'REASONING'].includes(event.type) && event.runId) stepRevisions.value[event.runId] = event.seq
     if (event.type === 'FILE_CHANGE' && event.runId) changeRevisions.value[event.runId] = event.seq
     if (['COMMAND', 'PLUGIN'].includes(event.type) && event.runId) commandRevisions.value[event.runId] = event.seq
     if (event.type === 'WORKSPACE') void loadWorkspaces().catch(() => {})
@@ -453,7 +450,6 @@ function restartStream() {
 }
 async function selectSession(id: string) {
   awayFromLatest.value = false
-  inspectedRunId.value = ''; inspectorTrigger = null
   closeSettings()
   const version = ++revision
   source?.close()
@@ -467,6 +463,7 @@ async function selectSession(id: string) {
   selectedId.value = id
   snapshot.value = null
   toolRevisions.value = {}
+  stepRevisions.value = {}; answers.value = {}
   changeRevisions.value = {}
   commandRevisions.value = {}
   commandActivity.value = {}; pluginActivity.value = {}
@@ -670,7 +667,7 @@ onUnmounted(() => {
         <div class="header-meta"><span v-if="snapshot?.session.workspace" class="readonly-label">修改需审核</span><span class="connection" :class="{ online: connected }" :title="selectedId ? (connected ? '实时连接正常' : '正在重新连接') : '本地服务'">{{ selectedId && !connected ? '连接中' : '本地' }}</span></div>
       </header>
       <div v-if="error" class="error-banner" role="alert">{{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button></div>
-      <div class="workbench-body" :class="{ 'has-inspector': inspectedRun }"><div class="chat-panel">
+      <div class="workbench-body"><div class="chat-panel">
       <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading" @scroll.passive="trackTimeline">
         <div v-if="loading" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
         <div v-else-if="!snapshot?.runs.length" class="welcome">
@@ -684,14 +681,13 @@ onUnmounted(() => {
           <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>
           <section class="response" :aria-label="run.model + ' 的回答'">
             <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
-            <button type="button" class="execution-trigger" :aria-label="'查看执行详情，' + activityLabel(run)" :aria-expanded="inspectedRunId === run.id" aria-controls="execution-inspector" @click="inspectRun(run, $event)"><span v-if="isActive(run)" class="loading-indicator"></span><UiIcon v-else :name="run.status === 'COMPLETED' ? 'check' : 'chevron'" :size="13" /><span>{{ activityLabel(run) }}</span><UiIcon name="chevron" :size="12" /></button>
-            <MarkdownContent v-if="run.output" :content="run.output" />
-            <p v-else class="output-placeholder">{{ isActive(run) ? (pluginActivity[run.id] || commandActivity[run.id] ? `${activityLabel(run)}，请查看下方操作卡片。` : '正在分析你的问题…') : '本次没有生成回答。' }}</p>
+            <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
+            <p v-if="isActive(run) ? !run.output && (pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
             <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
             <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
             <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
-            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!run.output" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span>{{ run.model }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
+            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ run.model }} · {{ effortShortLabel(run.reasoningEffort) }}</span><span v-if="run.context?.tokens" :title="contextTitle(run) || undefined">上下文 {{ run.context.tokens }} / {{ run.context.maxTokens }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
           </section>
         </article>
         <p v-if="copyError" role="status" class="run-notice">{{ copyError }}</p>
@@ -714,15 +710,6 @@ onUnmounted(() => {
         <div class="composer-caption"><span>{{ snapshot?.session.workspace ? '文件修改经你审核后应用' : '在本机管理对话与工作区' }}</span><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>{{ sendShortcutHint }}</span></div>
       </div>
       </div>
-      <aside v-if="inspectedRun" id="execution-inspector" class="execution-inspector" aria-labelledby="inspector-title" @keydown.esc.stop="closeInspector">
-        <header class="inspector-header"><h2 id="inspector-title" ref="inspectorHeading" tabindex="-1">执行详情</h2><button type="button" class="icon-button" aria-label="关闭执行详情" @click="closeInspector"><UiIcon name="close" :size="16" /></button></header>
-        <div class="inspector-content">
-          <dl class="execution-metadata"><dt>状态</dt><dd>{{ activityLabel(inspectedRun) }}</dd><dt>模型</dt><dd>{{ inspectedRun.model }}</dd><dt>思考强度</dt><dd>{{ effortLabel(inspectedRun.reasoningEffort) }}</dd><dt v-if="inspectedRun.workspace">工作区目录</dt><dd v-if="inspectedRun.workspace">{{ workspaceSummary(inspectedRun.workspace) }}</dd></dl>
-          <p v-if="inspectedRun.context" class="run-detail">携带 {{ inspectedRun.context.includedTurns }} 轮历史<span v-if="inspectedRun.context.droppedTurns">，已裁剪 {{ inspectedRun.context.droppedTurns }} 轮</span><span v-if="inspectedRun.context.excludedTurns">，已跳过 {{ inspectedRun.context.excludedTurns }} 条</span><span v-if="inspectedRun.context.tokens">，约 {{ inspectedRun.context.tokens }} / {{ inspectedRun.context.maxTokens }} tokens</span></p>
-          <ToolDetails :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
-          <ModelRequestDetails v-if="inspectedRun.context" :key="inspectedRun.id" :run-id="inspectedRun.id" :revision="executionRevision(inspectedRun)" />
-        </div>
-      </aside>
       </div>
     </main>
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">

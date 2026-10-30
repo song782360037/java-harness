@@ -74,6 +74,11 @@ public class SessionController {
         return store.tools(id);
     }
 
+    @GetMapping("/runs/{id}/steps")
+    public List<RunStep> steps(@PathVariable String id) {
+        return store.steps(id);
+    }
+
     /** Delete the session and its history; active runs must be stopped first. */
     @PostMapping("/sessions/{id}/delete")
     @ResponseStatus(HttpStatus.NO_CONTENT)

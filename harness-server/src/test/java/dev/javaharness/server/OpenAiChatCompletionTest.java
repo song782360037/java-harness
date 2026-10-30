@@ -101,6 +101,22 @@ class OpenAiChatCompletionTest {
         return store.run(run.id());
     }
 
+    @Test void reasoningAliasIsBatchedIntoStepAndKeptOutOfTheAnswer() throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            var text = new StringBuilder();
+            for (String piece : new String[] {"先", "看", "看🌱"}) text.append("data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":\"").append(piece).append("\"}}]}\n\n");
+            write(exchange, text + chunk("结论", null) + chunk("", "stop") + "data: [DONE]\n\n");
+        });
+        try (var model = provider(); var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Run run = settled(submit(engine));
+            assertThat(run.output()).isEqualTo("结论");
+            assertThat(store.steps(run.id())).singleElement().extracting(RunStep::reasoning).isEqualTo("先看看🌱");
+            assertThat(store.events(run.sessionId(), 0, 256)).filteredOn(event -> event.type().equals("REASONING"))
+                    .singleElement().extracting(RunEvent::text).isEqualTo("");
+        }
+    }
+
     @Test void fragmentedUtf8MultilineSseAndUsageProduceOneAnswerAndOneRequest() throws Exception {
         serve(exchange -> {
             headers(exchange);
@@ -116,6 +132,10 @@ class OpenAiChatCompletionTest {
             Run run = settled(submit(engine));
             assertThat(run.status()).isEqualTo(RunStatus.COMPLETED);
             assertThat(run.output()).isEqualTo("你好 🌱");
+            assertThat(store.steps(run.id())).singleElement().satisfies(step -> {
+                assertThat(step.reasoning()).isEqualTo("hidden");
+                assertThat(step.reasoningAt()).isNotNull();
+            });
             assertThat(run.provider()).isEqualTo("openai-compatible");
             assertThat(run.model()).isEqualTo("org/example-model:latest");
             assertThat(engine.submit(run.sessionId(), run.requestId(), run.prompt(), "NORMAL").created()).isFalse();

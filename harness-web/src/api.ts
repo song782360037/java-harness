@@ -30,7 +30,11 @@ export interface DirectoryListing { path: string; parent: string; directories: {
 export interface ModelInfo { provider: string; model: string; configured: boolean }
 export interface WorkspaceInfo { configured: boolean; root: string; tools: string[] }
 export interface ToolCall { id: string; name: string; arguments: string }
-export interface ToolExecution { runId: string; step: number; callId: string; name: string; arguments: string; status: string; output: string }
+export interface ToolExecution {
+  runId: string; step: number; callId: string; name: string; arguments: string; status: string; output: string
+  startedAt: string | null; finishedAt: string | null
+}
+export interface RunStep { step: number; outputStart: number; reasoning: string; startedAt: string; reasoningAt: string | null; finishedAt: string | null }
 export interface FileChange {
   id: string; runId: string; path: string; operation: 'replace' | 'create'; beforeContent: string | null
   afterContent: string; status: string; detail: string; createdAt: string

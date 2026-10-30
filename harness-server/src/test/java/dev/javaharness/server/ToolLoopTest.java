@@ -77,6 +77,9 @@ class ToolLoopTest {
             assertThat(store.tools(first.id())).extracting(ToolExecution::status).containsExactly("COMPLETED", "COMPLETED");
             assertThat(store.tools(first.id())).extracting(ToolExecution::output).allMatch(text -> text.contains("class App"));
             assertThat(store.modelRequests(first.id())).extracting(ModelRequest::step).containsExactly(1, 2);
+            assertThat(store.steps(first.id())).extracting(RunStep::step, RunStep::outputStart).containsExactly(tuple(1, 0), tuple(2, "先读取代码".length()));
+            assertThat(store.steps(first.id())).allSatisfy(step -> assertThat(step.finishedAt()).isAfterOrEqualTo(step.startedAt()));
+            assertThat(store.tools(first.id())).allSatisfy(tool -> assertThat(tool.finishedAt()).isAfterOrEqualTo(tool.startedAt()));
             transcript = store.conversation(first.id());
             assertThat(transcript).extracting(ModelMessage::role).containsExactly("user", "assistant", "tool", "tool", "assistant");
             ModelMessage.validate(transcript, false);
@@ -142,6 +145,8 @@ class ToolLoopTest {
             assertThat(executions).hasValue(1);
             assertThat(requests).hasSize(1);
             assertThat(store.tools(run.id())).allMatch(tool -> tool.status().equals("CANCELLED") && !tool.output().contains("late result"));
+            assertThat(store.tools(run.id())).allSatisfy(tool -> assertThat(tool.finishedAt()).isNotNull());
+            assertThat(store.steps(run.id())).allSatisfy(step -> assertThat(step.finishedAt()).isNotNull());
         } finally { release.countDown(); }
     }
     @Test void excessToolsDoNoWorkAndCanBeRequestedAgainInTheNextStep() {
