@@ -40,6 +40,9 @@ harness:
     key-file: ${HARNESS_SETTINGS_KEY_FILE:./data/settings.key}
   session-naming:
     enabled: ${HARNESS_SESSION_NAMING_ENABLED:true}
+  automations:
+    enabled: ${HARNESS_AUTOMATIONS_ENABLED:true}
+    check-interval: ${HARNESS_AUTOMATIONS_CHECK_INTERVAL:30s}
   tools:
     max-tools-per-request: ${HARNESS_MAX_TOOLS_PER_REQUEST:32}
     timeout: ${HARNESS_TOOL_TIMEOUT:5s}

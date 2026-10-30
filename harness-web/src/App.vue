@@ -6,6 +6,7 @@ import Commands from './Commands.vue'
 import PluginRunDetails from './PluginRunDetails.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
 import SettingsPage from './SettingsPage.vue'
+import AutomationsPage from './AutomationsPage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
 import TokenUsageRing from './TokenUsageRing.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
@@ -27,6 +28,7 @@ const reasoningEffort = ref('low')
 const selectedProfile = computed(() => profiles.value.find(profile => profile.id === selectedProfileId.value))
 const model = computed(() => selectedProfile.value?.model)
 const showSettings = ref(false)
+const showAutomations = ref(false)
 const settingsSection = ref<'general' | 'models' | 'workspace'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
 // 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
@@ -204,7 +206,7 @@ function resizePrompt() {
   input.style.height = 'auto'
   input.style.height = `${Math.min(input.scrollHeight, 200)}px`
 }
-watch([fontSize, showSettings], () => { if (!showSettings.value) void nextTick(resizePrompt) })
+watch([fontSize, showSettings, showAutomations], () => { if (!showSettings.value && !showAutomations.value) void nextTick(resizePrompt) })
 // 根据常规偏好处理发送，输入法确认回车保留给输入框。
 function onPromptKeydown(event: KeyboardEvent) {
   if (pluginCommandPicker.value?.keydown(event)) return
@@ -267,6 +269,7 @@ function openSettings(section: 'general' | 'models' | 'workspace' = 'general', c
 function closeSettings() { showSettings.value = false; settingsBusy.value = false }
 function navigateSession(id: string) {
   if (isMobile.value) sidebarCollapsed.value = true
+  showAutomations.value = false
   if (id === selectedId.value && snapshot.value && !loading.value) closeSettings()
   else void selectSession(id)
 }
@@ -498,6 +501,7 @@ async function addSession(title: string, workspaceId: string) {
   const effort = reasoningEffort.value
   const session = await api<Session>('/sessions', { title, workspaceId })
   sessions.value = [session, ...sessions.value]
+  showAutomations.value = false
   await selectSession(session.id)
   selectedProfileId.value = profile; reasoningEffort.value = effort
   if (isMobile.value) sidebarCollapsed.value = true
@@ -557,6 +561,20 @@ async function workspaceSaved(session: Session) {
 }
 // 刷新独立工作区列表，包括尚未创建会话的工作区。
 async function loadWorkspaces() { workspaces.value = await api<Workspace[]>('/workspaces') }
+// 自动化在后台新建会话；打开其会话或窗口重新获得焦点时同步侧栏，失败时保留当前列表等待下次同步。
+async function reloadSessions() {
+  try { sessions.value = await api<Session[]>('/sessions') } catch { /* 下次同步重试 */ }
+}
+function openAutomations() {
+  if (isMobile.value) sidebarCollapsed.value = true
+  showAutomations.value = true
+}
+async function openAutomationSession(id: string) {
+  // 与侧栏会话入口的禁用条件一致，避免打断进行中的提交或切换。
+  if (submitting.value || loading.value || settingsBusy.value || workspaceChanging.value) return
+  await reloadSessions()
+  navigateSession(id)
+}
 // 从侧栏工作区入口创建绑定该工作区的新会话。
 async function createWorkspaceSession(workspaceId: string) {
   if (loading.value || submitting.value || workspaceChanging.value) return
@@ -617,6 +635,7 @@ async function cancel() {
 onMounted(() => {
   void initialize()
   mobileLayout.addEventListener('change', onLayoutChange)
+  window.addEventListener('focus', reloadSessions)
   document.addEventListener('keydown', closeSidebarOnEscape)
   document.addEventListener('pointerdown', outsideSessionMenu)
   document.addEventListener('focusin', focusOutsideSessionMenu)
@@ -628,6 +647,7 @@ onUnmounted(() => {
   source?.close()
   clearTimeout(reconnectTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer)
   mobileLayout.removeEventListener('change', onLayoutChange)
+  window.removeEventListener('focus', reloadSessions)
   document.removeEventListener('keydown', closeSidebarOnEscape)
   document.removeEventListener('pointerdown', outsideSessionMenu)
   document.removeEventListener('focusin', focusOutsideSessionMenu)
@@ -641,13 +661,14 @@ onUnmounted(() => {
     <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
     <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
       <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="plus" :size="17" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" :size="16" /></button></div>
+      <nav class="sidebar-links" aria-label="功能"><button class="sidebar-link" :aria-current="showAutomations ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openAutomations"><UiIcon name="clock" :size="16" /><span>自动化</span></button></nav>
       <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
       <nav class="session-navigation" aria-label="会话列表">
         <div class="session-section-label">工作区</div>
         <section v-for="[path, group] in sessionGroups" :key="path" class="session-group" :class="{ collapsed: collapsedGroups.has(path) && !sessionSearch }">
           <h2 class="workspace-group-heading"><button class="group-toggle" :title="group.directories.join('\n') || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon v-if="path" :name="group.icon" :style="{ color: group.color }" :size="16" /><span>{{ group.label }}</span></button><button v-if="path" class="icon-button workspace-add" :disabled="loading || submitting || workspaceChanging" :aria-label="`在 ${group.label} 新建会话`" title="新建会话" @click="createWorkspaceSession(path)"><UiIcon name="plus" :size="14" /></button></h2>
-          <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId, 'menu-open': sessionMenuId === session.id }">
-            <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
+          <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId && !showAutomations, 'menu-open': sessionMenuId === session.id }">
+            <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId && !showAutomations ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
             <button class="icon-button session-more" :disabled="loading || workspaceChanging" :aria-label="`更多操作：${session.title}`" title="更多操作" aria-haspopup="menu" :aria-expanded="sessionMenuId === session.id" :aria-controls="sessionMenuId === session.id ? `session-menu-${session.id}` : undefined" @click="toggleSessionMenu(session, $event)"><UiIcon name="more" :size="16" /></button>
           </div>
         </section>
@@ -664,7 +685,7 @@ onUnmounted(() => {
     </Teleport>
     <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="sessionRenamed" @close="closeRename" />
     <SessionDeleteDialog v-if="deletingSession" :session="deletingSession" @deleted="sessionDeleted" @close="closeDelete" />
-    <main v-show="!showSettings" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
+    <main v-show="!showSettings && !showAutomations" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
         <div class="header-meta"><span v-if="snapshot?.session.workspace" class="readonly-label">修改需审核</span><span class="connection" :class="{ online: connected }" :title="selectedId ? (connected ? '实时连接正常' : '正在重新连接') : '本地服务'">{{ selectedId && !connected ? '连接中' : '本地' }}</span></div>
@@ -716,6 +737,7 @@ onUnmounted(() => {
       </div>
       </div>
     </main>
+    <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
       <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="17" /></button></header>
       <WorkspaceSettings v-if="browsingWorkspace" :session-id="snapshot?.session.id" initial-path="" :initial-workspace="editingWorkspace" :disabled="workspaceSyncing || !!current || submitting || !!pending || loading" @busy="workspaceSaving = $event" @saved="workspacePicked" @cancel="closeWorkspaceDialog" />

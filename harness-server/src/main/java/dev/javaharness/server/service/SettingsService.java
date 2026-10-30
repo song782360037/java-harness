@@ -1,5 +1,6 @@
 package dev.javaharness.server.service;
 
+import dev.javaharness.adapters.command.CommandFreeWorkspaceTools;
 import dev.javaharness.adapters.command.CommandService;
 import dev.javaharness.adapters.command.CommandWorkspaceTools;
 import dev.javaharness.adapters.model.JtokkitTokenCounter;
@@ -19,6 +20,7 @@ import dev.javaharness.adapters.workspace.WorkspaceRoots;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.ModelException;
 import dev.javaharness.spi.model.ModelInfo;
+import dev.javaharness.spi.model.ModelProvider;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.RunConfiguration;
 import dev.javaharness.spi.run.RunConfigurationSource;
@@ -39,6 +41,7 @@ public final class SettingsService implements RunConfigurationSource {
     private final FileChangeService changes;
     private final CommandService commands;
     private final PluginService plugins;
+    private final UnattendedSubmissions unattended;
 
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial) {
         this(store, initial, null);
@@ -59,10 +62,21 @@ public final class SettingsService implements RunConfigurationSource {
             FileChangeService changes,
             CommandService commands,
             PluginService plugins) {
+        this(store, initial, changes, commands, plugins, new UnattendedSubmissions());
+    }
+
+    public SettingsService(
+            JdbcSettingsStore store,
+            HarnessSettings initial,
+            FileChangeService changes,
+            CommandService commands,
+            PluginService plugins,
+            UnattendedSubmissions unattended) {
         this.store = store;
         this.changes = changes;
         this.commands = commands;
         this.plugins = plugins;
+        this.unattended = unattended;
         if (store.current() == null) {
             validate(initial);
             store.initialize(initial);
@@ -246,7 +260,34 @@ public final class SettingsService implements RunConfigurationSource {
 
     @Override
     public RunExtension extensions(Session session, String prompt) {
-        return plugins == null ? RunExtension.none() : plugins.prepare(session, prompt);
+        var extension = plugins == null ? RunExtension.none() : plugins.prepare(session, prompt);
+        return unattended.commandsBlocked(session.id()) ? withoutCommands(extension) : extension;
+    }
+
+    /** Hide the command tool from an unattended automation run, keeping the captured plugin extension. */
+    private static RunExtension withoutCommands(RunExtension extension) {
+        return new RunExtension() {
+            public String snapshot() {
+                return extension.snapshot();
+            }
+
+            public String instructions() {
+                return extension.instructions() + "\n\n本次是定时自动化的无人值守运行，未提供 propose_command；需要构建或测试时，在回答中列出建议执行的命令。";
+            }
+
+            public void submitted(String runId) {
+                extension.submitted(runId);
+            }
+
+            public WorkspaceTools open(String runId, WorkspaceTools local, ModelProvider.Cancellation cancellation)
+                    throws Exception {
+                return extension.open(runId, new CommandFreeWorkspaceTools(local), cancellation);
+            }
+
+            public void close() {
+                extension.close();
+            }
+        };
     }
 
     @Override

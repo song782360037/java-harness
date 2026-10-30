@@ -8,5 +8,6 @@ import './styles/appearance.css'
 import './styles/markdown.css'
 import './styles/file-changes.css'
 import './styles/commands.css'
+import './styles/automations.css'
 
 createApp(App).mount('#app')

@@ -137,3 +137,24 @@ V9 的 harness_command 固定保存命令、用途、规范化目录、shell、�
 只有持有原始工具调用的线程能消费批准，启动进程前先提交 RUNNING 意图；重复批准 API 不启动进程。SQL 与进程启动不是单一事务，崩溃窗口的状态不代表命令一定已启动或未执行。stdout/stderr 由独立线程读取，合计限 32000 UTF-16 字符，每约 150 ms 有变化时持久化并提交 COMMAND 事件。页面根据事件拉取快照，恢复连接和刷新时重新获取；输出按文本显示，不执行 HTML。
 
 API 为 GET `/api/runs/{id}/commands`，以及 POST JSON `/api/commands/{id}/approve`、`reject`、`stop`。沿用本机 Host/Origin 保护，不提供模型侧批准工具。命令可操作服务账户可访问的资源，不属于文件工具的排除路径沙箱；环境不会主动注入模型 Key，并移除继承的 HARNESS_MODEL_API_KEY，但不能隔离账户本来可访问的其他凭据。
+
+## 定时自动化
+
+V16 增加 harness_automation（定义、cron、下次触发时间、revision）与 harness_automation_run（触发历史，session_id/run_id 不设外键，删除会话后保留记录）。工作区与模型配置按 id 引用，被删除后触发记为失败。
+
+服务启动完成后，AutomationService 默认每 30 秒检查一次到期任务（`harness.automations.enabled`、`harness.automations.check-interval`）。到期时新建会话（标题为“名称 · MM-dd HH:mm”，不触发 AI 命名），触发前先检查模型配置，未配置或已删除时直接记为 FAILED，不新建会话；之后先写入 STARTED 记录再提交 Run，提交失败记为 FAILED 并保留该会话。频率预设转换为 5 段 cron（分 时 日 月 周），按服务所在时区计算；自定义 cron 的分钟必须是单个数字，即最多每小时一次；Spring 的“日”和“周”是同时满足，与经典 cron 的任一满足不同，因此不允许两者同时指定。有夏令时的时区在切换当天可能重复或缺少一次触发。上一次触发的 Run 仍为 QUEUED / RUNNING / CANCELLING 时，计划触发记为 SKIPPED，立即运行返回 409。
+
+服务停止期间错过的计划只补跑 7 天内最近的一次（trigger=CATCH_UP），更早的合并为一条 SKIPPED 记录；暂停后恢复从当前时间重新计算，不补跑暂停期间。
+
+未勾选“允许执行命令”时，提交期间以 UnattendedSubmissions 标记会话，SettingsService 捕获扩展时用 CommandFreeWorkspaceTools 去掉 `propose_command` 并追加无人值守说明，运行不会停在审批上；标记只覆盖这一次提交，同一会话的手动追问恢复命令工具。勾选后命令仍需在会话中批准，等待计入任务总超时。需要外部审批的插件工具仍会等待审批。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | `/api/automations` | 全部自动化，创建时间正序 |
+| POST | `/api/automations` | 新建，请求 revision=0；201 返回定义（revision=1）及 nextRunAt |
+| POST | `/api/automations/{id}` | 编辑（含暂停/恢复），revision 不匹配 409；未改动的工作区与模型引用不再校验，引用被删除后仍可暂停 |
+| POST | `/api/automations/{id}/delete` | `{ "revision": 1 }`；删除定义与触发历史，保留会话 |
+| POST | `/api/automations/{id}/run` | JSON 空对象；202 返回触发记录，不改变下次计划时间 |
+| GET | `/api/automations/{id}/runs` | 最近 50 条触发记录，含关联 Run 的 runStatus |
+
+新建/编辑请求为 revision、name（1–100）、prompt（1–4000）、workspaceId（空为仅聊天）、modelProfileId、reasoningEffort（null 为模型默认）、scheduleKind（HOURLY/DAILY/WEEKDAYS/WEEKLY/CUSTOM/MANUAL）、scheduleTime（HH:mm，HOURLY 只取分钟）、scheduleWeekday（0 周日–6 周六）、cron（仅 CUSTOM）、allowCommands、enabled。

@@ -1,5 +1,6 @@
 package dev.javaharness.server.config;
 
+import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.command.CommandService;
 import dev.javaharness.adapters.plugins.PluginService;
 import dev.javaharness.adapters.session.JdbcSessionStore;
@@ -9,17 +10,21 @@ import dev.javaharness.adapters.settings.LocalSecretCipher;
 import dev.javaharness.adapters.usage.LocalAgentUsageReader;
 import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.core.DefaultAgentEngine;
+import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.SettingsService;
+import dev.javaharness.server.service.UnattendedSubmissions;
 import dev.javaharness.server.service.UsageStatisticsService;
 import dev.javaharness.server.web.EventController;
 import dev.javaharness.spi.run.AgentEngine;
 import dev.javaharness.spi.run.RunConfigurationSource;
 import dev.javaharness.spi.session.SessionStore;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
@@ -60,6 +65,7 @@ public class RuntimeConfiguration {
             FileChangeService changes,
             CommandService commands,
             PluginService plugins,
+            UnattendedSubmissions unattended,
             @Value("${harness.settings.key-file}") String keyFile,
             @Value("${harness.model.base-url}") String baseUrl,
             @Value("${harness.model.api-key}") String apiKey,
@@ -90,7 +96,42 @@ public class RuntimeConfiguration {
                         maxOutputTokens),
                 changes,
                 commands,
-                plugins);
+                plugins,
+                unattended);
+    }
+
+    @Bean
+    UnattendedSubmissions unattendedSubmissions() {
+        return new UnattendedSubmissions();
+    }
+
+    @Bean(destroyMethod = "close")
+    @DependsOnDatabaseInitialization
+    AutomationService automationService(
+            JdbcTemplate jdbc,
+            SessionStore sessions,
+            AgentEngine engine,
+            SettingsService settings,
+            UnattendedSubmissions unattended) {
+        return new AutomationService(
+                new AutomationStore(jdbc),
+                sessions,
+                engine,
+                settings,
+                unattended,
+                Clock.systemUTC(),
+                ZoneId.systemDefault());
+    }
+
+    /** Start the schedule only after startup succeeds, so a failed boot does not consume a catch-up run. */
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> startAutomations(
+            AutomationService automations,
+            @Value("${harness.automations.enabled:true}") boolean enabled,
+            @Value("${harness.automations.check-interval:30s}") Duration interval) {
+        return event -> {
+            if (enabled) automations.start(interval);
+        };
     }
 
     @Bean
@@ -129,8 +170,10 @@ public class RuntimeConfiguration {
     }
 
     @Bean
-    ApplicationListener<ContextClosedEvent> stopRuntime(AgentEngine engine, EventController events) {
+    ApplicationListener<ContextClosedEvent> stopRuntime(
+            AgentEngine engine, EventController events, AutomationService automations) {
         return event -> {
+            automations.close();
             events.close();
             engine.close();
         };

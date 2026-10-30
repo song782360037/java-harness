@@ -1,0 +1,63 @@
+.sidebar-links { margin: -4px 0 10px; }
+.sidebar-link { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; border: 0; background: transparent; color: var(--sidebar-text); text-align: left; padding: 7px 12px; border-radius: var(--radius-md); font-size: var(--font-body); }
+.sidebar-link > .ui-icon { color: var(--sidebar-muted); }
+.sidebar-link:hover:not(:disabled) { background: var(--sidebar-hover); }
+.sidebar-link[aria-current] { background: var(--sidebar-selected); font-weight: 550; }
+
+.automations-page .automation-create { display: inline-flex; align-items: center; gap: 6px; }
+.automations-body { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px 24px; padding: 24px; align-content: start; }
+.automations-empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 8vh auto 0; max-width: 420px; text-align: center; color: var(--muted); }
+.automations-empty > .ui-icon { color: var(--accent); }
+.automations-empty h2 { margin: 4px 0 0; font-size: var(--font-heading); font-weight: 600; color: var(--text); }
+.automations-empty p { margin: 0 0 8px; line-height: 1.7; }
+.automations-empty .primary { display: inline-flex; align-items: center; gap: 6px; }
+.automation-list { display: flex; flex-direction: column; gap: 6px; align-self: start; }
+.automation-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 11px 13px; background: var(--surface); border-radius: var(--radius-md); }
+.automation-item[aria-current] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.automation-item-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.automation-item-title strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.automation-item small { color: var(--muted); font-size: var(--font-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.automation-state { flex-shrink: 0; font-size: var(--font-caption); color: var(--success); background: var(--success-bg); padding: 1px 8px; border-radius: 20px; }
+.automation-state.paused { color: var(--muted); background: var(--subtle); }
+.automation-detail { min-width: 0; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 20px 22px; align-self: start; }
+.automation-detail-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.automation-detail-heading h2 { margin: 0; font-size: var(--font-heading); font-weight: 600; overflow-wrap: anywhere; }
+.automation-detail-heading p { margin: 6px 0 0; color: var(--muted); font-size: var(--font-caption); }
+.automation-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.automation-actions > button:not(.icon-button) { display: inline-flex; align-items: center; gap: 6px; }
+.automation-detail .dialog-error { margin: 16px 0 0; }
+.automation-detail .dialog-error button { margin-left: 8px; padding: 4px 8px; }
+.automation-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 18px 0 0; }
+.automation-meta div { min-width: 0; }
+.automation-meta dt { font-size: var(--font-caption); color: var(--muted); margin-bottom: 4px; }
+.automation-meta dd { margin: 0; overflow-wrap: anywhere; }
+.automation-prompt { margin: 16px 0 0; padding: 12px 14px; background: var(--subtle); border-radius: var(--radius-md); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; max-height: 180px; overflow: auto; }
+.automation-history-title { margin: 22px 0 10px; font-size: var(--font-body); font-weight: 600; }
+.automation-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.automation-history button { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 10px; }
+.automation-history button:disabled { opacity: 1; cursor: default; }
+.automation-history button > .ui-icon { margin-left: auto; color: var(--muted); flex-shrink: 0; }
+.execution-badge { flex-shrink: 0; min-width: 64px; text-align: center; font-size: var(--font-caption); padding: 2px 8px; border-radius: 20px; color: var(--muted); background: var(--subtle); }
+.execution-badge.active { color: var(--info); background: var(--info-bg); }
+.execution-badge.success { color: var(--success); background: var(--success-bg); }
+.execution-badge.danger { color: var(--danger); background: var(--danger-bg); }
+.execution-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.execution-copy strong { font-weight: 500; font-size: var(--font-caption); }
+.execution-copy small { color: var(--muted); font-size: var(--font-caption); overflow-wrap: anywhere; }
+.automations-footnote { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: var(--font-caption); }
+
+.automation-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.automation-editor label { display: block; font-size: var(--font-caption); font-weight: 550; margin: 18px 0 7px; }
+.automation-editor fieldset > label:first-child { margin-top: 0; }
+.automation-editor input:not([type=checkbox]), .automation-editor select, .automation-editor textarea { display: block; width: 100%; min-height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 9px 11px; color: var(--text); background: var(--surface); font-size: var(--font-body); min-width: 0; box-sizing: border-box; }
+.automation-editor textarea { resize: vertical; line-height: 1.7; }
+.automation-editor input:focus, .automation-editor select:focus, .automation-editor textarea:focus { border-color: var(--accent); }
+.automation-editor .check-label { display: flex; align-items: center; gap: 8px; font-weight: 400; margin-top: 20px; }
+.automation-editor .check-label + .field-note { margin-top: 6px; }
+.automation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0 14px; }
+
+@media (max-width: 780px) {
+  .automations-body { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .automation-detail { padding: 16px; }
+  .sidebar-link { min-height: 44px; }
+}
