@@ -3,7 +3,8 @@ export interface UsageSource { id: string; label: string; available: boolean; to
 export interface UsageModel { source: string; model: string; totals: UsageTotals }
 export interface UsageDay { date: string; tokens: Record<string, number> }
 export interface UsageHeatmap { from: string; zone: string; tokens: number[] }
-export interface UsageStatistics { from: string | null; totals: UsageTotals; sources: UsageSource[]; models: UsageModel[]; days: UsageDay[]; heatmap: UsageHeatmap }
+export interface UsageHour { hour: number; tokens: Record<string, number> }
+export interface UsageStatistics { from: string | null; totals: UsageTotals; sources: UsageSource[]; models: UsageModel[]; days: UsageDay[]; hours: UsageHour[]; heatmap: UsageHeatmap }
 export interface HeatCell { date: string; tokens: number; level: number }
 export interface HeatWeek { month: string | null; days: HeatCell[] }
 
@@ -29,6 +30,13 @@ export function chartDays(days: UsageDay[]): UsageDay[] {
     months.set(month, tokens)
   }
   return [...months].map(([date, tokens]) => ({ date, tokens }))
+}
+
+/** 柱状图序列：只看今天时按小时（标签为 HH:00），否则按天，超过 60 天按月合并。 */
+export function chartBars(stats: Pick<UsageStatistics, 'days' | 'hours'>): { unit: 'hour' | 'day' | 'month'; bars: UsageDay[] } {
+  if (stats.hours.length) return { unit: 'hour', bars: stats.hours.map(item => ({ date: `${String(item.hour).padStart(2, '0')}:00`, tokens: item.tokens })) }
+  const bars = chartDays(stats.days)
+  return { unit: bars.length === stats.days.length ? 'day' : 'month', bars }
 }
 
 export const dayTotal = (day: UsageDay) => Object.values(day.tokens).reduce((sum, value) => sum + value, 0)

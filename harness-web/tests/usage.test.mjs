@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cacheRate, chartDays, compactTokens, dayTotal, heatmapWeeks } from '../src/usage.ts'
+import { cacheRate, chartBars, chartDays, compactTokens, dayTotal, heatmapWeeks } from '../src/usage.ts'
 
 test('token counts are abbreviated by magnitude', () => {
   assert.equal(compactTokens(999), '999')
@@ -51,4 +51,14 @@ test('empty heatmap stays at level zero', () => {
 test('the busiest heatmap day is always the darkest level', () => {
   const weeks = heatmapWeeks({ from: '2026-01-04', zone: 'UTC+00:00', tokens: [0, 5, 5, 0, 5] })
   assert.deepEqual(weeks[0].days.map(day => day.level), [0, 4, 4, 0, 4])
+})
+
+test('today charts hours while longer ranges chart days or months', () => {
+  const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, tokens: hour === 9 ? { codex: 3 } : {} }))
+  const today = chartBars({ days: [{ date: '2026-10-30', tokens: { codex: 3 } }], hours })
+  assert.equal(today.unit, 'hour')
+  assert.equal(today.bars.length, 24)
+  assert.deepEqual(today.bars[9], { date: '09:00', tokens: { codex: 3 } })
+  assert.equal(today.bars[23].date, '23:00')
+  assert.equal(chartBars({ days: [{ date: '2026-10-30', tokens: {} }], hours: [] }).unit, 'day')
 })

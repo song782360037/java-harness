@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from './api'
-import { cacheRate, chartDays, compactTokens, dayTotal, heatmapWeeks, type UsageStatistics } from './usage'
+import { cacheRate, chartBars, compactTokens, dayTotal, heatmapWeeks, type UsageStatistics } from './usage'
 import UiIcon from './UiIcon.vue'
 const ranges = [{ days: 1, label: '今天' }, { days: 7, label: '7 天' }, { days: 30, label: '30 天' }, { days: 0, label: '全部' }] as const
 const colors: Record<string, string> = { harness: 'var(--accent)', 'claude-code': 'var(--warning)', codex: 'var(--info)', workbuddy: 'var(--source-rose)', qoder: 'var(--source-violet)' }
@@ -14,7 +14,12 @@ let slowTimer: number | undefined
 const heatScroll = ref<HTMLElement>()
 const error = ref('')
 const total = computed(() => stats.value ? stats.value.totals.inputTokens + stats.value.totals.outputTokens : 0)
-const bars = computed(() => chartDays(stats.value?.days ?? []))
+const chart = computed(() => chartBars(stats.value ?? { days: [], hours: [] }))
+const bars = computed(() => chart.value.bars)
+// 小时图每 6 小时标注一次并对齐到对应柱子所在列，其余只标首尾日期。
+const axisLabels = computed(() => chart.value.unit === 'hour'
+  ? [0, 6, 12, 18, 23].map(hour => ({ text: bars.value[hour].date, column: hour + 1 }))
+  : [...new Set([bars.value[0]?.date, bars.value[bars.value.length - 1]?.date].filter(Boolean))].map(text => ({ text, column: 0 })))
 const peak = computed(() => Math.max(1, ...bars.value.map(dayTotal)))
 const weekdays = ['日', '一', '二', '三', '四', '五', '六']
 const weeks = computed(() => stats.value ? heatmapWeeks(stats.value.heatmap) : [])
@@ -84,7 +89,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
         </div>
         <div class="heat-legend" aria-hidden="true"><span>少</span><i v-for="level in 5" :key="level" :class="`level-${level - 1}`" /><span>多</span></div>
       </div>
-      <h2 class="usage-heading">{{ bars.length === stats.days.length ? '每日用量' : '每月用量' }}</h2>
+      <h2 class="usage-heading">{{ { hour: '每小时用量', day: '每日用量', month: '每月用量' }[chart.unit] }}</h2>
       <div class="usage-chart" role="list" aria-label="用量趋势">
         <div v-for="bar in bars" :key="bar.date" class="usage-bar" role="listitem" :title="barLabel(bar.date, bar.tokens)" :aria-label="barLabel(bar.date, bar.tokens)">
           <div class="usage-stack" :style="{ height: `${dayTotal(bar) / peak * 100}%` }">
@@ -92,7 +97,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
           </div>
         </div>
       </div>
-      <div class="usage-axis" aria-hidden="true"><span>{{ bars[0]?.date }}</span><span v-if="bars.length > 1">{{ bars[bars.length - 1]?.date }}</span></div>
+      <div class="usage-axis" :class="{ hourly: chart.unit === 'hour' }" aria-hidden="true"><span v-for="label in axisLabels" :key="label.text" :style="label.column ? { gridColumn: label.column } : undefined">{{ label.text }}</span></div>
       <h2 class="usage-heading">来源</h2>
       <ul class="usage-sources">
         <li v-for="source in stats.sources" :key="source.id">

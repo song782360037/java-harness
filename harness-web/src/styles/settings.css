@@ -175,6 +175,9 @@
 .heat-legend { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 12px; color: var(--muted); font-size: var(--font-caption); }
 .heat-legend i { width: 11px; }
 .heat-legend span { margin: 0 4px; }
+.usage-axis.hourly { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; }
+.usage-axis.hourly span { white-space: nowrap; }
+.usage-axis.hourly span:last-child { justify-self: end; }
 .usage-empty { margin: 0; color: var(--muted); font-size: var(--font-caption); }
 .usage-table-wrap { overflow-x: auto; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .usage-table { width: 100%; border-collapse: collapse; font-size: var(--font-caption); }
@@ -184,6 +187,7 @@
 .usage-table :is(th, td):nth-child(-n+2) { text-align: left; }
 .usage-table tbody tr:last-child > * { border-bottom: 0; }
 @media (max-width: 620px) {
+  .usage-axis.hourly span:nth-child(2), .usage-axis.hourly span:nth-child(4) { display: none; }
   .usage-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-toolbar { flex-wrap: wrap; }
 }

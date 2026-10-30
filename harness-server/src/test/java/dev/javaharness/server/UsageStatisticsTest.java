@@ -228,6 +228,14 @@ class UsageStatisticsTest {
         assertThat(week.days()).hasSize(7);
         assertThat(week.days().getLast().date()).isEqualTo(today);
         assertThat(week.days().getLast().tokens()).isEqualTo(Map.of("harness", 340L, "claude-code", 120L));
+        // Only the single-day range carries an hourly series.
+        assertThat(week.hours()).isEmpty();
+        var day = service.statistics(1);
+        assertThat(day.hours()).hasSize(24);
+        assertThat(day.hours().get(now.atZone(ZoneOffset.UTC).getHour()).tokens())
+                .isEqualTo(Map.of("harness", 340L, "claude-code", 120L));
+        assertThat(day.hours().stream().filter(hour -> !hour.tokens().isEmpty()))
+                .hasSize(1);
         assertThat(week.days().getFirst().tokens()).isEmpty();
         // The heatmap spans a year of Sunday-aligned weeks regardless of the selected range.
         var heatmap = week.heatmap();
