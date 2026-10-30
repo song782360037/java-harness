@@ -1,4 +1,4 @@
-package dev.javaharness.server.config;
+package dev.javaharness.server.service;
 
 import dev.javaharness.spi.HarnessException;
 import java.nio.file.FileSystems;

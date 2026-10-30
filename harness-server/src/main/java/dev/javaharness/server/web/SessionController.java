@@ -1,7 +1,7 @@
 package dev.javaharness.server.web;
 
-import dev.javaharness.server.config.WorkspaceDirectories;
 import dev.javaharness.server.service.SessionNamingService;
+import dev.javaharness.server.service.WorkspaceDirectories;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.AgentEngine;

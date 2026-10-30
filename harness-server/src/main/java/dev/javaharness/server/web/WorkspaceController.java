@@ -1,6 +1,6 @@
 package dev.javaharness.server.web;
 
-import dev.javaharness.server.config.WorkspaceDirectories;
+import dev.javaharness.server.service.WorkspaceDirectories;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.workspace.Workspace;
 import java.util.List;
