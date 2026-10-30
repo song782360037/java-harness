@@ -13,6 +13,10 @@ import dev.javaharness.spi.tool.ToolExecution;
 import dev.javaharness.spi.workspace.Workspace;
 import java.util.List;
 
+/**
+ * Persistence for sessions, runs, events, workspaces and per-run records such as model requests, tools and steps.
+ * The store instance also serves as the shared coordination lock for the engine, plugins, commands and file changes.
+ */
 public interface SessionStore {
     record Submission(Run run, boolean created) {}
 

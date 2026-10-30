@@ -2,6 +2,7 @@ package dev.javaharness.spi.session;
 
 import java.time.Instant;
 
+/** A conversation with its title, bound workspace and default model selection. */
 public record Session(
         String id,
         String title,

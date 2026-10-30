@@ -3,6 +3,10 @@ package dev.javaharness.spi.run;
 import dev.javaharness.spi.model.ContextSummary;
 import java.time.Instant;
 
+/**
+ * One execution of a prompt in a session, with its status, output, the model captured at submission
+ * and the workspace bound when execution starts.
+ */
 public record Run(
         String id,
         String sessionId,

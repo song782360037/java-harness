@@ -93,11 +93,14 @@ public final class DefaultAgentEngine implements AgentEngine {
     public synchronized SessionStore.Submission submit(
             String sessionId, String requestId, String prompt, String scenario, ModelSelection selection) {
         if (closed) throw new HarnessException("UNAVAILABLE", "服务正在停止");
+        // A retried request id returns the existing run without capturing new configuration.
         var retry = store.retry(sessionId, requestId, prompt, scenario, selection);
         if (retry != null) return retry;
         RunConfiguration configuration = configurations.snapshot(selection);
         RunExtension extension;
         SessionStore.Submission submission;
+        // The store is the shared coordination lock (plugins, commands and file changes lock it too),
+        // so the extension snapshot and the persisted run see the same session state.
         synchronized (store) {
             extension = configurations.extensions(store.snapshot(sessionId).session(), prompt);
             try {
@@ -170,6 +173,8 @@ public final class DefaultAgentEngine implements AgentEngine {
             }
             resources = configuration.resources().open(run.workspace());
             ModelProvider model = resources.model();
+            // In-loop store writes re-check the stop reason under the engine lock,
+            // so a stopped run records nothing further except its final status.
             ModelProvider.Cancellation cancellation = () -> {
                 synchronized (this) {
                     if (task.stopReason != null || Thread.currentThread().isInterrupted())
@@ -184,10 +189,12 @@ public final class DefaultAgentEngine implements AgentEngine {
             TokenBudget budget = new TokenBudget(counter);
             boolean toolEnabled = !tools.definitions().isEmpty();
             String normalInstructions = (toolEnabled ? AgentInstructions.forRequest() : "") + extension.instructions();
+            // History gets what remains after output, tool schemas, instructions and a safety margin.
             int reserved = maxOutputTokens + budget.tools(tools.definitions()) + counter.count(normalInstructions);
             int historyBudget = contextWindowTokens - reserved - TokenBudget.safety(contextWindowTokens);
             long timeoutNanos = configuration.timeout().toNanos();
             long deadlineNanos = System.nanoTime() + timeoutNanos;
+            // With tools, keep up to 30 s (at most a fifth of the timeout) for a final tool-free answer.
             long finalReserveNanos =
                     toolEnabled ? Math.min(Duration.ofSeconds(30).toNanos(), timeoutNanos / 5) : 0;
             if (historyBudget < 256) throw new ModelException("模型上下文窗口不足以容纳系统指引、工具定义和输出预留，请提高上下文窗口或降低最大输出");
@@ -292,6 +299,7 @@ public final class DefaultAgentEngine implements AgentEngine {
                     cancellation.check();
                     store.beginTools(runId, step, turn.calls());
                 }
+                // Inside the final reserve, remaining calls are skipped and the next request asks for an answer.
                 boolean timeExhausted = toolEnabled && deadlineNanos - System.nanoTime() <= finalReserveNanos;
                 for (int index = 0; index < turn.calls().size(); index++) {
                     ToolCall call = turn.calls().get(index);

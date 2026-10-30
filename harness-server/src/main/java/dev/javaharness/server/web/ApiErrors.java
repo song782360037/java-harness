@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+/** Maps {@link HarnessException} codes to HTTP statuses and malformed requests to {@code INVALID}. */
 @RestControllerAdvice
 public class ApiErrors {
     public record ErrorBody(String code, String message) {}

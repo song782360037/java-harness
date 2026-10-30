@@ -7,7 +7,7 @@ import dev.javaharness.adapters.plugins.PluginPackages;
 import dev.javaharness.adapters.plugins.PluginService;
 import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.adapters.settings.LocalSecretCipher;
-import dev.javaharness.server.service.BuiltinMcpServer;
+import dev.javaharness.server.BuiltinMcpServer;
 import dev.javaharness.server.service.ExtensionCatalogService;
 import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelSelection;

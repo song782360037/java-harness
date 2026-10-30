@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.javaharness.adapters.plugins.PluginPackages;
 import dev.javaharness.adapters.plugins.PluginService;
+import dev.javaharness.server.BuiltinMcpServer;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.session.SessionStore;
 import java.net.URI;

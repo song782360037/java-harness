@@ -5,6 +5,7 @@ import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolDefinition;
 import java.util.List;
 
+/** Tools a run can execute against its workspace. Implementations are usually layered as decorators. */
 public interface WorkspaceTools {
     record Result(boolean success, String output) {}
 

@@ -23,6 +23,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Session and run endpoints: create, rename, bind a workspace, delete, submit and cancel runs,
+ * and inspect a run's model requests, tool calls and steps.
+ */
 @RestController
 @RequestMapping("/api")
 public class SessionController {

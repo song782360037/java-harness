@@ -1,4 +1,4 @@
-package dev.javaharness.server.service;
+package dev.javaharness.server;
 
 import dev.javaharness.adapters.plugins.PluginJson;
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
@@ -21,7 +21,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.jar.JarFile;
 import java.util.regex.Pattern;
 
-/** First-party MCP utilities run in their own JVM and only process explicit tool input. */
+/**
+ * First-party MCP utilities run in their own JVM and only process explicit tool input.
+ * The class name is persisted in installed connectors' launch arguments and runtime digest; do not move or rename it.
+ */
 public final class BuiltinMcpServer {
     private BuiltinMcpServer() {}
 

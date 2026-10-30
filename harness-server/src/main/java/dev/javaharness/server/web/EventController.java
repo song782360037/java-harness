@@ -20,6 +20,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * Server-sent stream of session events, resumable from {@code after} or {@code Last-Event-ID}; concurrent streams are capped.
+ */
 @RestController
 @RequestMapping("/api/sessions")
 public class EventController {

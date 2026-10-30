@@ -6,6 +6,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * One conversation message sent to a model. Assistant messages may carry tool calls;
+ * tool messages reference the call they answer.
+ */
 public record ModelMessage(String role, String content, List<ToolCall> toolCalls, String toolCallId) {
     public ModelMessage(String role, String content) {
         this(role, content, List.of(), null);

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** Reusable workspaces, local directory browsing and the built-in tool names available to a session's workspace. */
 @RestController
 public class WorkspaceController {
     private final SessionStore store;

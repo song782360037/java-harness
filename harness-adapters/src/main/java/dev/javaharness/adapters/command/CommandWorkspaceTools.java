@@ -13,6 +13,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Adds the {@code propose_command} tool on top of a delegate: the command is persisted for user approval through
+ * {@link CommandService}, and the call waits until it is approved and finished, rejected or stopped,
+ * or the run itself is stopped.
+ */
 public final class CommandWorkspaceTools implements WorkspaceTools {
     private final WorkspaceTools delegate;
     private final CommandService commands;

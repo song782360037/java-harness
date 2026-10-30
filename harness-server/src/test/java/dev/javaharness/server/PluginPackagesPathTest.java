@@ -1,4 +1,4 @@
-package dev.javaharness.server.service;
+package dev.javaharness.server;
 
 import static dev.javaharness.adapters.plugins.PluginJson.write;
 import static org.assertj.core.api.Assertions.*;

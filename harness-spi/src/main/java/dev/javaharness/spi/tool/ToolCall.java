@@ -1,5 +1,6 @@
 package dev.javaharness.spi.tool;
 
+/** A tool invocation requested by the model; id, name and argument size are validated on construction. */
 public record ToolCall(String id, String name, String arguments) {
     /** Stream accumulator safety bound. The engine applies the configured per-request execution cap. */
     public static final int MAX_BATCH_SIZE = 256;

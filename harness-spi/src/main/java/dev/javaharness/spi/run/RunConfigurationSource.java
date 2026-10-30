@@ -3,6 +3,7 @@ package dev.javaharness.spi.run;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.session.Session;
 
+/** Supplies the configuration snapshot and extensions captured when a run is submitted. */
 @FunctionalInterface
 public interface RunConfigurationSource {
     RunConfiguration snapshot();

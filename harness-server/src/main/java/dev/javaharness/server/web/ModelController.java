@@ -5,6 +5,7 @@ import dev.javaharness.spi.run.RunConfigurationSource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** Exposes the default model summary; never contains credentials. */
 @RestController
 public class ModelController {
     private final RunConfigurationSource configurations;

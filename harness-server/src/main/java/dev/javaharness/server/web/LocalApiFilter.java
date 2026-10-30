@@ -27,6 +27,7 @@ public class LocalApiFilter extends OncePerRequestFilter {
                     int port = uri.getPort() == -1 ? 80 : uri.getPort();
                     allowed &= "http".equals(uri.getScheme())
                             && LOCAL.contains(uri.getHost())
+                            // 5173 is the Vite dev server in harness-web.
                             && (port == request.getLocalPort() || port == 5173);
                 } catch (IllegalArgumentException error) {
                     allowed = false;

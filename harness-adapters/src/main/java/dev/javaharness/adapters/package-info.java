@@ -1,4 +1,4 @@
 /**
- * 基础设施适配模块：当前包含 OpenAI Chat Completions 接口与 JDBC 会话存储。
+ * 基础设施适配模块，按子包划分为 settings / model / session / workspace / command / plugins。
  */
 package dev.javaharness.adapters;

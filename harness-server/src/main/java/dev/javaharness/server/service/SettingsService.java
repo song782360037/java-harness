@@ -30,6 +30,10 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 
+/**
+ * Validates and saves providers, model profiles and settings with optimistic revision checks, and captures an
+ * immutable {@link RunConfiguration} per run that layers local, git, review and command tools for each workspace root.
+ */
 public final class SettingsService implements RunConfigurationSource {
     private final JdbcSettingsStore store;
     private final FileChangeService changes;
