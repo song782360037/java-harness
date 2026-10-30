@@ -7,6 +7,7 @@ import PluginRunDetails from './PluginRunDetails.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
 import SettingsPage from './SettingsPage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
+import TokenUsageRing from './TokenUsageRing.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import SidebarResize from './SidebarResize.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
@@ -287,6 +288,8 @@ function timelineLoaded() {
   timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
   trackTimeline()
 }
+// 输入框用量圆环以最近一次带 token 预算的请求为准。
+const latestContext = computed(() => [...(snapshot.value?.runs ?? [])].reverse().find(run => !!run.context?.maxTokens)?.context ?? null)
 // 上下文与工作区说明放在模型信息的悬浮提示中。
 function contextTitle(run: Run) {
   const context = run.context
@@ -687,7 +690,7 @@ onUnmounted(() => {
             <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
             <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
             <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
-            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ run.model }} · {{ effortShortLabel(run.reasoningEffort) }}</span><span v-if="run.context?.tokens" :title="contextTitle(run) || undefined">上下文 {{ run.context.tokens }} / {{ run.context.maxTokens }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
+            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ run.model }} · {{ effortShortLabel(run.reasoningEffort) }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
           </section>
         </article>
         <p v-if="copyError" role="status" class="run-notice">{{ copyError }}</p>
@@ -702,6 +705,7 @@ onUnmounted(() => {
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
             <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" @model="chooseProfile" @effort="reasoningEffort = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
+            <TokenUsageRing :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
             <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>

@@ -9,6 +9,7 @@ import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
+import dev.javaharness.spi.model.ModelUsage;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
@@ -16,6 +17,7 @@ import dev.javaharness.spi.run.RunStep;
 import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionSnapshot;
 import dev.javaharness.spi.session.SessionStore;
+import dev.javaharness.spi.session.SessionUsage;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolExecution;
 import dev.javaharness.spi.workspace.Workspace;
@@ -341,7 +343,27 @@ public final class JdbcSessionStore implements SessionStore {
         var runs = jdbc.query(
                 "SELECT * FROM harness_run WHERE session_id=? ORDER BY created_at,id", RUN_MAPPER, sessionId);
         long seq = jdbc.queryForObject("SELECT last_seq FROM harness_session WHERE id=?", Long.class, sessionId);
-        return new SessionSnapshot(session, runs, seq);
+        return new SessionSnapshot(session, runs, seq, usage(sessionId));
+    }
+
+    /** Sum reported step usage across the session; steps without a report are skipped. */
+    private SessionUsage usage(String sessionId) {
+        var totals = jdbc.queryForObject(
+                """
+                SELECT COALESCE(SUM(s.input_tokens),0) i, COALESCE(SUM(s.output_tokens),0) o,
+                       COALESCE(SUM(s.cached_tokens),0) c, COALESCE(SUM(s.generation_millis),0) d
+                FROM harness_step s JOIN harness_run r ON r.id=s.run_id
+                WHERE r.session_id=? AND s.input_tokens IS NOT NULL
+                """,
+                (rs, row) -> new long[] {rs.getLong("i"), rs.getLong("o"), rs.getLong("c"), rs.getLong("d")},
+                sessionId);
+        var last = jdbc.queryForList("""
+                SELECT input_tokens FROM harness_step
+                WHERE run_id=(SELECT id FROM harness_run WHERE session_id=? ORDER BY created_at DESC, id DESC LIMIT 1)
+                  AND input_tokens IS NOT NULL
+                ORDER BY step DESC LIMIT 1
+                """, Integer.class, sessionId);
+        return new SessionUsage(totals[0], totals[1], totals[2], totals[3], last.isEmpty() ? 0 : last.getFirst());
     }
 
     @Override
@@ -568,6 +590,28 @@ public final class JdbcSessionStore implements SessionStore {
                     step);
             // Clients refetch steps; the event only signals a change.
             appendEvent(run.sessionId(), runId, "REASONING", null, "");
+        });
+    }
+
+    @Override
+    public synchronized void recordUsage(String runId, int step, ModelUsage usage) {
+        tx.executeWithoutResult(status -> {
+            Run run = run(runId);
+            if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止接收输出");
+            int updated = jdbc.update(
+                    """
+                    UPDATE harness_step SET input_tokens=?,output_tokens=?,cached_tokens=?,generation_millis=?
+                    WHERE run_id=? AND step=?
+                    """,
+                    usage.inputTokens(),
+                    usage.outputTokens(),
+                    usage.cachedTokens(),
+                    usage.durationMillis(),
+                    runId,
+                    step);
+            if (updated == 0) throw new HarnessException("CONFLICT", "模型步骤不存在");
+            // Clients refetch the snapshot; the event only signals a change.
+            appendEvent(run.sessionId(), runId, "USAGE", null, "");
         });
     }
 

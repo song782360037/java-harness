@@ -4,6 +4,7 @@ import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
+import dev.javaharness.spi.model.ModelUsage;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
@@ -71,6 +72,8 @@ public interface SessionStore {
     List<ToolExecution> tools(String runId);
     /** Append display-only reasoning to a running step; text beyond the step budget is dropped. */
     void appendReasoning(String runId, int step, String text);
+    /** Record the provider-reported usage of a running step. */
+    void recordUsage(String runId, int step, ModelUsage usage);
     /** Steps recorded since request snapshots began; empty for legacy runs. */
     List<RunStep> steps(String runId);
 

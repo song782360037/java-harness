@@ -8,6 +8,7 @@ import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelProvider;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelTurn;
+import dev.javaharness.spi.model.ModelUsage;
 import dev.javaharness.spi.tool.ToolCall;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -48,6 +49,7 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
     private final URI endpoint;
     private final String apiKey;
     private final ModelInfo info;
+    private volatile boolean usageOptions = true;
 
     public OpenAiChatCompletionProvider(
             URI baseUrl, String apiKey, String model, boolean apiKeyRequired, Duration connectTimeout) {
@@ -104,6 +106,7 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
         var payload = new LinkedHashMap<String, Object>();
         payload.put("model", request.model());
         payload.put("stream", true);
+        payload.put("stream_options", Map.of("include_usage", true));
         if (!request.reasoningEffort().isEmpty()) payload.put("reasoning_effort", request.reasoningEffort());
         var messages = new ArrayList<Map<String, Object>>();
         if (!request.instructions().isBlank())
@@ -129,6 +132,30 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                                             tool.parameters())))
                             .toList());
         if (request.finalAnswerOnly()) payload.put("tool_choice", "none");
+        if (!usageOptions) payload.remove("stream_options");
+        try {
+            return send(payload, cancellation, onText, onReasoning);
+        } catch (UsageOptionsRejected rejected) {
+            // Usage is display-only: services that reject stream_options keep working without it.
+            usageOptions = false;
+            payload.remove("stream_options");
+            return send(payload, cancellation, onText, onReasoning);
+        }
+    }
+
+    /** Raised before any output when a request carrying stream_options gets HTTP 400. */
+    private static final class UsageOptionsRejected extends Exception {
+        UsageOptionsRejected() {
+            super(null, null, false, false);
+        }
+    }
+
+    private ModelTurn send(
+            Map<String, Object> payload,
+            Cancellation cancellation,
+            Consumer<String> onText,
+            Consumer<String> onReasoning)
+            throws Exception {
         var builder = HttpRequest.newBuilder(endpoint)
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
@@ -143,6 +170,8 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                 response.body().subscribe(body);
                 claimed = true;
                 cancellation.check();
+                if (response.statusCode() == 400 && payload.containsKey("stream_options"))
+                    throw new UsageOptionsRejected();
                 if (response.statusCode() != 200) throw httpFailure(response.statusCode());
                 String contentType =
                         response.headers().firstValue("Content-Type").orElse("");
@@ -226,6 +255,9 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
     private static final class TurnState {
         final StringBuilder text = new StringBuilder();
         final TreeMap<Integer, CallDelta> calls = new TreeMap<>();
+        ModelUsage usage;
+        boolean timed;
+        long firstAt, lastAt;
 
         ModelTurn result() throws ModelException {
             var completed = new ArrayList<ToolCall>();
@@ -240,7 +272,14 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                     throw new ModelException("模型工具调用格式无效");
                 }
             }
-            return new ModelTurn(text.toString(), completed);
+            var reported = usage == null
+                    ? null
+                    : new ModelUsage(
+                            usage.inputTokens(),
+                            usage.outputTokens(),
+                            usage.cachedTokens(),
+                            timed ? (lastAt - firstAt) / 1_000_000 : 0);
+            return new ModelTurn(text.toString(), completed, reported);
         }
     }
 
@@ -294,9 +333,15 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
             throws Exception {
         JsonNode root = json.readTree(event);
         if (root == null || !root.isObject() || root.has("error")) throw new ModelException("模型返回错误或无效数据");
+        usage(root.get("usage"), state);
         JsonNode choices = root.path("choices");
+        if (choices.isMissingNode() && root.path("usage").isObject()) return stopped; // Usage-only, no choices.
         if (!choices.isArray()) throw new ModelException("模型响应缺少 choices");
         if (choices.isEmpty()) return stopped; // Optional usage-only chunk.
+        long now = System.nanoTime();
+        if (!state.timed) state.firstAt = now;
+        state.timed = true;
+        state.lastAt = now;
         if (stopped || choices.size() != 1 || choices.get(0).path("index").asInt(-1) != 0) {
             throw new ModelException("模型返回非预期的输出分支");
         }
@@ -360,6 +405,23 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                     case "insufficient_system_resource" -> "模型服务资源不足，已保留部分输出";
                     default -> "模型以非正常原因结束，已保留部分输出";
                 });
+    }
+
+    /** Usage is display-only: malformed or partial reports are ignored rather than failing the turn. */
+    private static void usage(JsonNode usage, TurnState state) {
+        if (usage == null || !usage.isObject()) return;
+        int input = count(usage.get("prompt_tokens")), output = count(usage.get("completion_tokens"));
+        if (input < 0 || output < 0) return;
+        // OpenAI reports prompt_tokens_details.cached_tokens; DeepSeek reports prompt_cache_hit_tokens.
+        int cached = count(usage.path("prompt_tokens_details").get("cached_tokens"));
+        if (cached < 0) cached = count(usage.get("prompt_cache_hit_tokens"));
+        state.usage = new ModelUsage(input, output, Math.min(Math.max(cached, 0), input), 0);
+    }
+
+    private static int count(JsonNode value) {
+        return value != null && value.isIntegralNumber() && value.canConvertToInt() && value.asInt() >= 0
+                ? value.asInt()
+                : -1;
     }
 
     /** Split into store-sized chunks without separating a surrogate pair. */

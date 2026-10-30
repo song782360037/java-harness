@@ -273,6 +273,11 @@ public final class DefaultAgentEngine implements AgentEngine {
                 // A failed stream may lose its last unflushed slice; reasoning is display-only.
                 flushReasoning.run();
                 cancellation.check();
+                if (turn.usage() != null)
+                    synchronized (this) {
+                        cancellation.check();
+                        store.recordUsage(runId, step, turn.usage());
+                    }
                 messages.add(new ModelMessage("assistant", turn.text(), turn.calls(), null));
                 if (turn.calls().isEmpty()) {
                     if (finalRequest) completionDetail = "时间预算不足，已跳过剩余工具并生成收尾回答";

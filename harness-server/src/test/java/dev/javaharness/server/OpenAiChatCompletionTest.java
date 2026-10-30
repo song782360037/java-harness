@@ -17,6 +17,7 @@ import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
+import dev.javaharness.spi.session.SessionUsage;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolExecution;
 import java.io.IOException;
@@ -193,10 +194,73 @@ class OpenAiChatCompletionTest {
             assertThat(request.path("messages").size()).isEqualTo(1);
             assertThat(request.path("messages").get(0).path("content").asText()).isEqualTo(run.prompt());
             assertThat(request.path("stream").asBoolean()).isTrue();
+            assertThat(request.path("stream_options").path("include_usage").asBoolean())
+                    .isTrue();
             assertThat(request.properties())
                     .extracting(java.util.Map.Entry::getKey)
-                    .containsExactlyInAnyOrder("model", "messages", "stream");
+                    .containsExactlyInAnyOrder("model", "messages", "stream", "stream_options");
             assertThat(auth.get()).isEqualTo("Bearer test-only-key");
+            // An empty usage report is ignored.
+            assertThat(store.snapshot(run.sessionId()).usage()).isEqualTo(SessionUsage.EMPTY);
+        }
+    }
+
+    @Test
+    void serviceRejectingStreamOptionsIsRetriedOnceWithoutThem() throws Exception {
+        serve(exchange -> {
+            if (new ObjectMapper().readTree(body.get()).has("stream_options")) {
+                exchange.sendResponseHeaders(400, -1);
+                return;
+            }
+            headers(exchange);
+            write(exchange, chunk("兼容", null) + chunk("", "stop") + "data: [DONE]\n\n");
+        });
+        try (var model = provider();
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Run first = settled(submit(engine));
+            assertThat(first.status()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(first.output()).isEqualTo("兼容");
+            assertThat(calls).hasValue(2);
+            Run second =
+                    settled(engine.submit(first.sessionId(), UUID.randomUUID().toString(), "继续", "NORMAL")
+                            .run());
+            assertThat(second.status()).isEqualTo(RunStatus.COMPLETED);
+            // Later requests skip the rejected option instead of retrying again.
+            assertThat(calls).hasValue(3);
+        }
+    }
+
+    @Test
+    void reportedUsageIsRecordedPerStepAndSummedForTheSession() throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            boolean first = calls.get() == 1;
+            String usage = first
+                    ? "{\"prompt_tokens\":120,\"completion_tokens\":30,\"prompt_tokens_details\":{\"cached_tokens\":80}}"
+                    : "{\"prompt_tokens\":200,\"completion_tokens\":10,\"prompt_cache_hit_tokens\":150}";
+            write(
+                    exchange,
+                    chunk("答", null) + chunk("", "stop") + "data: {\"choices\":[],\"usage\":" + usage
+                            + "}\n\ndata: [DONE]\n\n");
+        });
+        try (var model = provider();
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Run first = settled(submit(engine));
+            assertThat(first.status()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(store.events(first.sessionId(), 0, 256))
+                    .filteredOn(event -> event.type().equals("USAGE"))
+                    .hasSize(1);
+            Run second =
+                    settled(engine.submit(first.sessionId(), UUID.randomUUID().toString(), "继续", "NORMAL")
+                            .run());
+            assertThat(second.status()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(store.snapshot(first.sessionId()).usage()).satisfies(usage -> {
+                assertThat(usage.inputTokens()).isEqualTo(320);
+                assertThat(usage.outputTokens()).isEqualTo(40);
+                assertThat(usage.cachedTokens()).isEqualTo(230);
+                assertThat(usage.durationMillis()).isNotNegative();
+                assertThat(usage.lastInputTokens()).isEqualTo(200);
+            });
         }
     }
 
@@ -401,7 +465,7 @@ class OpenAiChatCompletionTest {
             assertThat(request.path("model").asText()).isEqualTo("local/model:8b@q4");
             assertThat(request.properties())
                     .extracting(java.util.Map.Entry::getKey)
-                    .containsExactlyInAnyOrder("model", "messages", "stream");
+                    .containsExactlyInAnyOrder("model", "messages", "stream", "stream_options");
         }
     }
 

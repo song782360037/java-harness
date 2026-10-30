@@ -57,7 +57,8 @@ export interface Run {
   status: RunStatus; output: string; detail: string; createdAt: string; provider: string; model: string
   context: ContextSummary | null; workspace: string; modelProfileId: string; reasoningEffort: string
 }
-export interface Snapshot { session: Session; runs: Run[]; lastSeq: number }
+export interface SessionUsage { inputTokens: number; outputTokens: number; cachedTokens: number; durationMillis: number; lastInputTokens: number }
+export interface Snapshot { session: Session; runs: Run[]; lastSeq: number; usage: SessionUsage | null }
 export interface Submission { requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string }
 export interface RunEvent { sessionId: string; seq: number; runId: string | null; type: string }
 export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includes(run.status)
