@@ -1,9 +1,11 @@
 package dev.javaharness.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.javaharness.adapters.GitWorkspaceTools;
-import dev.javaharness.adapters.LocalWorkspaceTools;
-import dev.javaharness.spi.*;
+import dev.javaharness.adapters.workspace.GitWorkspaceTools;
+import dev.javaharness.adapters.workspace.LocalWorkspaceTools;
+import dev.javaharness.spi.tool.ToolCall;
+import dev.javaharness.spi.tool.ToolDefinition;
+import dev.javaharness.spi.workspace.WorkspaceTools;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;

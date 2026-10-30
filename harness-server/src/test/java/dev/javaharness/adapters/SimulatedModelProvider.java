@@ -1,7 +1,7 @@
 package dev.javaharness.adapters;
 
 import dev.javaharness.server.TestModelProvider;
-import dev.javaharness.spi.ModelRequest;
+import dev.javaharness.spi.model.ModelRequest;
 import java.util.function.Consumer;
 
 /** Test fixture only; never packaged in the application or selectable through configuration. */

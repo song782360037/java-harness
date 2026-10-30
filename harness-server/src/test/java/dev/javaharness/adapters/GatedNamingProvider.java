@@ -1,7 +1,7 @@
 package dev.javaharness.adapters;
 
 import dev.javaharness.server.TestModelProvider;
-import dev.javaharness.spi.ModelRequest;
+import dev.javaharness.spi.model.ModelRequest;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;

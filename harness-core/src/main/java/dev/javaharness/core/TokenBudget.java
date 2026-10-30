@@ -1,6 +1,9 @@
 package dev.javaharness.core;
 
-import dev.javaharness.spi.*;
+import dev.javaharness.spi.model.ModelMessage;
+import dev.javaharness.spi.model.TokenCounter;
+import dev.javaharness.spi.tool.ToolCall;
+import dev.javaharness.spi.tool.ToolDefinition;
 import java.util.List;
 import java.util.Map;
 

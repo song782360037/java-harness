@@ -1,9 +1,17 @@
 package dev.javaharness.server;
 
-import dev.javaharness.adapters.JdbcSessionStore;
 import dev.javaharness.adapters.SimulatedModelProvider;
+import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.core.DefaultAgentEngine;
-import dev.javaharness.spi.*;
+import dev.javaharness.spi.HarnessException;
+import dev.javaharness.spi.model.ModelInfo;
+import dev.javaharness.spi.run.Run;
+import dev.javaharness.spi.run.RunConfiguration;
+import dev.javaharness.spi.run.RunEvent;
+import dev.javaharness.spi.run.RunStatus;
+import dev.javaharness.spi.session.Session;
+import dev.javaharness.spi.session.SessionStore;
+import dev.javaharness.spi.workspace.WorkspaceTools;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;

@@ -1,8 +1,9 @@
 package dev.javaharness.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.javaharness.adapters.LocalWorkspaceTools;
-import dev.javaharness.spi.*;
+import dev.javaharness.adapters.workspace.LocalWorkspaceTools;
+import dev.javaharness.spi.tool.ToolCall;
+import dev.javaharness.spi.workspace.WorkspaceTools;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;

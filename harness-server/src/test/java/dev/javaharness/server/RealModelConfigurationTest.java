@@ -1,7 +1,11 @@
 package dev.javaharness.server;
 
-import dev.javaharness.adapters.OpenAiChatCompletionProvider;
-import dev.javaharness.spi.*;
+import dev.javaharness.adapters.model.OpenAiChatCompletionProvider;
+import dev.javaharness.spi.HarnessException;
+import dev.javaharness.spi.model.ModelProvider;
+import dev.javaharness.spi.run.AgentEngine;
+import dev.javaharness.spi.run.RunConfigurationSource;
+import dev.javaharness.spi.session.SessionStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

@@ -1,7 +1,7 @@
 package dev.javaharness.server;
 
-import dev.javaharness.spi.ModelInfo;
-import dev.javaharness.spi.ModelProvider;
+import dev.javaharness.spi.model.ModelInfo;
+import dev.javaharness.spi.model.ModelProvider;
 
 /** Functional test fixture for lifecycle tests, with an explicit non-production identity. */
 @FunctionalInterface
