@@ -24,8 +24,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Session and run endpoints: create, rename, bind a workspace, delete, submit and cancel runs,
- * and inspect a run's model requests, tool calls and steps.
+ * 会话与运行接口：新建、重命名、绑定工作区、删除会话，提交与取消运行，
+ * 以及查看运行的模型请求、工具调用与执行步骤。
  */
 @RestController
 @RequestMapping("/api")

@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Lists a run's proposed commands and approves, rejects or stops them. */
+/** 查询运行中提议的命令，并对其执行批准、拒绝或停止。 */
 @RestController
 @RequestMapping("/api")
 public class CommandController {

@@ -14,9 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Adds the {@code propose_command} tool on top of a delegate: the command is persisted for user approval through
- * {@link CommandService}, and the call waits until it is approved and finished, rejected or stopped,
- * or the run itself is stopped.
+ * 在被装饰的工具之上增加 {@code propose_command}：命令先经 {@link CommandService} 持久化并等待用户审批，
+ * 调用会一直等待，直到命令获批并执行完毕、被拒绝或被停止，或者所属运行被停止。
  */
 public final class CommandWorkspaceTools implements WorkspaceTools {
     private final WorkspaceTools delegate;

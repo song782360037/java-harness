@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * Server-sent stream of session events, resumable from {@code after} or {@code Last-Event-ID}; concurrent streams are capped.
+ * 会话事件的 SSE 推送，可通过 {@code after} 或 {@code Last-Event-ID} 断点续传；并发连接数有上限。
  */
 @RestController
 @RequestMapping("/api/sessions")

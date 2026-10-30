@@ -7,7 +7,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-/** Maps {@link HarnessException} codes to HTTP statuses and malformed requests to {@code INVALID}. */
+/**
+ * 把 {@link HarnessException} 的错误码映射为 HTTP 状态码，格式错误的请求统一返回 {@code INVALID}。
+ */
 @RestControllerAdvice
 public class ApiErrors {
     public record ErrorBody(String code, String message) {}

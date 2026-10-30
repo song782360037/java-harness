@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Lists, creates, updates and deletes model providers. API keys are write-only and never returned. */
+/** 模型提供商的查询、新建、修改与删除。API Key 只写不读，接口从不返回。 */
 @RestController
 @RequestMapping("/api/model-providers")
 public class ProviderController {

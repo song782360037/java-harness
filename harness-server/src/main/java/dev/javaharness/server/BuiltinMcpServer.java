@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 
 /**
  * First-party MCP utilities run in their own JVM and only process explicit tool input.
- * The class name is persisted in installed connectors' launch arguments and runtime digest; do not move or rename it.
+ * 注意：本类的全限定名会写入已安装内置连接器的启动参数和运行时摘要，请勿移动或重命名。
  */
 public final class BuiltinMcpServer {
     private BuiltinMcpServer() {}

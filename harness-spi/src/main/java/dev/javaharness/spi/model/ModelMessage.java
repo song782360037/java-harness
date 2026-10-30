@@ -6,10 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * One conversation message sent to a model. Assistant messages may carry tool calls;
- * tool messages reference the call they answer.
- */
+/** 发送给模型的一条对话消息。assistant 消息可携带工具调用，tool 消息引用其应答的调用。 */
 public record ModelMessage(String role, String content, List<ToolCall> toolCalls, String toolCallId) {
     public ModelMessage(String role, String content) {
         this(role, content, List.of(), null);

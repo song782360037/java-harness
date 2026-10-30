@@ -2,7 +2,7 @@ package dev.javaharness.spi.tool;
 
 import java.time.Instant;
 
-/** Persisted record of one tool call in a run step, with its status, output and timing. */
+/** 运行步骤中一次工具调用的持久化记录，包含状态、输出与起止时间。 */
 public record ToolExecution(
         String runId,
         int step,

@@ -1,6 +1,6 @@
 package dev.javaharness.spi.run;
 
-/** Run lifecycle states; {@link #active()} is true until the run reaches a terminal state. */
+/** 运行的生命周期状态；在进入终态之前 {@link #active()} 均为 true。 */
 public enum RunStatus {
     QUEUED,
     RUNNING,

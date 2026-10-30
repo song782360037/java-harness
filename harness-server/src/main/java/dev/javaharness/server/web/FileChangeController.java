@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Lists a run's proposed file changes and applies or rejects them. */
+/** 查询运行中提议的文件修改，并应用或拒绝。 */
 @RestController
 @RequestMapping("/api")
 public class FileChangeController {

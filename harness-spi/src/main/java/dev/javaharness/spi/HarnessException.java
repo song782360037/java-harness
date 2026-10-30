@@ -1,8 +1,8 @@
 package dev.javaharness.spi;
 
 /**
- * Domain error with a stable code such as {@code INVALID}, {@code NOT_FOUND} or {@code CONFLICT};
- * the web layer maps the code to an HTTP status.
+ * 带稳定错误码的业务异常，例如 {@code INVALID}、{@code NOT_FOUND}、{@code CONFLICT}；
+ * Web 层据此映射 HTTP 状态码。
  */
 public final class HarnessException extends RuntimeException {
     private final String code;

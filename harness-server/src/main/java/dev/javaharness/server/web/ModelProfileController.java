@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Lists, creates, updates and deletes model profiles; writes require the current revision. */
+/** 模型档案的查询、新建、修改与删除；写操作需携带当前 revision。 */
 @RestController
 @RequestMapping("/api/model-profiles")
 public class ModelProfileController {

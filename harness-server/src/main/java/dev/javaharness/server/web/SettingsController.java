@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Reads and saves the default model settings. The API key is write-only and never returned. */
+/** 读取并保存默认模型设置。API Key 只写不读，接口从不返回。 */
 @RestController
 @RequestMapping("/api/settings")
 public class SettingsController {

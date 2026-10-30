@@ -27,8 +27,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Spring wiring for the runtime: JDBC stores, settings, plugins, review services and the agent engine.
- * Active runs and event streams are stopped when the context closes.
+ * 运行时 Spring 装配：JDBC 存储、设置、插件、审核服务与 Agent 引擎。
+ * 容器关闭时会停止进行中的运行和事件流。
  */
 @Configuration
 public class RuntimeConfiguration {

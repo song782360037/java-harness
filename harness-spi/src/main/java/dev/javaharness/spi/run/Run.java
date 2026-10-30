@@ -3,10 +3,7 @@ package dev.javaharness.spi.run;
 import dev.javaharness.spi.model.ContextSummary;
 import java.time.Instant;
 
-/**
- * One execution of a prompt in a session, with its status, output, the model captured at submission
- * and the workspace bound when execution starts.
- */
+/** 会话中一次提示词的执行记录，包含状态、输出、提交时捕获的模型，以及开始执行时绑定的工作区。 */
 public record Run(
         String id,
         String sessionId,

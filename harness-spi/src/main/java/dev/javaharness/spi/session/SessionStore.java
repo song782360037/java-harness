@@ -14,8 +14,8 @@ import dev.javaharness.spi.workspace.Workspace;
 import java.util.List;
 
 /**
- * Persistence for sessions, runs, events, workspaces and per-run records such as model requests, tools and steps.
- * The store instance also serves as the shared coordination lock for the engine, plugins, commands and file changes.
+ * 会话、运行、事件、工作区，以及模型请求、工具调用、执行步骤等运行明细的持久化接口。
+ * 存储实例同时充当引擎、插件、命令与文件修改共用的协调锁。
  */
 public interface SessionStore {
     record Submission(Run run, boolean created) {}

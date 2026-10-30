@@ -31,8 +31,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 
 /**
- * Validates and saves providers, model profiles and settings with optimistic revision checks, and captures an
- * immutable {@link RunConfiguration} per run that layers local, git, review and command tools for each workspace root.
+ * 校验并保存提供商、模型档案与设置（基于 revision 的乐观并发检查），并为每次运行捕获不可变的
+ * {@link RunConfiguration}：为每个工作区根目录依次叠加本地、Git、审核与命令工具。
  */
 public final class SettingsService implements RunConfigurationSource {
     private final JdbcSettingsStore store;

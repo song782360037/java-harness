@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Reusable workspaces, local directory browsing and the built-in tool names available to a session's workspace. */
+/** 可复用工作区管理、本地目录浏览，以及会话工作区可用的内置工具名称。 */
 @RestController
 public class WorkspaceController {
     private final SessionStore store;
