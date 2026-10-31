@@ -188,9 +188,20 @@ public final class DefaultAgentEngine implements AgentEngine {
             TokenCounter counter = configuration.tokenCounter();
             TokenBudget budget = new TokenBudget(counter);
             boolean toolEnabled = !tools.definitions().isEmpty();
+            // The engine serves read_tool_output itself unless a workspace tool already owns the name
+            // or one more tool would exceed the provider limit; without it, outputs reach the model whole.
+            boolean spill = toolEnabled
+                    && tools.definitions().size() < ToolOutputs.MAX_REQUEST_TOOLS
+                    && tools.definitions().stream()
+                            .noneMatch(tool -> tool.name().equals(ToolOutputs.READ));
+            List<ToolDefinition> definitions = spill
+                    ? java.util.stream.Stream.concat(
+                                    tools.definitions().stream(), java.util.stream.Stream.of(ToolOutputs.DEFINITION))
+                            .toList()
+                    : tools.definitions();
             String normalInstructions = (toolEnabled ? AgentInstructions.forRequest() : "") + extension.instructions();
             // History gets what remains after output, tool schemas, instructions and a safety margin.
-            int reserved = maxOutputTokens + budget.tools(tools.definitions()) + counter.count(normalInstructions);
+            int reserved = maxOutputTokens + budget.tools(definitions) + counter.count(normalInstructions);
             int historyBudget = contextWindowTokens - reserved - TokenBudget.safety(contextWindowTokens);
             long timeoutNanos = configuration.timeout().toNanos();
             long deadlineNanos = System.nanoTime() + timeoutNanos;
@@ -215,13 +226,17 @@ public final class DefaultAgentEngine implements AgentEngine {
             var messages = new java.util.ArrayList<>(request.messages());
             int historySize = messages.size() - 1;
             var callIds = new java.util.HashSet<String>();
+            // Identical name, arguments and result seen again means the call produced no new information.
+            var repeats = new HashMap<String, Integer>();
             boolean finalRequest = false;
+            boolean stalled = false;
             for (int step = 1; ; step = Math.incrementExact(step)) {
                 cancellation.check();
                 String instructions = finalRequest
-                        ? extension.instructions() + AgentInstructions.forFinalAnswer()
+                        ? extension.instructions()
+                                + (stalled ? AgentInstructions.forStalledTools() : AgentInstructions.forFinalAnswer())
                         : normalInstructions;
-                List<ToolDefinition> requestTools = finalRequest ? List.of() : tools.definitions();
+                List<ToolDefinition> requestTools = finalRequest ? List.of() : definitions;
                 int characters = instructions.length()
                         + messages.stream().mapToInt(ModelMessage::characters).sum();
                 int tokens = budget.input(messages, instructions, requestTools);
@@ -280,7 +295,8 @@ public final class DefaultAgentEngine implements AgentEngine {
                     }
                 messages.add(new ModelMessage("assistant", turn.text(), turn.calls(), null));
                 if (turn.calls().isEmpty()) {
-                    if (finalRequest) completionDetail = "时间预算不足，已跳过剩余工具并生成收尾回答";
+                    if (finalRequest)
+                        completionDetail = stalled ? "检测到重复的工具调用且结果无变化，已停止工具并生成收尾回答" : "时间预算不足，已跳过剩余工具并生成收尾回答";
                     completed = java.util.List.copyOf(messages.subList(historySize, messages.size()));
                     break;
                 }
@@ -306,6 +322,8 @@ public final class DefaultAgentEngine implements AgentEngine {
                 }
                 // Inside the final reserve, remaining calls are skipped and the next request asks for an answer.
                 boolean timeExhausted = toolEnabled && deadlineNanos - System.nanoTime() <= finalReserveNanos;
+                // Duplicates inside one response count once, so stopping always follows an earlier warning.
+                var stepFingerprints = new java.util.HashSet<String>();
                 for (int index = 0; index < turn.calls().size(); index++) {
                     ToolCall call = turn.calls().get(index);
                     if (!timeExhausted && toolEnabled && deadlineNanos - System.nanoTime() <= finalReserveNanos)
@@ -313,6 +331,12 @@ public final class DefaultAgentEngine implements AgentEngine {
                     WorkspaceTools.Result result;
                     if (timeExhausted) {
                         result = new WorkspaceTools.Result(false, "剩余时间不足以继续执行工具，本调用未执行；请基于已有证据生成收尾回答。");
+                        synchronized (this) {
+                            cancellation.check();
+                            store.updateTool(runId, call.id(), "SKIPPED", result.output());
+                        }
+                    } else if (stalled) {
+                        result = new WorkspaceTools.Result(false, "已检测到重复的工具调用且结果无变化，本调用未执行；请基于已有证据生成收尾回答。");
                         synchronized (this) {
                             cancellation.check();
                             store.updateTool(runId, call.id(), "SKIPPED", result.output());
@@ -330,16 +354,28 @@ public final class DefaultAgentEngine implements AgentEngine {
                             cancellation.check();
                             store.updateTool(runId, call.id(), "RUNNING", "");
                         }
-                        result = tools.execute(runId, call, cancellation);
+                        result = spill && call.name().equals(ToolOutputs.READ)
+                                ? ToolOutputs.read(call.arguments(), store.tools(runId))
+                                : tools.execute(runId, call, cancellation);
                         synchronized (this) {
                             cancellation.check();
                             store.updateTool(
                                     runId, call.id(), result.success() ? "COMPLETED" : "FAILED", result.output());
                         }
+                        String visible = spill ? ToolOutputs.forModel(call.id(), result.output()) : result.output();
+                        // Counts are never reset: a changed workspace changes the result, so only calls that
+                        // learn nothing new repeat. Polling an unchanged status three times also ends tool use.
+                        String fingerprint = ToolOutputs.fingerprint(call, result);
+                        int seen = stepFingerprints.add(fingerprint)
+                                ? repeats.merge(fingerprint, 1, Integer::sum)
+                                : Math.max(2, repeats.get(fingerprint));
+                        if (seen >= 2) visible += "\n[本调用与本任务中之前的调用参数和结果完全相同，没有获得新信息；请换一种方法，或基于已有证据直接回答]";
+                        if (seen >= 3) stalled = true;
+                        result = new WorkspaceTools.Result(result.success(), visible);
                     }
                     messages.add(new ModelMessage("tool", result.output(), java.util.List.of(), call.id()));
                 }
-                if (timeExhausted) finalRequest = true;
+                if (timeExhausted || stalled) finalRequest = true;
             }
         } catch (InterruptedException error) {
             failure = "执行被中断";

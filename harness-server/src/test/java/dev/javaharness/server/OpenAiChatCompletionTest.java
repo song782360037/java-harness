@@ -603,7 +603,14 @@ class OpenAiChatCompletionTest {
         serve(exchange -> {
             headers(exchange);
             var request = new ObjectMapper().readTree(body.get());
-            assertThat(request.path("tools")).hasSize(3);
+            // Three workspace tools plus the engine's read_tool_output.
+            assertThat(request.path("tools")).hasSize(4);
+            assertThat(request.path("tools")
+                            .get(3)
+                            .path("function")
+                            .path("name")
+                            .asText())
+                    .isEqualTo("read_tool_output");
             assertThat(request.path("tools").get(0).path("type").asText()).isEqualTo("function");
             if (calls.get() == 1) {
                 write(

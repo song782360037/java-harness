@@ -12,6 +12,15 @@ final class AgentInstructions {
                 """;
     }
 
+    /** Final answer after repeated identical tool calls stopped producing new information. */
+    static String forStalledTools() {
+        return """
+                本次任务多次重复了参数和结果完全相同的工具调用，没有获得新信息，工具已停止。请不要再调用工具，只基于已获得的证据给出文字回答。
+                说明已经确认的结论、尚未确认的部分和缺少的证据；没有读到的内容不要猜测，也不要声称已经修改文件或通过测试。
+                回答使用用户的语言，引用已读文件路径和行号。
+                """;
+    }
+
     static String forRequest() {
         return """
                 你是本机编程助手。围绕用户问题收集必要证据，需要时继续跨模块追踪；证据足够就回答，避免重复读取无关内容。

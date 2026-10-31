@@ -527,7 +527,8 @@ public final class JdbcSessionStore implements SessionStore {
 
     @Override
     public synchronized void updateTool(String runId, String callId, String next, String output) {
-        if (output.length() > 12_000) throw new IllegalArgumentException("Tool output exceeds budget");
+        // Full results are kept for read_tool_output; command and MCP output is capped near 32000 at the source.
+        if (output.length() > 64_000) throw new IllegalArgumentException("Tool output exceeds budget");
         tx.executeWithoutResult(status -> {
             Run run = run(runId);
             if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止");

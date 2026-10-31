@@ -91,6 +91,22 @@ class ToolLoopTest {
         return new ToolCall(id, "read_file", "{\"path\":\"App.java\"}");
     }
 
+    /** Distinct reads of a long file, so a long investigation keeps finding new evidence. */
+    ToolCall readLine(String id, int line) {
+        return new ToolCall(
+                id, "read_file", "{\"path\":\"Long.java\",\"start_line\":" + line + ",\"end_line\":" + line + "}");
+    }
+
+    void writeLongFile() throws Exception {
+        Files.writeString(
+                directory.resolve("Long.java"),
+                String.join(
+                        "\n",
+                        java.util.stream.IntStream.rangeClosed(1, 50)
+                                .mapToObj(i -> "// line " + i)
+                                .toList()));
+    }
+
     ModelTurn answer() {
         return new ModelTurn("分析完成", List.of());
     }
@@ -299,10 +315,13 @@ class ToolLoopTest {
     }
 
     @Test
-    void longInvestigationRunsUntilModelHasEnoughEvidence() {
+    void longInvestigationRunsUntilModelHasEnoughEvidence() throws Exception {
+        writeLongFile();
         var model = model((request, cancel) -> {
             assertThat(request.finalAnswerOnly()).isFalse();
-            return request.step() <= 40 ? new ModelTurn("", List.of(read("r" + request.step()))) : answer();
+            return request.step() <= 40
+                    ? new ModelTurn("", List.of(readLine("r" + request.step(), request.step())))
+                    : answer();
         });
         try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(30), 32000, tools, 32)) {
             Run submitted =
@@ -324,9 +343,10 @@ class ToolLoopTest {
 
     @Test
     void unboundedInvestigationCanStillBeStoppedByUser() throws Exception {
+        writeLongFile();
         var reached = new CountDownLatch(1);
         var model = model((request, cancel) -> {
-            if (request.step() < 10) return new ModelTurn("", List.of(read("r" + request.step())));
+            if (request.step() < 10) return new ModelTurn("", List.of(readLine("r" + request.step(), request.step())));
             assertThat(request.finalAnswerOnly()).isFalse();
             reached.countDown();
             new CountDownLatch(1).await();
@@ -392,6 +412,170 @@ class ToolLoopTest {
             Run run = settled(submit(engine, session));
             assertThat(run.context().excludedTurns()).isEqualTo(2);
             assertThat(store.modelRequest(run.id()).messages()).hasSize(1);
+        }
+    }
+
+    WorkspaceTools fixed(java.util.function.Function<ToolCall, String> output) {
+        return new WorkspaceTools() {
+            public String workspace() {
+                return tools.workspace();
+            }
+
+            public List<ToolDefinition> definitions() {
+                return tools.definitions();
+            }
+
+            public Result execute(ToolCall call, ModelProvider.Cancellation cancel) {
+                return new Result(true, output.apply(call));
+            }
+        };
+    }
+
+    @Test
+    void largeToolOutputIsPreviewedForTheModelAndReadableBySlices() {
+        String full = "H".repeat(10_000) + "MIDDLE-MARKER" + "T".repeat(10_000);
+        var model = model((request, cancel) -> switch (request.step()) {
+            case 1 -> {
+                assertThat(request.tools()).extracting(ToolDefinition::name).contains("read_tool_output");
+                yield new ModelTurn("", List.of(read("big")));
+            }
+            case 2 -> {
+                String preview = request.messages().getLast().content();
+                assertThat(preview).hasSizeLessThan(10_000).contains("read_tool_output", "call_id=big");
+                assertThat(preview)
+                        .doesNotContain("MIDDLE-MARKER")
+                        .startsWith("HHH")
+                        .endsWith("TTT");
+                yield new ModelTurn(
+                        "",
+                        List.of(
+                                new ToolCall(
+                                        "slice",
+                                        "read_tool_output",
+                                        "{\"call_id\":\"big\",\"offset\":9990,\"limit\":100}"),
+                                new ToolCall("missing", "read_tool_output", "{\"call_id\":\"nope\"}"),
+                                new ToolCall("bad", "read_tool_output", "{\"call_id\":\"big\",\"offset\":-5}")));
+            }
+            case 3 -> {
+                var results = request.messages()
+                        .subList(
+                                request.messages().size() - 3,
+                                request.messages().size());
+                assertThat(results.get(0).content()).contains("MIDDLE-MARKER", "offset=10090");
+                assertThat(results.get(1).content()).contains("未找到");
+                assertThat(results.get(2).content()).contains("offset 需为非负整数");
+                yield answer();
+            }
+            default -> throw new AssertionError("unexpected step");
+        });
+        try (var engine = engine(model, fixed(call -> full), 8, 32000)) {
+            Run run = settled(submit(engine, store.createSession("spill").id()));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(store.tools(run.id()))
+                    .extracting(ToolExecution::status)
+                    .containsExactly("COMPLETED", "COMPLETED", "FAILED", "FAILED");
+            assertThat(store.tools(run.id()).getFirst().output()).isEqualTo(full);
+            assertThat(store.conversation(run.id()).get(2).content()).doesNotContain("MIDDLE-MARKER");
+        }
+    }
+
+    @Test
+    void fullToolListLeavesOutputsWholeInsteadOfExceedingTheToolLimit() {
+        String full = "H".repeat(10_000) + "MIDDLE-MARKER" + "T".repeat(10_000);
+        var many = java.util.stream.IntStream.range(0, 128)
+                .mapToObj(i -> new ToolDefinition("t" + i, "tool " + i, java.util.Map.of("type", "object")))
+                .toList();
+        WorkspaceTools crowded = new WorkspaceTools() {
+            public String workspace() {
+                return tools.workspace();
+            }
+
+            public List<ToolDefinition> definitions() {
+                return many;
+            }
+
+            public Result execute(ToolCall call, ModelProvider.Cancellation cancel) {
+                return new Result(true, full);
+            }
+        };
+        var model = model((request, cancel) -> {
+            assertThat(request.tools()).hasSize(128);
+            if (request.step() == 1) return new ModelTurn("", List.of(new ToolCall("big", "t0", "{}")));
+            assertThat(request.messages().getLast().content()).isEqualTo(full);
+            return answer();
+        });
+        try (var engine = engine(model, crowded, 8, 64000)) {
+            Run run = settled(submit(engine, store.createSession("crowded").id()));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(requests).hasSize(2);
+        }
+    }
+
+    @Test
+    void repeatedIdenticalCallsAndResultsStopToolsAndRequestAFinalAnswer() {
+        var model = model((request, cancel) ->
+                request.finalAnswerOnly() ? answer() : new ModelTurn("", List.of(read("r" + request.step()))));
+        try (var engine = engine(model, tools, 8, 32000)) {
+            Run run = settled(submit(engine, store.createSession("repeat").id()));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(run.detail()).contains("重复的工具调用");
+            assertThat(requests).hasSize(4);
+            assertThat(requests.get(1).messages().getLast().content()).doesNotContain("没有获得新信息");
+            assertThat(requests.get(2).messages().getLast().content()).contains("没有获得新信息");
+            assertThat(requests.getLast().finalAnswerOnly()).isTrue();
+            assertThat(requests.getLast().tools()).isEmpty();
+            assertThat(requests.getLast().instructions()).contains("重复");
+            assertThat(store.tools(run.id()))
+                    .hasSize(3)
+                    .allMatch(tool -> tool.status().equals("COMPLETED"));
+        }
+    }
+
+    @Test
+    void duplicatesWithinOneStepCountOnceAndStopOnlyAfterAnEarlierWarning() {
+        var model = model((request, cancel) -> request.finalAnswerOnly()
+                ? answer()
+                : new ModelTurn(
+                        "",
+                        java.util.stream.Stream.of("a", "b", "c", "d")
+                                .map(id -> read(id + request.step()))
+                                .toList()));
+        try (var engine = engine(model, tools, 8, 32000)) {
+            Run run = settled(submit(engine, store.createSession("repeat-step").id()));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            // Step 1 duplicates are warned but not stopped; step 3 reaches the third repeat and skips the rest.
+            assertThat(requests.get(1).messages().getLast().content()).contains("没有获得新信息");
+            assertThat(store.tools(run.id()))
+                    .extracting(ToolExecution::status)
+                    .containsExactly(
+                            "COMPLETED",
+                            "COMPLETED",
+                            "COMPLETED",
+                            "COMPLETED",
+                            "COMPLETED",
+                            "COMPLETED",
+                            "COMPLETED",
+                            "COMPLETED",
+                            "COMPLETED",
+                            "SKIPPED",
+                            "SKIPPED",
+                            "SKIPPED");
+            assertThat(requests).hasSize(4);
+            assertThat(requests.getLast().finalAnswerOnly()).isTrue();
+        }
+    }
+
+    @Test
+    void sameCallWithChangingResultsIsNotTreatedAsRepeated() {
+        var counter = new AtomicInteger();
+        var model = model((request, cancel) ->
+                request.step() <= 5 ? new ModelTurn("", List.of(read("r" + request.step()))) : answer());
+        try (var engine = engine(model, fixed(call -> "status " + counter.incrementAndGet()), 8, 32000)) {
+            Run run = settled(submit(engine, store.createSession("changing").id()));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(run.detail()).isEmpty();
+            assertThat(requests).hasSize(6);
+            assertThat(requests).noneMatch(ModelRequest::finalAnswerOnly);
         }
     }
 
