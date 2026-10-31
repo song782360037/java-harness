@@ -157,9 +157,8 @@ onUnmounted(() => window.clearInterval(pollTimer))
           <p v-else-if="historyLoaded" class="field-note">尚无运行记录，可点击「立即运行」先试一次。</p>
         </section>
       </template>
-      <p class="automations-footnote">仅在本地服务运行期间触发；服务停止期间错过的计划，启动后只补跑 7 天内最近的一次。</p>
     </div>
-    <dialog ref="editor" class="model-editor-dialog" aria-labelledby="automation-editor-title" @keydown.esc.stop @cancel.prevent="closeEditor">
+    <dialog ref="editor" class="model-editor-dialog automation-editor-dialog" aria-labelledby="automation-editor-title" @keydown.esc.stop @cancel.prevent="closeEditor">
       <form v-if="editingId !== null" class="model-editor-panel automation-editor" @submit.prevent="save">
         <header class="model-editor-heading"><div><p>自动化</p><h2 id="automation-editor-title">{{ editingId ? '编辑自动化' : '新建自动化' }}</h2></div><button type="button" class="icon-button" :disabled="busy" aria-label="关闭自动化编辑" @click="closeEditor"><UiIcon name="close" :size="20" /></button></header>
         <div class="model-editor-content">

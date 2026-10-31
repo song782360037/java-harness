@@ -44,7 +44,10 @@
 .execution-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .execution-copy strong { font-weight: 500; font-size: var(--font-caption); }
 .execution-copy small { color: var(--muted); font-size: var(--font-caption); overflow-wrap: anywhere; }
-.automations-footnote { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: var(--font-caption); }
+/* 复用模型编辑面板结构，但以居中弹窗而非右侧抽屉呈现。 */
+.model-editor-dialog.automation-editor-dialog { inset: 0; margin: auto; width: min(600px, calc(100vw - 32px)); height: fit-content; max-height: calc(100dvh - 48px); border: 0.5px solid var(--border); border-radius: var(--radius-lg); }
+.automation-editor-dialog[open] { display: flex; flex-direction: column; }
+.automation-editor-dialog .model-editor-panel { height: auto; flex: 1 1 auto; }
 
 .automation-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .automation-editor label { display: block; font-size: var(--font-caption); font-weight: 550; margin: 18px 0 7px; }
