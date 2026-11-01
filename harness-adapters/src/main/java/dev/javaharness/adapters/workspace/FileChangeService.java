@@ -165,6 +165,18 @@ public final class FileChangeService {
         }
     }
 
+    /** A group chat member's change waits until no member of that group is speaking. */
+    private boolean groupBusy(String sessionId) {
+        return jdbc.queryForObject(
+                        """
+                        SELECT COUNT(*) FROM harness_session s JOIN harness_session o ON o.group_id=s.group_id
+                        WHERE s.id=? AND o.active_run_id IS NOT NULL
+                        """,
+                        Integer.class,
+                        sessionId)
+                > 0;
+    }
+
     public FileChange apply(String id) {
         synchronized (sessions) {
             FileChange change = get(id);
@@ -176,6 +188,7 @@ public final class FileChangeService {
                 throw new HarnessException("CONFLICT", "仅可应用已正常完成任务的修改；中断或失败后请重新生成");
             if (snapshot.runs().stream().anyMatch(value -> value.status().active()))
                 throw new HarnessException("BUSY", "请等待当前会话任务结束，再应用修改");
+            if (groupBusy(run.sessionId())) throw new HarnessException("BUSY", "请等待群聊成员发言结束，再应用修改");
             if (!snapshot.session().workspace().equals(run.workspace()))
                 throw new HarnessException("CONFLICT", "会话工作区已改变，请切回原工作区后审核");
             WorkspaceFileEditor files;
@@ -211,6 +224,7 @@ public final class FileChangeService {
             var snapshot = sessions.snapshot(run.sessionId());
             if (snapshot.runs().stream().anyMatch(value -> value.status().active()))
                 throw new HarnessException("BUSY", "请等待当前会话任务结束，再撤销修改");
+            if (groupBusy(run.sessionId())) throw new HarnessException("BUSY", "请等待群聊成员发言结束，再撤销修改");
             if (!snapshot.session().workspace().equals(run.workspace()))
                 throw new HarnessException("CONFLICT", "会话工作区已改变，请切回原工作区后撤销");
             WorkspaceRoots.Target location = WorkspaceRoots.target(run.workspace(), change.path());

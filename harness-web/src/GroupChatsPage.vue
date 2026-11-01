@@ -1,0 +1,301 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { api, ApiError, type ModelProfile, type Run, type Snapshot, type Workspace } from './api'
+import { avatarText, insertMention, mentionCandidates, mentionQuery, roundNotice, speakingMembers,
+  type GroupMember, type GroupMessage, type GroupSnapshot, type GroupSummary, type GroupTemplate } from './groups'
+import { preferences, shouldSendPrompt } from './preferences'
+import MarkdownContent from './MarkdownContent.vue'
+import FileChanges from './FileChanges.vue'
+import Commands from './Commands.vue'
+import RunTimeline from './RunTimeline.vue'
+import GroupSettingsDialog from './GroupSettingsDialog.vue'
+import UiIcon from './UiIcon.vue'
+const props = defineProps<{ workspaces: Workspace[]; profiles: ModelProfile[]; sidebarCollapsed: boolean; defaultProfileId: string }>()
+const emit = defineEmits<{ expandSidebar: [] }>()
+const groups = ref<GroupSummary[]>([])
+const templates = ref<GroupTemplate[]>([])
+const selectedId = ref('')
+const snapshot = ref<GroupSnapshot | null>(null)
+const loading = ref(true)
+const error = ref('')
+const text = ref('')
+const sending = ref(false)
+const stopping = ref(false)
+const settings = ref<'' | 'create' | 'edit'>('')
+const timeline = ref<HTMLElement>()
+const input = ref<HTMLTextAreaElement>()
+const caret = ref(0)
+const mentionIndex = ref(0)
+// 网络结果不明时沿用同一 requestId 重试，服务端按 requestId 去重。
+let requestId = ''
+// "查看过程"按需读取成员会话中的运行记录。
+const processes = ref<Record<string, Run | null>>({})
+const speaking = computed(() => snapshot.value ? speakingMembers(snapshot.value) : [])
+const notice = computed(() => roundNotice(snapshot.value?.round ?? null))
+const mention = computed(() => mentionQuery(text.value, caret.value))
+const candidates = computed(() => mention.value && snapshot.value ? mentionCandidates(snapshot.value.members, mention.value.query).slice(0, 6) : [])
+const workspaceName = (id: string) => id ? props.workspaces.find(item => item.id === id)?.name || '工作区已不存在' : '只讨论'
+const message = (cause: unknown, fallback: string) => cause instanceof Error ? cause.message : fallback
+const memberOf = (item: GroupMessage) => snapshot.value?.members.find(member => member.id === item.memberId)
+const runOf = (id: string | null) => id ? snapshot.value?.runs.find(run => run.id === id) : undefined
+const time = (value: string) => new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
+
+let source: EventSource | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
+let pollTimer: ReturnType<typeof setInterval> | undefined
+let revision = 0
+// 并发刷新只采用最后发起的那一次，避免旧快照覆盖新快照。
+let refreshSeq = 0
+
+async function loadGroups() {
+  groups.value = await api<GroupSummary[]>('/groups')
+}
+async function refresh(id: string, version: number) {
+  const seq = ++refreshSeq
+  const value = await api<GroupSnapshot>(`/groups/${id}`)
+  if (version !== revision || seq !== refreshSeq) return
+  const node = timeline.value
+  const follow = !snapshot.value || (preferences.value.autoScroll && (!node || node.scrollHeight - node.scrollTop - node.clientHeight < 120))
+  snapshot.value = value
+  groups.value = groups.value.map(item => item.group.id === id ? { group: value.group, members: value.members.length, busy: value.busy } : item)
+  if (error.value === '读取群聊失败，正在重试。') error.value = ''
+  if (follow) { await nextTick(); timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' }) }
+}
+// 合并短时间内的多次通知，只读取一次快照。
+function scheduleRefresh(id: string, version: number, delay = 150) {
+  if (refreshTimer) return
+  refreshTimer = setTimeout(async () => {
+    refreshTimer = undefined
+    if (version !== revision) return
+    try { await refresh(id, version) }
+    catch (cause) {
+      if (version !== revision) return
+      if (cause instanceof ApiError && cause.status === 404) { await groupDeleted(id); return }
+      error.value = '读取群聊失败，正在重试。'
+      scheduleRefresh(id, version, 2000)
+    }
+  }, delay)
+}
+function follow(id: string, version: number) {
+  const stream = new EventSource(`/api/groups/${id}/events`)
+  source = stream
+  stream.onopen = () => { if (version === revision && source === stream) scheduleRefresh(id, version) }
+  stream.onerror = () => {
+    if (version !== revision || source !== stream) return
+    // 显式重建连接；服务端每 55 秒结束一次流，重连后重新读取快照即可。读取快照也能发现群聊已被删除。
+    stream.close()
+    scheduleRefresh(id, version, 1000)
+    clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(() => { if (version === revision && source === stream) follow(id, version) }, 1500)
+  }
+  stream.addEventListener('group-event', () => { if (version === revision && source === stream) scheduleRefresh(id, version) })
+}
+async function select(id: string) {
+  const version = ++revision
+  source?.close(); source = null
+  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); refreshTimer = undefined
+  // 清空输入，避免发给上一个群的内容被误发到新群。
+  selectedId.value = id; snapshot.value = null; processes.value = {}; error.value = ''; text.value = ''; requestId = ''
+  try { localStorage.setItem('harness.group', id) } catch { /* 无本地存储时不记住选择 */ }
+  if (!id) return
+  try {
+    await refresh(id, version)
+    if (version === revision) follow(id, version)
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) await groupDeleted(id)
+    else if (version === revision) error.value = message(cause, '读取群聊失败')
+  }
+}
+async function groupDeleted(id: string) {
+  groups.value = groups.value.filter(item => item.group.id !== id)
+  if (selectedId.value === id) await select(groups.value[0]?.group.id || '')
+}
+async function groupSaved(value: GroupSnapshot) {
+  const exists = groups.value.some(item => item.group.id === value.group.id)
+  const summary = { group: value.group, members: value.members.length, busy: value.busy }
+  groups.value = exists ? groups.value.map(item => item.group.id === value.group.id ? summary : item) : [summary, ...groups.value]
+  if (!exists) await select(value.group.id)
+  else if (selectedId.value === value.group.id) snapshot.value = value
+}
+async function send() {
+  const content = text.value.trim()
+  if (!snapshot.value || sending.value || !content) return
+  const id = snapshot.value.group.id
+  const version = revision
+  requestId ||= crypto.randomUUID()
+  sending.value = true; error.value = ''
+  try {
+    await api<GroupMessage>(`/groups/${id}/messages`, { requestId, content })
+    if (version !== revision) return
+    text.value = ''; requestId = ''
+    // 消息已送达；随后的刷新失败交给重试，不报告为发送失败。
+    scheduleRefresh(id, version, 0)
+  } catch (cause) {
+    if (version !== revision) return
+    if (cause instanceof ApiError && cause.status < 500) requestId = ''
+    error.value = message(cause, '发送失败')
+  } finally { sending.value = false }
+}
+async function stop() {
+  if (!snapshot.value || stopping.value) return
+  const id = snapshot.value.group.id
+  stopping.value = true; error.value = ''
+  try { await api(`/groups/${id}/stop`, {}); scheduleRefresh(id, revision) }
+  catch (cause) { error.value = message(cause, '停止失败') }
+  finally { stopping.value = false }
+}
+async function toggleProcess(item: GroupMessage) {
+  const run = runOf(item.runId)
+  if (!item.runId || !run) return
+  if (item.runId in processes.value) { const next = { ...processes.value }; delete next[item.runId]; processes.value = next; return }
+  processes.value = { ...processes.value, [item.runId]: null }
+  try {
+    const value = await api<Snapshot>(`/sessions/${run.sessionId}`)
+    if (item.runId in processes.value) processes.value = { ...processes.value, [item.runId]: value.runs.find(entry => entry.id === item.runId) ?? null }
+  } catch (cause) { error.value = message(cause, '读取过程失败') }
+}
+function trackCaret() { caret.value = input.value?.selectionStart ?? text.value.length; mentionIndex.value = 0 }
+async function pickMention(member: GroupMember) {
+  const value = insertMention(text.value, caret.value, member.name)
+  text.value = value.text
+  await nextTick()
+  input.value?.focus()
+  input.value?.setSelectionRange(value.caret, value.caret)
+  trackCaret()
+}
+// 点击成员头像直接 @ 该成员。
+async function mentionMember(member: GroupMember) {
+  if (!member.enabled) return
+  const prefix = text.value && !/\s$/.test(text.value) ? ' ' : ''
+  text.value = `${text.value}${prefix}@${member.name} `
+  await nextTick()
+  input.value?.focus()
+  trackCaret()
+}
+function onKeydown(event: KeyboardEvent) {
+  if (candidates.value.length && !event.isComposing) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      mentionIndex.value = (mentionIndex.value + step + candidates.value.length) % candidates.value.length
+      return
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); void pickMention(candidates.value[mentionIndex.value]); return }
+    if (event.key === 'Escape') { event.preventDefault(); caret.value = -1; return }
+  }
+  if (!shouldSendPrompt(event, preferences.value.sendShortcut)) return
+  event.preventDefault()
+  void send()
+}
+function resizeInput() {
+  const node = input.value
+  if (!node) return
+  node.style.height = 'auto'
+  node.style.height = `${Math.min(node.scrollHeight, 200)}px`
+}
+// 内容改变后视为新消息，不再沿用上一次待确认的 requestId。
+watch(text, () => { requestId = ''; void nextTick(resizeInput) })
+onMounted(async () => {
+  try {
+    templates.value = await api<GroupTemplate[]>('/group-templates')
+    await loadGroups()
+    let stored = ''
+    try { stored = localStorage.getItem('harness.group') || '' } catch { /* 忽略 */ }
+    await select(groups.value.find(item => item.group.id === stored)?.group.id || groups.value[0]?.group.id || '')
+  } catch (cause) { error.value = message(cause, '读取群聊失败') }
+  finally { loading.value = false }
+  // SSE 可能在后端重启后静默断开；协作进行中定时补读快照。
+  pollTimer = setInterval(() => { if (snapshot.value?.busy) scheduleRefresh(snapshot.value.group.id, revision) }, 4000)
+})
+onUnmounted(() => {
+  revision++
+  source?.close()
+  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); clearInterval(pollTimer)
+})
+</script>
+
+<template>
+  <main class="main-panel groups-page" aria-labelledby="groups-title">
+    <header class="workspace-header">
+      <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="emit('expandSidebar')"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1 id="groups-title">{{ snapshot?.group.name || '群聊' }}</h1></div>
+      <div class="header-meta">
+        <span v-if="snapshot" class="readonly-label">{{ workspaceName(snapshot.group.workspaceId) }}</span>
+        <button v-if="snapshot" type="button" class="icon-button" aria-label="群聊设置" title="群聊设置" @click="settings = 'edit'"><UiIcon name="settings" :size="16" /></button>
+      </div>
+    </header>
+    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+    <div class="groups-body" :aria-busy="loading">
+      <nav class="group-list" aria-label="群聊列表">
+        <button type="button" class="primary group-create" :disabled="loading" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
+        <button v-for="item in groups" :key="item.group.id" type="button" class="group-item" :aria-current="item.group.id === selectedId ? 'true' : undefined" @click="select(item.group.id)">
+          <span class="group-avatar" :style="{ background: item.group.color }" aria-hidden="true"><UiIcon name="users" :size="15" /></span>
+          <span class="group-item-copy"><strong>{{ item.group.name }}</strong><small>{{ item.members }} 位成员 · {{ workspaceName(item.group.workspaceId) }}</small></span>
+          <span v-if="item.busy" class="activity-dot" aria-label="协作中"></span>
+        </button>
+      </nav>
+      <section class="group-chat" :aria-label="snapshot?.group.name || '群聊'">
+        <p v-if="loading" class="automations-empty"><span class="loading-indicator"></span>正在读取群聊…</p>
+        <div v-else-if="!groups.length" class="automations-empty">
+          <UiIcon name="users" :size="26" />
+          <h2>让 AI 成员一起协作</h2>
+          <p>建一个群，拉上项目经理、设计、开发、测试等成员。你提出问题或需求，成员会分工讨论并各自给出回复。</p>
+          <button type="button" class="primary" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
+        </div>
+        <template v-else-if="snapshot">
+          <div class="group-roster" aria-label="群成员">
+            <button v-for="member in snapshot.members" :key="member.id" type="button" class="group-chip" :class="{ disabled: !member.enabled }" :disabled="!member.enabled" :title="`${member.focus}\n点击 @ ${member.name}`" @click="mentionMember(member)"><span class="group-avatar small" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>{{ member.name }}</button>
+          </div>
+          <div ref="timeline" class="timeline group-timeline" aria-label="群聊记录" aria-live="polite">
+            <div v-if="!snapshot.messages.length" class="welcome"><div class="welcome-copy"><h2>说说你的问题或需求</h2><p class="welcome-description">成员会自动分工协作；输入 @昵称 可以直接点名某位成员。</p></div></div>
+            <template v-for="item in snapshot.messages" :key="item.id">
+              <div v-if="item.author === 'USER'" class="user-message-wrap"><p class="user-message">{{ item.content }}</p></div>
+              <p v-else-if="item.author === 'SYSTEM'" class="group-system">{{ item.content }}</p>
+              <article v-else class="group-message">
+                <span class="group-avatar" :style="{ background: memberOf(item)?.color || 'var(--muted)' }" aria-hidden="true">{{ avatarText(item.authorName) }}</span>
+                <div class="group-message-body">
+                  <div class="group-message-heading"><strong>{{ item.authorName }}</strong><time>{{ time(item.createdAt) }}</time><button v-if="runOf(item.runId)" type="button" class="group-process" :aria-expanded="!!item.runId && item.runId in processes" @click="toggleProcess(item)">{{ item.runId && item.runId in processes ? '收起过程' : '查看过程' }}</button></div>
+                  <div class="group-bubble"><MarkdownContent :content="item.content" /></div>
+                  <div v-if="item.runId && item.runId in processes" class="group-process-panel">
+                    <RunTimeline v-if="processes[item.runId]" :run="processes[item.runId]!" :revision="processes[item.runId]!.status" />
+                    <p v-else class="field-note">正在读取过程…</p>
+                  </div>
+                  <template v-if="runOf(item.runId)?.workspace">
+                    <FileChanges :run-id="item.runId!" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :can-apply="runOf(item.runId)!.status === 'COMPLETED' && !snapshot.busy" :can-revert="!snapshot.busy" />
+                    <Commands :run-id="item.runId!" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :active="false" />
+                  </template>
+                </div>
+              </article>
+            </template>
+            <article v-for="{ member, run } in speaking" :key="run.id" class="group-message typing">
+              <span class="group-avatar" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>
+              <div class="group-message-body">
+                <div class="group-message-heading"><strong>{{ member.name }}</strong><span class="working-label"><span class="activity-dot"></span>{{ run.status === 'CANCELLING' ? '正在停止' : '正在输入…' }}</span></div>
+                <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${run.activity}`" :active="run.status === 'RUNNING'" />
+              </div>
+            </article>
+            <p v-if="snapshot.busy && !speaking.length" class="group-system"><span class="activity-dot"></span>主持人正在安排下一位发言…</p>
+            <p v-if="notice" class="run-notice" :class="{ 'has-error': notice.error }">{{ notice.text }}</p>
+          </div>
+          <div class="composer-dock">
+            <form class="composer" @submit.prevent="send">
+              <ul v-if="candidates.length" id="group-mentions" class="group-mentions" role="listbox" aria-label="选择要 @ 的成员">
+                <li v-for="(member, index) in candidates" :id="`group-mention-${member.id}`" :key="member.id" role="option" :aria-selected="index === mentionIndex" @mousedown.prevent="pickMention(member)"><span class="group-avatar small" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>{{ member.name }}</li>
+              </ul>
+              <label class="sr-only" for="group-input">发送群消息</label>
+              <textarea id="group-input" ref="input" v-model="text" rows="2" maxlength="4000" :disabled="sending" placeholder="提出问题或需求，输入 @ 点名成员…" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length ? 'group-mentions' : undefined" :aria-activedescendant="candidates[mentionIndex] ? `group-mention-${candidates[mentionIndex].id}` : undefined" @keydown="onKeydown" @input="trackCaret" @click="trackCaret" @keyup.left="trackCaret" @keyup.right="trackCaret" @blur="caret = -1"></textarea>
+              <div class="composer-actions">
+                <span class="group-hint">{{ snapshot.busy ? '协作进行中，发送新消息会让成员转向新问题' : '成员只在群里展示最终回复' }}</span>
+                <button v-if="snapshot.busy" type="button" class="send-button stop-button" :disabled="stopping" aria-label="停止本轮协作" title="停止本轮协作" @click="stop"><UiIcon name="stop" :size="15" /></button>
+                <button type="submit" class="send-button" :disabled="sending || !text.trim()" aria-label="发送消息" :title="sendHint"><UiIcon name="arrow" :size="18" /></button>
+              </div>
+            </form>
+            <div class="composer-caption"><span>{{ snapshot.group.workspaceId ? '文件修改经你审核后应用' : '本群只讨论，不读写文件' }}</span><span v-if="text.length > 3500">{{ text.length }} / 4000</span><span v-else>{{ sendHint }}</span></div>
+          </div>
+        </template>
+      </section>
+    </div>
+    <GroupSettingsDialog v-if="settings" :key="settings === 'edit' ? snapshot?.group.id : 'create'" :snapshot="settings === 'edit' ? snapshot ?? undefined : undefined" :workspaces="workspaces" :profiles="profiles" :templates="templates" :default-profile-id="defaultProfileId" @saved="groupSaved" @deleted="groupDeleted" @close="settings = ''" />
+  </main>
+</template>

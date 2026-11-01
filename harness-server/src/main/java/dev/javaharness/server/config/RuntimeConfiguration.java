@@ -5,6 +5,7 @@ import dev.javaharness.adapters.approval.ApprovalPolicy;
 import dev.javaharness.adapters.approval.ApprovalReviewer;
 import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.command.CommandService;
+import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.adapters.memory.JdbcMemoryStore;
 import dev.javaharness.adapters.plugins.PluginService;
 import dev.javaharness.adapters.session.JdbcSessionStore;
@@ -15,6 +16,8 @@ import dev.javaharness.adapters.usage.LocalAgentUsageReader;
 import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
+import dev.javaharness.server.service.GroupChatService;
+import dev.javaharness.server.service.GroupOrchestrator;
 import dev.javaharness.server.service.LlmApprovalJudge;
 import dev.javaharness.server.service.MemoryService;
 import dev.javaharness.server.service.SessionNamingService;
@@ -228,12 +231,41 @@ public class RuntimeConfiguration {
         return new SessionNamingService(store, configurations, enabled);
     }
 
+    /** Group chat rounds; created after the engine, whose startup recovery interrupts old member runs. */
+    @Bean(destroyMethod = "close")
+    @DependsOnDatabaseInitialization
+    GroupOrchestrator groupOrchestrator(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            AgentEngine engine,
+            RunConfigurationSource configurations) {
+        return new GroupOrchestrator(
+                new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), engine, configurations);
+    }
+
+    /** Member runs see the group transcript through the settings service's extension capture. */
+    @Bean
+    @DependsOnDatabaseInitialization
+    GroupChatService groupChatService(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            SettingsService settings,
+            GroupOrchestrator orchestrator) {
+        var service = new GroupChatService(
+                new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), settings, orchestrator);
+        settings.useGroups(service::decorate);
+        return service;
+    }
+
     @Bean
     ApplicationListener<ContextClosedEvent> stopRuntime(
-            AgentEngine engine, EventController events, AutomationService automations) {
+            AgentEngine engine, EventController events, AutomationService automations, GroupOrchestrator groups) {
         return event -> {
             automations.close();
             events.close();
+            groups.close();
             engine.close();
         };
     }

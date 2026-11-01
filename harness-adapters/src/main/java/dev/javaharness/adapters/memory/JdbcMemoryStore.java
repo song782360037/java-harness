@@ -315,7 +315,8 @@ public final class JdbcMemoryStore {
     private int enqueue(String runId) {
         return tx.execute(transaction -> {
             var sources = jdbc.query(
-                    SOURCE_QUERY + "WHERE r.status='COMPLETED' "
+                    // Group chat member runs are not mined for memories.
+                    SOURCE_QUERY + "WHERE r.status='COMPLETED' AND s.group_id IS NULL "
                             + "AND r.provider<>'simulated' AND r.parent_run_id IS NULL AND (?='' OR r.id=?) AND NOT EXISTS "
                             + "(SELECT 1 FROM harness_memory_job j WHERE j.run_id=r.id) ORDER BY r.created_at,r.id LIMIT 100",
                     SOURCE,
@@ -413,7 +414,8 @@ public final class JdbcMemoryStore {
             counts.put(rs.getString("status"), rs.getInt("n"));
         });
         int total = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM harness_run WHERE status='COMPLETED' AND provider<>'simulated' AND parent_run_id IS NULL",
+                "SELECT COUNT(*) FROM harness_run r JOIN harness_session s ON s.id=r.session_id WHERE r.status='COMPLETED' "
+                        + "AND r.provider<>'simulated' AND r.parent_run_id IS NULL AND s.group_id IS NULL",
                 Integer.class);
         int running = counts.getOrDefault("RUNNING", 0), completed = counts.getOrDefault("COMPLETED", 0);
         int failed = counts.getOrDefault("FAILED", 0), skipped = counts.getOrDefault("SKIPPED", 0);

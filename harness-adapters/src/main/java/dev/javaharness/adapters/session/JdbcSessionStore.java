@@ -107,7 +107,7 @@ public final class JdbcSessionStore implements SessionStore {
         this.tx = tx;
         // Link existing sessions without rewriting their run snapshots or requiring directories online.
         tx.executeWithoutResult(status -> {
-            for (Session session : sessions()) {
+            for (Session session : allSessions()) {
                 if (!session.workspace().isEmpty() && session.workspaceId().isEmpty())
                     jdbc.update(
                             "UPDATE harness_session SET workspace_id=? WHERE id=?",
@@ -306,7 +306,7 @@ public final class JdbcSessionStore implements SessionStore {
                         icon,
                         color,
                         key);
-                for (Session session : sessions()) {
+                for (Session session : allSessions()) {
                     if (!session.workspaceId().equals(key)) continue;
                     jdbc.update("UPDATE harness_session SET workspace=? WHERE id=?", roots, session.id());
                     appendEvent(session.id(), null, "WORKSPACE", null, "工作区已更新");
@@ -340,8 +340,15 @@ public final class JdbcSessionStore implements SessionStore {
         });
     }
 
+    /** Hidden group member sessions are listed by their group chat, not here. */
     @Override
     public synchronized List<Session> sessions() {
+        return jdbc.query(
+                "SELECT * FROM harness_session WHERE group_id IS NULL ORDER BY created_at DESC, id DESC",
+                SESSION_MAPPER);
+    }
+
+    private List<Session> allSessions() {
         return jdbc.query("SELECT * FROM harness_session ORDER BY created_at DESC, id DESC", SESSION_MAPPER);
     }
 
@@ -458,9 +465,11 @@ public final class JdbcSessionStore implements SessionStore {
                 """, RUN_MAPPER, current.sessionId(), runId);
     }
 
-    /** 首个请求的用户消息须为原始提问，或召回记忆块加原始提问。 */
+    /** 首个请求的用户消息须为原始提问，或群聊上下文/召回记忆块加原始提问。 */
     private static boolean prompted(String content, String prompt) {
-        return content.equals(prompt) || content.startsWith("<retrieved_memory>") && content.endsWith(prompt);
+        return content.equals(prompt)
+                || (content.startsWith("<retrieved_memory>") || content.startsWith("<group_chat>"))
+                        && content.endsWith(prompt);
     }
 
     @Override

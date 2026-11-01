@@ -268,15 +268,24 @@ public final class DefaultAgentEngine implements AgentEngine {
             // Memory rides on the current user message, so it shares the history budget.
             historyBudget -= counter.count(memory.text());
             if (historyBudget < 256) throw new ModelException("模型上下文窗口不足以容纳系统指引、工具定义和输出预留，请提高上下文窗口或降低最大输出");
+            // A shared context (a group chat transcript) replaces the session history and rides on the prompt too.
+            String shared = extension.context(counter, Math.max(0, historyBudget - counter.count(run.prompt()) - 256));
+            if (shared != null) historyBudget -= counter.count(shared);
+            if (shared != null && historyBudget < counter.count(run.prompt()) + 256)
+                throw new ModelException("模型上下文窗口不足以容纳群聊上下文和本次任务，请提高上下文窗口或减少成员职责描述");
             ModelRequest request;
             synchronized (this) {
                 if (task.stopReason != null) return;
                 request = new ConversationContext(counter, historyBudget)
-                        .build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
+                        .build(
+                                run,
+                                shared == null ? store.contextHistory(run.id()) : List.of(),
+                                prior -> store.conversation(prior.id()));
             }
             var messages = new ArrayList<>(request.messages());
-            if (!memory.text().isEmpty())
-                messages.set(messages.size() - 1, new ModelMessage("user", memory.text() + run.prompt()));
+            String prefix = (shared == null ? "" : shared) + memory.text();
+            if (!prefix.isEmpty())
+                messages.set(messages.size() - 1, new ModelMessage("user", prefix + run.prompt()));
             outcome = loop(new Loop(
                     run,
                     run.id(),
@@ -317,7 +326,17 @@ public final class DefaultAgentEngine implements AgentEngine {
                     if (failure == null) failure = "释放模型连接失败";
                 }
             }
-            settle(run.id(), task, failure, outcome);
+            try {
+                settle(run.id(), task, failure, outcome);
+            } finally {
+                // Notify even when settlement failed, so owners such as group chats never wait forever.
+                try {
+                    extension.settled(store.run(run.id()));
+                } catch (RuntimeException error) {
+                    System.getLogger(getClass().getName())
+                            .log(System.Logger.Level.WARNING, "Settled notification failed for " + run.id(), error);
+                }
+            }
             if (outcome != null && failure == null && task.stopReason == null) {
                 try {
                     memories.completed(store.run(run.id()));

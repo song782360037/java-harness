@@ -42,6 +42,8 @@ public final class SettingsService implements RunConfigurationSource {
     private final CommandService commands;
     private final PluginService plugins;
     private final UnattendedSubmissions unattended;
+    // Group chats add their transcript to member runs; attached once the group service exists.
+    private volatile java.util.function.BiFunction<Session, RunExtension, RunExtension> groups;
 
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial) {
         this(store, initial, null);
@@ -261,7 +263,20 @@ public final class SettingsService implements RunConfigurationSource {
     @Override
     public RunExtension extensions(Session session, String prompt) {
         var extension = plugins == null ? RunExtension.none() : plugins.prepare(session, prompt);
-        return unattended.commandsBlocked(session.id()) ? withoutCommands(extension) : extension;
+        if (unattended.commandsBlocked(session.id())) extension = withoutCommands(extension);
+        var decorator = groups;
+        if (decorator == null) return extension;
+        try {
+            return decorator.apply(session, extension);
+        } catch (RuntimeException error) {
+            extension.close();
+            throw error;
+        }
+    }
+
+    /** Let group chats wrap the extension of their member sessions. */
+    public void useGroups(java.util.function.BiFunction<Session, RunExtension, RunExtension> decorator) {
+        groups = decorator;
     }
 
     /** Hide the command tool from an unattended automation run, keeping the captured plugin extension. */

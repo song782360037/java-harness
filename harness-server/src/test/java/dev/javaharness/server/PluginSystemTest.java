@@ -977,13 +977,16 @@ class PluginSystemTest {
                         root.toString(),
                         mode)
                 .redirectErrorStream(true);
+        // A file instead of a pipe: migration logs can exceed the OS pipe buffer and block the child before waitFor.
+        Path log = Files.createTempFile(root, "child-", ".log");
+        builder.redirectOutput(log.toFile());
         builder.environment()
                 .put("PATH", inherited + File.pathSeparator + System.getenv().getOrDefault("PATH", ""));
         builder.environment().put("TEMP", inherited.toString());
         builder.environment().put("TMP", inherited.toString());
         var process = builder.start();
         assertThat(process.waitFor(20, TimeUnit.SECONDS)).isTrue();
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8);
         assertThat(process.exitValue()).as(output).isZero();
         return output.lines()
                 .filter(line -> line.startsWith("TRUST:"))

@@ -10,5 +10,6 @@ import './styles/file-changes.css'
 import './styles/commands.css'
 import './styles/automations.css'
 import './styles/memories.css'
+import './styles/groups.css'
 
 createApp(App).mount('#app')

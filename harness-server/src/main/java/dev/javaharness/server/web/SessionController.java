@@ -1,5 +1,6 @@
 package dev.javaharness.server.web;
 
+import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.WorkspaceDirectories;
 import dev.javaharness.spi.model.ModelRequest;
@@ -36,13 +37,19 @@ public class SessionController {
     private final AgentEngine engine;
     private final WorkspaceDirectories directories;
     private final SessionNamingService naming;
+    private final GroupChatService groups;
 
     public SessionController(
-            SessionStore store, AgentEngine engine, WorkspaceDirectories directories, SessionNamingService naming) {
+            SessionStore store,
+            AgentEngine engine,
+            WorkspaceDirectories directories,
+            SessionNamingService naming,
+            GroupChatService groups) {
         this.store = store;
         this.engine = engine;
         this.directories = directories;
         this.naming = naming;
+        this.groups = groups;
     }
 
     public record CreateSession(String title, String workspace, String workspaceId) {}
@@ -74,6 +81,7 @@ public class SessionController {
 
     @PostMapping(value = "/sessions/{id}/workspace", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session workspace(@PathVariable String id, @RequestBody ChangeWorkspace request) {
+        groups.requireOrdinary(id);
         return request.workspaceId() == null
                 ? store.updateWorkspace(id, directories.normalize(request.workspace()))
                 : store.selectWorkspace(id, request.workspaceId());
@@ -82,6 +90,7 @@ public class SessionController {
     /** Rename the session, including while a run is active. */
     @PostMapping(value = "/sessions/{id}/title", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session rename(@PathVariable String id, @RequestBody RenameSession request) {
+        groups.requireOrdinary(id);
         return store.renameSession(id, request.title());
     }
 
@@ -121,11 +130,13 @@ public class SessionController {
     @PostMapping("/sessions/{id}/delete")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable String id) {
+        groups.requireOrdinary(id);
         store.deleteSession(id);
     }
 
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
+        groups.requireOrdinary(id);
         var selection = new ModelSelection(request.modelProfileId(), request.reasoningEffort());
         // Omitting the mode keeps the session's last choice.
         var mode = request.approvalMode() == null ? null : ApprovalMode.parse(request.approvalMode());
