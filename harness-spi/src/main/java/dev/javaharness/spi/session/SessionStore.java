@@ -9,6 +9,7 @@ import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
+import dev.javaharness.spi.run.SubagentRun;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolExecution;
 import dev.javaharness.spi.workspace.Workspace;
@@ -112,6 +113,14 @@ public interface SessionStore {
     Run transition(String runId, RunStatus status, String detail);
 
     void appendText(String runId, String text);
+
+    /**
+     * Start a RUNNING subagent run for a delegate_task call of a running top-level run, copying its session,
+     * model, selection and workspace. Subagents never hold the session slot and never enter conversation history.
+     */
+    Run startSubagent(String parentRunId, String parentCallId, String agent, String prompt);
+    /** Subagent runs of one parent, in creation order. */
+    List<SubagentRun> subagents(String runId);
 
     List<RunEvent> events(String sessionId, long after, int limit);
 

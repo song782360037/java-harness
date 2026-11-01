@@ -39,7 +39,7 @@ core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。Settings
 | `HARNESS_PORT` | 8080 | 本地后端端口 |
 | `spring.datasource.url` | `jdbc:h2:file:./data/harness;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0` | 单实例文件数据库 |
 | `HARNESS_RUN_TIMEOUT` / `harness.run-timeout` | 120s | 一次 Run 的执行时间预算 |
-| `HARNESS_CONTEXT_WINDOW_TOKENS` / `harness.context.window-tokens` | 16000 | 模型上下文窗口估算，1024–2000000 tokens |
+| `HARNESS_CONTEXT_WINDOW_TOKENS` / `harness.context.window-tokens` | 262144 | 模型上下文窗口估算，1024–2000000 tokens |
 | `HARNESS_MAX_OUTPUT_TOKENS` / `harness.context.max-output-tokens` | 4096 | 输出预留，64–131072 tokens 且小于窗口；用于输入预算，不是上游硬限制 |
 | `HARNESS_SETTINGS_KEY_FILE` | `./data/settings.key` | API Key 加密所需的安装密钥，备份时与数据库一起保留 |
 | `HARNESS_MAX_TOOLS_PER_REQUEST` / `harness.tools.max-tools-per-request` | 32 | 单次模型响应实际执行的工具上限，1–256；解析安全上限固定为 256 |

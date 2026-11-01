@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { api, isActive, type Run, type RunStep, type ToolExecution } from './api'
+import { api, isActive, type Run, type RunStep, type SubagentRun, type ToolExecution } from './api'
 import { buildTimeline, elapsedSeconds, exploreSummary, formatDuration, isBusy, toolLabel } from './executionTimeline'
 import MarkdownContent from './MarkdownContent.vue'
 import UiIcon from './UiIcon.vue'
 
-const props = defineProps<{ run: Run; revision: string }>()
+const props = defineProps<{ run: Run; revision: string; subagents?: SubagentRun[] }>()
 const emit = defineEmits<{ answer: [value: string]; loaded: [] }>()
 const steps = ref<RunStep[]>([])
 const tools = ref<ToolExecution[]>([])
@@ -30,6 +30,18 @@ const summary = computed(() => {
   return parts.join(' · ')
 })
 const statusLabels: Record<string, string> = { PENDING: '等待执行', FAILED: '失败', SKIPPED: '未执行', CANCELLED: '已取消', INTERRUPTED: '已中断' }
+/** delegate_task 调用对应的子智能体运行；子运行创建前为空。 */
+const childOf = (tool: ToolExecution) => props.subagents?.find(value => value.parentCallId === tool.callId)
+const childRevision = (child: SubagentRun) => `${props.revision}:${child.run.status}:${child.run.output.length}`
+const stopping = ref<Record<string, boolean>>({})
+const stopErrors = ref<Record<string, string>>({})
+async function stopChild(child: SubagentRun) {
+  stopping.value[child.run.id] = true; stopErrors.value[child.run.id] = ''
+  try { await api<Run>(`/runs/${child.run.id}/cancel`, {}) } catch (cause) {
+    stopping.value[child.run.id] = false
+    stopErrors.value[child.run.id] = cause instanceof Error ? `停止失败：${cause.message}` : '停止失败，请重试。'
+  }
+}
 const duration = (tool: ToolExecution) => tool.startedAt && tool.finishedAt ? Math.round((Date.parse(tool.finishedAt) - Date.parse(tool.startedAt)) / 1000) : 0
 
 async function load() {
@@ -87,6 +99,20 @@ onUnmounted(() => { disposed = true; clearInterval(ticker); clearTimeout(throttl
             </details>
           </div>
         </details>
+        <details v-else-if="item.tool.name === 'delegate_task' && childOf(item.tool)" class="process-tool process-subagent">
+          <summary>
+            <span v-if="isActive(childOf(item.tool)!.run)" class="loading-indicator"></span><UiIcon v-else :name="toolLabel(item.tool).icon" :size="13" />
+            <span>{{ toolLabel(item.tool).verb }}</span><code v-if="toolLabel(item.tool).target" :title="toolLabel(item.tool).target">{{ toolLabel(item.tool).target }}</code>
+            <span v-if="statusLabels[item.tool.status]" class="tool-status" :class="item.tool.status.toLowerCase()">{{ statusLabels[item.tool.status] }}</span>
+            <button v-if="isActive(childOf(item.tool)!.run)" type="button" class="subagent-stop" :disabled="stopping[childOf(item.tool)!.run.id] || childOf(item.tool)!.run.status === 'CANCELLING'" @click.stop.prevent="stopChild(childOf(item.tool)!)">停止</button>
+            <small v-else-if="duration(item.tool) > 1">{{ formatDuration(duration(item.tool)) }}</small>
+          </summary>
+          <div class="subagent-body">
+            <RunTimeline :run="childOf(item.tool)!.run" :revision="childRevision(childOf(item.tool)!)" />
+            <p v-if="childOf(item.tool)!.run.detail" :class="['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(childOf(item.tool)!.run.status) ? 'process-error' : 'subagent-notice'">{{ childOf(item.tool)!.run.detail }}</p>
+            <p v-if="stopErrors[childOf(item.tool)!.run.id]" class="process-error" role="alert">{{ stopErrors[childOf(item.tool)!.run.id] }}</p>
+          </div>
+        </details>
         <details v-else class="process-tool">
           <summary>
             <span v-if="isBusy(item.tool)" class="loading-indicator"></span><UiIcon v-else :name="toolLabel(item.tool).icon" :size="13" />
@@ -124,4 +150,8 @@ small { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nu
 .process-tool strong { display: block; margin: 6px 0 4px 20px; color: var(--muted); font-weight: 550; }
 pre { margin: 4px 0 8px 20px; padding: 10px 12px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font: var(--font-caption)/1.7 ui-monospace, 'Cascadia Code', Consolas, monospace; }
 .process-error { margin: 4px 0; color: var(--danger); }
+.subagent-notice { margin: 4px 0; color: var(--muted); }
+.subagent-body { margin: 4px 0 8px 6px; padding-left: 12px; border-left: 0.5px solid var(--border); }
+.subagent-stop { margin-left: auto; padding: 0 8px; min-height: 22px; border: 0.5px solid var(--border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: var(--font-caption); flex-shrink: 0; }
+.subagent-stop:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 </style>

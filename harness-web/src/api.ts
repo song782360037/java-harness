@@ -58,7 +58,9 @@ export interface Run {
   context: ContextSummary | null; workspace: string; modelProfileId: string; reasoningEffort: string
 }
 export interface SessionUsage { inputTokens: number; outputTokens: number; cachedTokens: number; durationMillis: number; lastInputTokens: number }
-export interface Snapshot { session: Session; runs: Run[]; lastSeq: number; usage: SessionUsage | null }
+/** 父运行的 delegate_task 调用创建的子智能体运行。 */
+export interface SubagentRun { parentRunId: string; parentCallId: string; agent: string; run: Run }
+export interface Snapshot { session: Session; runs: Run[]; lastSeq: number; usage: SessionUsage | null; subagents?: SubagentRun[] }
 export interface Submission { requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string }
 export interface RunEvent { sessionId: string; seq: number; runId: string | null; type: string }
 export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includes(run.status)

@@ -35,6 +35,7 @@ test('legacy runs without steps show tools and the whole output as answer', () =
 test('labels, summaries and durations are readable', () => {
   assert.deepEqual(toolLabel(tool(1, 'a', 'read_file', { path: 'a.ts', start_line: 3, end_line: 9 })), { icon: 'file', verb: '读取', target: 'a.ts:3-9' })
   assert.equal(toolLabel(tool(1, 'a', 'mcp_tool', {})).raw, true)
+  assert.deepEqual(toolLabel(tool(1, 'a', 'delegate_task', { agent: 'explore', description: '调查存储层', prompt: 'x' })), { icon: 'branch', verb: '委派 explore', target: '调查存储层' })
   assert.equal(toolLabel({ ...tool(1, 'a', 'read_file', {}), arguments: '{bad' }).target, '')
   assert.equal(exploreSummary([tool(1, 'a', 'read_file', { path: 'x' }), tool(1, 'b', 'read_file', { path: 'x' }), tool(1, 'c', 'search_files', { query: 'q' }, 'RUNNING')]), '正在探索 1 个文件，1 次搜索')
   assert.equal(exploreSummary([tool(1, 'a', 'read_file', { path: 'x' }, 'FAILED'), tool(1, 'b', 'read_file', { path: 'y' })]), '已探索 2 个文件（1 次失败）')

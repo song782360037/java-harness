@@ -46,9 +46,9 @@ harness:
   tools:
     max-tools-per-request: ${HARNESS_MAX_TOOLS_PER_REQUEST:32}
     timeout: ${HARNESS_TOOL_TIMEOUT:5s}
-  run-timeout: ${HARNESS_RUN_TIMEOUT:120s}
+  run-timeout: ${HARNESS_RUN_TIMEOUT:600s}
   context:
-    window-tokens: ${HARNESS_CONTEXT_WINDOW_TOKENS:16000}
+    window-tokens: ${HARNESS_CONTEXT_WINDOW_TOKENS:262144}
     max-output-tokens: ${HARNESS_MAX_OUTPUT_TOKENS:4096}
   model:
     base-url: ${HARNESS_MODEL_BASE_URL:https://api.openai.com/v1}

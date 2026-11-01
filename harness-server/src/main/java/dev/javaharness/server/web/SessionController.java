@@ -7,6 +7,7 @@ import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.AgentEngine;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunStep;
+import dev.javaharness.spi.run.SubagentRun;
 import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionSnapshot;
 import dev.javaharness.spi.session.SessionStore;
@@ -102,6 +103,12 @@ public class SessionController {
     @GetMapping("/runs/{id}/steps")
     public List<RunStep> steps(@PathVariable String id) {
         return store.steps(id);
+    }
+
+    /** Subagent runs started by this run's delegate_task calls. */
+    @GetMapping("/runs/{id}/subagents")
+    public List<SubagentRun> subagents(@PathVariable String id) {
+        return store.subagents(id);
     }
 
     /** Delete the session and its history; active runs must be stopped first. */

@@ -14,6 +14,7 @@ import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
+import dev.javaharness.spi.run.SubagentRun;
 import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionSnapshot;
 import dev.javaharness.spi.session.SessionStore;
@@ -57,6 +58,16 @@ public final class JdbcSessionStore implements SessionStore {
             rs.getString("workspace"),
             rs.getString("model_profile_id"),
             rs.getString("reasoning_effort"));
+    // Children of one batch can share a timestamp; their QUEUED events keep the creation order.
+    private static final String BY_QUEUED = """
+            ORDER BY (SELECT e.seq FROM harness_event e
+                      WHERE e.run_id=harness_run.id AND e.event_type='STATE' AND e.status='QUEUED')
+            """;
+    private static final RowMapper<SubagentRun> SUBAGENT_MAPPER = (rs, row) -> new SubagentRun(
+            rs.getString("parent_run_id"),
+            rs.getString("parent_call_id"),
+            rs.getString("agent_name"),
+            RUN_MAPPER.mapRow(rs, row));
     private static final RowMapper<Session> SESSION_MAPPER = (rs, row) -> new Session(
             rs.getString("id"),
             rs.getString("title"),
@@ -342,9 +353,50 @@ public final class JdbcSessionStore implements SessionStore {
     public synchronized SessionSnapshot snapshot(String sessionId) {
         Session session = session(sessionId);
         var runs = jdbc.query(
-                "SELECT * FROM harness_run WHERE session_id=? ORDER BY created_at,id", RUN_MAPPER, sessionId);
+                "SELECT * FROM harness_run WHERE session_id=? AND parent_run_id IS NULL ORDER BY created_at,id",
+                RUN_MAPPER,
+                sessionId);
+        var subagents = jdbc.query(
+                "SELECT * FROM harness_run WHERE session_id=? AND parent_run_id IS NOT NULL " + BY_QUEUED,
+                SUBAGENT_MAPPER,
+                sessionId);
         long seq = jdbc.queryForObject("SELECT last_seq FROM harness_session WHERE id=?", Long.class, sessionId);
-        return new SessionSnapshot(session, runs, seq, usage(sessionId));
+        return new SessionSnapshot(session, runs, seq, usage(sessionId), subagents);
+    }
+
+    @Override
+    public synchronized Run startSubagent(String parentRunId, String parentCallId, String agent, String prompt) {
+        return tx.execute(status -> {
+            Run parent = run(parentRunId);
+            if (parent.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止");
+            if (jdbc.queryForObject("SELECT parent_run_id FROM harness_run WHERE id=?", String.class, parentRunId)
+                    != null) throw new HarnessException("CONFLICT", "子智能体不能再委派");
+            String id = UUID.randomUUID().toString();
+            jdbc.update(
+                    """
+                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,
+                        workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,parent_run_id,parent_call_id,agent_name)
+                    SELECT ?,session_id,?,?,scenario,'QUEUED','','',?,provider,model,
+                        workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,id,?,?
+                    FROM harness_run WHERE id=?
+                    """,
+                    id,
+                    UUID.randomUUID().toString(),
+                    prompt,
+                    now(),
+                    parentCallId,
+                    agent,
+                    parentRunId);
+            appendEvent(parent.sessionId(), id, "STATE", RunStatus.QUEUED, "");
+            return transition(id, RunStatus.RUNNING, "");
+        });
+    }
+
+    @Override
+    public synchronized List<SubagentRun> subagents(String runId) {
+        run(runId);
+        return jdbc.query(
+                "SELECT * FROM harness_run WHERE parent_run_id=? " + BY_QUEUED, SUBAGENT_MAPPER, runId);
     }
 
     /** Sum reported step usage across the session; steps without a report are skipped. */
@@ -360,7 +412,8 @@ public final class JdbcSessionStore implements SessionStore {
                 sessionId);
         var last = jdbc.queryForList("""
                 SELECT input_tokens FROM harness_step
-                WHERE run_id=(SELECT id FROM harness_run WHERE session_id=? ORDER BY created_at DESC, id DESC LIMIT 1)
+                WHERE run_id=(SELECT id FROM harness_run WHERE session_id=? AND parent_run_id IS NULL
+                              ORDER BY created_at DESC, id DESC LIMIT 1)
                   AND input_tokens IS NOT NULL
                 ORDER BY step DESC LIMIT 1
                 """, Integer.class, sessionId);
@@ -397,7 +450,7 @@ public final class JdbcSessionStore implements SessionStore {
         return jdbc.query("""
                 SELECT r.* FROM harness_run r
                 JOIN harness_event e ON e.run_id=r.id AND e.event_type='STATE' AND e.status='QUEUED'
-                WHERE r.session_id=? AND e.seq < (
+                WHERE r.session_id=? AND r.parent_run_id IS NULL AND e.seq < (
                     SELECT seq FROM harness_event WHERE run_id=? AND event_type='STATE' AND status='QUEUED')
                 ORDER BY e.seq
                 """, RUN_MAPPER, current.sessionId(), runId);

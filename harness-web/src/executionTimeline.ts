@@ -70,6 +70,7 @@ export function toolLabel(tool: ToolExecution): ToolLabel {
     case 'propose_file_change': return { icon: 'edit', verb: args.operation === 'create' ? '提议新建' : '提议修改', target: path }
     case 'load_skill': return { icon: 'puzzle', verb: '加载技能', target: text(args.id) }
     case 'read_plugin_resource': return { icon: 'puzzle', verb: '读取插件资源', target: text(args.id) }
+    case 'delegate_task': return { icon: 'branch', verb: `委派 ${text(args.agent) || '子智能体'}`, target: text(args.description) }
     default: return { icon: 'puzzle', verb: '调用', target: tool.name, raw: true }
   }
 }

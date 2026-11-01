@@ -2,7 +2,7 @@ package dev.javaharness.adapters.settings;
 
 /** Converts legacy character limits and fills token defaults when older settings are loaded. */
 final class TokenLimits {
-    static final int DEFAULT_CONTEXT_WINDOW = 16_000;
+    static final int DEFAULT_CONTEXT_WINDOW = 262_144;
     static final int DEFAULT_MAX_OUTPUT = 4_096;
 
     private TokenLimits() {}

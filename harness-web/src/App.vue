@@ -435,6 +435,9 @@ function follow(id: string, version: number) {
     if (version !== revision || source !== stream) return
     const event = JSON.parse(message.data) as RunEvent
     if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
+    // 子智能体的进展记在父运行上，使父运行时间线里的嵌套过程随之刷新。
+    const parentRunId = event.runId && snapshot.value?.subagents?.find(value => value.run.id === event.runId)?.parentRunId
+    if (parentRunId) toolRevisions.value[parentRunId] = event.seq
     if (['CONTEXT', 'REASONING'].includes(event.type) && event.runId) stepRevisions.value[event.runId] = event.seq
     if (event.type === 'FILE_CHANGE' && event.runId) changeRevisions.value[event.runId] = event.seq
     if (['COMMAND', 'PLUGIN'].includes(event.type) && event.runId) commandRevisions.value[event.runId] = event.seq
@@ -705,7 +708,7 @@ onUnmounted(() => {
           <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>
           <section class="response" :aria-label="run.model + ' 的回答'">
             <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
-            <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
+            <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
             <p v-if="isActive(run) ? !run.output && (pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
             <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
