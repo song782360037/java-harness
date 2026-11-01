@@ -80,6 +80,12 @@
 .composer-chip > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-chip[aria-expanded=true] { background: var(--accent-soft); border-color: var(--border-strong); color: var(--accent); }
 .effort-chip { color: var(--muted); }
+.effort-chip.is-max > svg:first-child { color: var(--accent); }
+/* 最高思考深度的文字流光，滑块与输入区入口共用。 */
+.reasoning-shimmer-text { background: linear-gradient(90deg, var(--text) 35%, var(--accent) 50%, var(--text) 65%) 0 0 / 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent !important; animation: reasoning-text-sweep 2.2s linear infinite; }
+/* 输入区入口保持弱化底色，流光只在切到最高档时播放两轮，避免常驻重绘。 */
+.effort-chip .reasoning-shimmer-text { background-image: linear-gradient(90deg, var(--accent) 35%, var(--text) 50%, var(--accent) 65%); animation-iteration-count: 2; }
+@keyframes reasoning-text-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
 .chevron { color: var(--faint); font-size: 1rem; flex-shrink: 0; }
 .selector-divider { height: 12px; border-left: 0.5px solid var(--border); margin: 0 2px; }
 .selector-popover { position: fixed; z-index: 40; max-width: calc(100vw - 24px); overflow: auto; background: var(--surface); border: 0.5px solid var(--border); box-shadow: var(--popover-shadow); border-radius: var(--radius-lg); padding: 6px; animation: arrive .16s ease-out; }
