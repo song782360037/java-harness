@@ -1,6 +1,23 @@
 export type RunStatus = 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED'
   | 'CANCELLED' | 'FAILED' | 'TIMED_OUT' | 'INTERRUPTED'
-export interface Session { id: string; title: string; createdAt: string; workspace: string; workspaceId: string; modelProfileId: string; reasoningEffort: string }
+export type ApprovalMode = 'MANUAL' | 'SMART' | 'FULL_ACCESS'
+export interface Session { id: string; title: string; createdAt: string; workspace: string; workspaceId: string; modelProfileId: string; reasoningEffort: string; approvalMode: ApprovalMode }
+export const approvalModeOptions: { value: ApprovalMode; label: string; description: string }[] = [
+  { value: 'MANUAL', label: '手动审批', description: '命令与外部工具都由你逐一确认' },
+  { value: 'SMART', label: '智能审批', description: '只读命令、允许规则和评审器判定安全的动作自动批准，文件修改直接写入' },
+  { value: 'FULL_ACCESS', label: '完全访问', description: '除高危命令与询问、拒绝规则外全部自动批准，文件修改直接写入' },
+]
+export const approvalModeLabel = (value: string) => approvalModeOptions.find(option => option.value === value)?.label || '手动审批'
+/** 审批记录的决策来源；用户决定不额外标注。 */
+export const decidedByLabel = (value: string | null | undefined, status: string) => value === 'FULL_ACCESS' ? '完全访问自动批准'
+  : value === 'RULE' ? (status === 'REJECTED' ? '规则拒绝' : '规则自动批准')
+  : value === 'JUDGE' ? (status === 'REJECTED' ? '智能审批拒绝' : '智能审批批准') : ''
+export type ApprovalReviewers = 'NONE' | 'JEV' | 'LLM' | 'JEV_LLM'
+export interface ApprovalReviewerSettings {
+  revision: number; reviewers: ApprovalReviewers; jevBaseUrl: string; jevModel: string; jevApiKeyConfigured: boolean
+  jevTimeoutSeconds: number; llmProfileId: string; llmTimeoutSeconds: number
+}
+export interface ApprovalRules { revision: number; deny: string[]; ask: string[]; allow: string[] }
 export interface Workspace { id: string; name: string; directories: string[]; icon: string; color: string; revision: number }
 export const reasoningOptions = [
   { value: '', label: '服务默认', short: '服务默认' }, { value: 'none', label: '关闭 · none', short: '关闭' },
@@ -37,11 +54,12 @@ export interface ToolExecution {
 export interface RunStep { step: number; outputStart: number; reasoning: string; startedAt: string; reasoningAt: string | null; finishedAt: string | null }
 export interface FileChange {
   id: string; runId: string; path: string; operation: 'replace' | 'create'; beforeContent: string | null
-  afterContent: string; status: string; detail: string; createdAt: string
+  afterContent: string; status: string; detail: string; createdAt: string; decidedBy: string | null
 }
 export interface CommandExecution {
   id: string; runId: string; command: string; directory: string; shell: string; purpose: string
   timeoutSeconds: number; status: string; stdout: string; stderr: string; exitCode: number | null; detail: string; createdAt: string
+  decidedBy: string | null
 }
 export interface ModelRequest {
   instructions: string; finalAnswerOnly: boolean; reasoningEffort: string
@@ -61,7 +79,7 @@ export interface SessionUsage { inputTokens: number; outputTokens: number; cache
 /** 父运行的 delegate_task 调用创建的子智能体运行。 */
 export interface SubagentRun { parentRunId: string; parentCallId: string; agent: string; run: Run }
 export interface Snapshot { session: Session; runs: Run[]; lastSeq: number; usage: SessionUsage | null; subagents?: SubagentRun[] }
-export interface Submission { requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string }
+export interface Submission { requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string; approvalMode?: ApprovalMode }
 export interface RunEvent { sessionId: string; seq: number; runId: string | null; type: string }
 export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includes(run.status)
 export class ApiError extends Error {

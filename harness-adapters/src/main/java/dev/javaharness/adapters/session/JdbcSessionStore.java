@@ -10,6 +10,7 @@ import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.model.ModelUsage;
+import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
@@ -75,7 +76,8 @@ public final class JdbcSessionStore implements SessionStore {
             rs.getString("workspace"),
             rs.getString("model_profile_id"),
             rs.getString("reasoning_effort"),
-            rs.getString("workspace_id") == null ? "" : rs.getString("workspace_id"));
+            rs.getString("workspace_id") == null ? "" : rs.getString("workspace_id"),
+            rs.getString("approval_mode"));
     private static final RowMapper<Workspace> WORKSPACE_MAPPER = (rs, row) -> new Workspace(
             rs.getString("id"),
             rs.getString("name"),
@@ -375,9 +377,9 @@ public final class JdbcSessionStore implements SessionStore {
             jdbc.update(
                     """
                     INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,
-                        workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,parent_run_id,parent_call_id,agent_name)
+                        workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,parent_run_id,parent_call_id,agent_name,approval_mode)
                     SELECT ?,session_id,?,?,scenario,'QUEUED','','',?,provider,model,
-                        workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,id,?,?
+                        workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,id,?,?,approval_mode
                     FROM harness_run WHERE id=?
                     """,
                     id,
@@ -781,6 +783,20 @@ public final class JdbcSessionStore implements SessionStore {
             ModelSelection requested,
             ModelSelection selected,
             String extensions) {
+        return submit(sessionId, requestId, prompt, scenario, model, requested, selected, extensions, null);
+    }
+
+    @Override
+    public synchronized Submission submit(
+            String sessionId,
+            String requestId,
+            String prompt,
+            String scenario,
+            ModelInfo model,
+            ModelSelection requested,
+            ModelSelection selected,
+            String extensions,
+            ApprovalMode approvalMode) {
         var retry = retry(sessionId, requestId, prompt, scenario, requested);
         if (retry != null) return retry;
         return tx.execute(status -> {
@@ -792,10 +808,11 @@ public final class JdbcSessionStore implements SessionStore {
                     "SELECT active_run_id FROM harness_session WHERE id=?", String.class, sessionId);
             if (active != null) throw new HarnessException("BUSY", "此会话已有正在执行的任务");
             String id = UUID.randomUUID().toString();
+            String mode = approvalMode == null ? session(sessionId).approvalMode() : approvalMode.name();
             jdbc.update(
                     """
-                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot)
-                    VALUES (?,?,?,?,?,'QUEUED','','',?,?,?,?,?,?,?,?)
+                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,approval_mode)
+                    VALUES (?,?,?,?,?,'QUEUED','','',?,?,?,?,?,?,?,?,?)
                     """,
                     id,
                     sessionId,
@@ -809,12 +826,14 @@ public final class JdbcSessionStore implements SessionStore {
                     selected.profileId(),
                     selected.reasoningEffort(),
                     encode(requested),
-                    extensions);
+                    extensions,
+                    mode);
             jdbc.update(
-                    "UPDATE harness_session SET active_run_id=?,model_profile_id=?,reasoning_effort=? WHERE id=?",
+                    "UPDATE harness_session SET active_run_id=?,model_profile_id=?,reasoning_effort=?,approval_mode=? WHERE id=?",
                     id,
                     selected.profileId(),
                     selected.reasoningEffort(),
+                    mode,
                     sessionId);
             appendEvent(sessionId, id, "STATE", RunStatus.QUEUED, "");
             return new Submission(run(id), true);

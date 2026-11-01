@@ -197,3 +197,23 @@
   .usage-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-toolbar { flex-wrap: wrap; }
 }
+.approval-chip { color: var(--muted); }
+.approval-chip.is-full { color: var(--warning); }
+.approval-popover .selector-option small { white-space: normal; }
+.approval-confirm { margin: 6px; padding: 10px; border-radius: var(--radius-md); background: var(--subtle); font-size: var(--font-caption); line-height: 1.7; }
+.approval-confirm p { margin: 0 0 8px; color: var(--warning); }
+.approval-confirm button { width: 100%; }
+.approval-settings { margin-top: 24px; }
+.approval-intro { margin: 0 0 20px; color: var(--muted); font-size: var(--font-caption); line-height: 1.7; }
+.approval-rule-field { padding: 16px 0; border-bottom: 0.5px solid var(--border); }
+.approval-rule-field label { display: block; font-weight: 550; }
+.approval-rule-field p { margin: 4px 0 10px; color: var(--muted); font-size: var(--font-caption); line-height: 1.7; }
+.approval-rule-field textarea { display: block; width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); color: var(--text); background: var(--surface); font: var(--font-caption)/1.7 ui-monospace, 'Cascadia Code', Consolas, monospace; resize: vertical; }
+.approval-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 18px; }
+/* 窄屏只保留审批图标，与其他选择器保持一行。 */
+@media (max-width: 520px) { .approval-chip > span { display: none; } .approval-anchor { flex-shrink: 0; } }
+.approval-section-title { margin: 32px 0 8px; font-size: var(--font-heading); font-weight: 600; }
+.approval-input { display: block; width: 100%; box-sizing: border-box; min-height: 36px; margin-top: 6px; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); color: var(--text); background: var(--surface); font-size: var(--font-caption); }
+.approval-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.approval-grid label { font-size: var(--font-caption); font-weight: 500; color: var(--muted); }
+.approval-check { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: var(--font-caption); color: var(--muted); }

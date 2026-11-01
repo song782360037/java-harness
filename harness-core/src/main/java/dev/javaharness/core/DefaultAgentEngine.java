@@ -10,6 +10,7 @@ import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.model.ModelTurn;
 import dev.javaharness.spi.model.TokenCounter;
 import dev.javaharness.spi.run.AgentEngine;
+import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunConfiguration;
 import dev.javaharness.spi.run.RunConfigurationSource;
@@ -127,6 +128,17 @@ public final class DefaultAgentEngine implements AgentEngine {
     @Override
     public synchronized SessionStore.Submission submit(
             String sessionId, String requestId, String prompt, String scenario, ModelSelection selection) {
+        return submit(sessionId, requestId, prompt, scenario, selection, null);
+    }
+
+    @Override
+    public synchronized SessionStore.Submission submit(
+            String sessionId,
+            String requestId,
+            String prompt,
+            String scenario,
+            ModelSelection selection,
+            ApprovalMode approvalMode) {
         if (closed) throw new HarnessException("UNAVAILABLE", "服务正在停止");
         // A retried request id returns the existing run without capturing new configuration.
         var retry = store.retry(sessionId, requestId, prompt, scenario, selection);
@@ -147,7 +159,8 @@ public final class DefaultAgentEngine implements AgentEngine {
                         configuration.modelInfo(),
                         selection,
                         configuration.selection(),
-                        extension.snapshot());
+                        extension.snapshot(),
+                        approvalMode);
                 if (submission.created()) extension.submitted(submission.run().id());
             } catch (RuntimeException error) {
                 extension.close();

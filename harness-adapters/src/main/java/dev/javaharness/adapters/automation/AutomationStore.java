@@ -11,7 +11,10 @@ import org.springframework.jdbc.core.RowMapper;
 
 /** 定时自动化及其触发历史的 JDBC 存储；并发协调由调用方负责。 */
 public final class AutomationStore {
-    /** 一个定时自动化；reasoningEffort 为 null 表示使用模型配置的默认强度，nextRunAt 为 null 表示不会自动触发。 */
+    /**
+     * 一个定时自动化；reasoningEffort 为 null 表示使用模型配置的默认强度，nextRunAt 为 null 表示不会自动触发，
+     * approvalMode 为每次触发的运行所用的审批模式。
+     */
     public record Automation(
             String id,
             String name,
@@ -24,6 +27,7 @@ public final class AutomationStore {
             int scheduleWeekday,
             String cron,
             boolean allowCommands,
+            String approvalMode,
             boolean enabled,
             Instant nextRunAt,
             Instant createdAt,
@@ -54,6 +58,7 @@ public final class AutomationStore {
             rs.getInt("schedule_weekday"),
             rs.getString("cron"),
             rs.getBoolean("allow_commands"),
+            rs.getString("approval_mode"),
             rs.getBoolean("enabled"),
             instant(rs.getObject("next_run_at", OffsetDateTime.class)),
             rs.getObject("created_at", OffsetDateTime.class).toInstant(),
@@ -103,8 +108,8 @@ public final class AutomationStore {
             jdbc.update(
                     """
                     INSERT INTO harness_automation(id,name,prompt,workspace_id,model_profile_id,reasoning_effort,schedule_kind,
-                        schedule_time,schedule_weekday,cron,allow_commands,enabled,next_run_at,created_at,revision)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+                        schedule_time,schedule_weekday,cron,allow_commands,approval_mode,enabled,next_run_at,created_at,revision)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
                     """,
                     id,
                     value.name(),
@@ -117,6 +122,7 @@ public final class AutomationStore {
                     value.scheduleWeekday(),
                     value.cron(),
                     value.allowCommands(),
+                    value.approvalMode(),
                     value.enabled(),
                     time(value.nextRunAt()),
                     time(value.createdAt()));
@@ -125,7 +131,8 @@ public final class AutomationStore {
         int updated = jdbc.update(
                 """
                 UPDATE harness_automation SET name=?,prompt=?,workspace_id=?,model_profile_id=?,reasoning_effort=?,schedule_kind=?,
-                    schedule_time=?,schedule_weekday=?,cron=?,allow_commands=?,enabled=?,next_run_at=?,revision=revision+1
+                    schedule_time=?,schedule_weekday=?,cron=?,allow_commands=?,approval_mode=?,enabled=?,next_run_at=?,
+                    revision=revision+1
                 WHERE id=? AND revision=?
                 """,
                 value.name(),
@@ -138,6 +145,7 @@ public final class AutomationStore {
                 value.scheduleWeekday(),
                 value.cron(),
                 value.allowCommands(),
+                value.approvalMode(),
                 value.enabled(),
                 time(value.nextRunAt()),
                 value.id(),

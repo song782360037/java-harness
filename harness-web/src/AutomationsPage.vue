@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { api, effortLabel, reasoningOptions, type ModelProfile, type Workspace } from './api'
+import { api, approvalModeLabel, approvalModeOptions, effortLabel, reasoningOptions, type ModelProfile, type Workspace } from './api'
 import { emptyDraft, executionState, formatTime, scheduleLabel, scheduleOptions, triggerLabel, weekdays,
   type Automation, type AutomationDraft, type AutomationExecution } from './automations'
 import UiIcon from './UiIcon.vue'
@@ -141,7 +141,8 @@ onUnmounted(() => window.clearInterval(pollTimer))
           <dl class="automation-meta">
             <div><dt>工作区</dt><dd>{{ workspaceName(selected.workspaceId) }}</dd></div>
             <div><dt>模型</dt><dd>{{ profileName(selected.modelProfileId) }} · {{ selected.reasoningEffort === null ? '模型默认强度' : effortLabel(selected.reasoningEffort) }}</dd></div>
-            <div><dt>命令执行</dt><dd>{{ selected.allowCommands ? '允许（每条仍需你审批）' : '不提供命令工具' }}</dd></div>
+            <div><dt>命令执行</dt><dd>{{ selected.allowCommands ? (selected.approvalMode === 'MANUAL' ? '允许（每条仍需你审批）' : '允许（按审批模式处理）') : '不提供命令工具' }}</dd></div>
+            <div><dt>审批模式</dt><dd>{{ approvalModeLabel(selected.approvalMode) }}</dd></div>
           </dl>
           <p class="automation-prompt">{{ selected.prompt }}</p>
           <h3 class="automation-history-title">运行记录</h3>
@@ -180,7 +181,9 @@ onUnmounted(() => window.clearInterval(pollTimer))
             </div>
             <template v-if="form.scheduleKind === 'CUSTOM'"><label for="automation-cron">cron 表达式</label><input id="automation-cron" v-model="form.cron" required maxlength="100" placeholder="0 9 * * 1-5" spellcheck="false" aria-describedby="automation-cron-note" /><p id="automation-cron-note" class="field-note">5 段：分 时 日 月 周，按本机时区；分钟需为单个数字，即最多每小时一次；“日”和“周”只能指定一个。周日为 0。</p></template>
             <label class="check-label"><input v-model="form.allowCommands" type="checkbox" :disabled="!form.workspaceId" aria-describedby="automation-command-note" /> 允许提议执行命令</label>
-            <p id="automation-command-note" class="field-note">关闭时不提供命令工具，运行不会卡在审批上；开启后每条命令仍需你在会话中批准，等待计入任务超时。</p>
+            <p id="automation-command-note" class="field-note">关闭时不提供命令工具；开启后命令按下方审批模式处理，需要人工确认的命令会等你在会话中批准，等待计入任务超时。</p>
+            <label for="automation-approval">审批模式</label><select id="automation-approval" v-model="form.approvalMode" aria-describedby="automation-approval-note"><option v-for="option in approvalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
+            <p id="automation-approval-note" class="field-note" :role="form.approvalMode === 'FULL_ACCESS' ? 'alert' : undefined">{{ approvalModeOptions.find(option => option.value === form.approvalMode)?.description }}{{ form.approvalMode === 'FULL_ACCESS' ? `。无人值守时${form.allowCommands ? '命令和' : ''}外部工具调用会在无人确认的情况下自动执行，只建议在你信任的工作区使用。` : '' }}</p>
             <label v-if="form.scheduleKind !== 'MANUAL'" class="check-label"><input v-model="form.enabled" type="checkbox" /> 启用定时触发</label>
           </fieldset>
         </div>

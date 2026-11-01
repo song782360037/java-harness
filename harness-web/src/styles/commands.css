@@ -32,3 +32,5 @@
   .command-card footer > div { width: 100%; }
   .command-card footer button { flex: 1; min-height: 40px; }
 }
+/* 规则或完全访问模式自动处理的审批记录。 */
+.command-decided { flex-shrink: 0; padding: 1px 7px; border-radius: var(--radius-sm); background: var(--subtle); color: var(--muted); font-size: var(--font-caption); }

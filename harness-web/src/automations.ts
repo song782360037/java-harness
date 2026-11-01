@@ -1,8 +1,10 @@
+import type { ApprovalMode } from './api'
+
 export type ScheduleKind = 'HOURLY' | 'DAILY' | 'WEEKDAYS' | 'WEEKLY' | 'CUSTOM' | 'MANUAL'
 export interface Automation {
   id: string; name: string; prompt: string; workspaceId: string; modelProfileId: string; reasoningEffort: string | null
   scheduleKind: ScheduleKind; scheduleTime: string; scheduleWeekday: number; cron: string
-  allowCommands: boolean; enabled: boolean; nextRunAt: string | null; createdAt: string; revision: number
+  allowCommands: boolean; approvalMode: ApprovalMode; enabled: boolean; nextRunAt: string | null; createdAt: string; revision: number
 }
 export interface AutomationExecution {
   id: string; automationId: string; trigger: 'SCHEDULED' | 'CATCH_UP' | 'MANUAL'; scheduledFor: string | null; startedAt: string
@@ -18,7 +20,7 @@ export const weekdays = ['周日', '周一', '周二', '周三', '周四', '周�
 
 export function emptyDraft(workspaceId = '', modelProfileId = 'default'): AutomationDraft {
   return { revision: 0, name: '', prompt: '', workspaceId, modelProfileId, reasoningEffort: null, scheduleKind: 'DAILY',
-    scheduleTime: '09:00', scheduleWeekday: 1, cron: '', allowCommands: false, enabled: true }
+    scheduleTime: '09:00', scheduleWeekday: 1, cron: '', allowCommands: false, approvalMode: 'MANUAL', enabled: true }
 }
 
 /** 列表与详情中展示的调度说明。 */

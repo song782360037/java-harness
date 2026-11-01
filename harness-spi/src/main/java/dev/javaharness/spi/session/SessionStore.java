@@ -5,6 +5,7 @@ import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.model.ModelUsage;
+import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
 import dev.javaharness.spi.run.RunStatus;
@@ -102,6 +103,19 @@ public interface SessionStore {
             ModelSelection selected,
             String extensions) {
         return submit(sessionId, requestId, prompt, scenario, model, requested, selected);
+    }
+    /** A non-null approval mode becomes the session's choice only when the run is created; null keeps it. */
+    default Submission submit(
+            String sessionId,
+            String requestId,
+            String prompt,
+            String scenario,
+            ModelInfo model,
+            ModelSelection requested,
+            ModelSelection selected,
+            String extensions,
+            ApprovalMode approvalMode) {
+        return submit(sessionId, requestId, prompt, scenario, model, requested, selected, extensions);
     }
     /** Notify clients that extension preparation or an external approval changed. */
     default void pluginsUpdated(String runId) {

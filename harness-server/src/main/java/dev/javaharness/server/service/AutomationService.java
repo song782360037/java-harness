@@ -6,6 +6,7 @@ import dev.javaharness.adapters.automation.AutomationStore.Execution;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.AgentEngine;
+import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.session.SessionStore;
 import java.time.Clock;
@@ -39,7 +40,7 @@ public final class AutomationService implements AutoCloseable {
     private static final DateTimeFormatter TITLE_TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm");
     private static final Logger log = LoggerFactory.getLogger(AutomationService.class);
 
-    /** 新建或编辑请求；revision 新建时为 0，reasoningEffort 为 null 表示使用模型配置默认值。 */
+    /** 新建或编辑请求；revision 新建时为 0，reasoningEffort 为 null 表示使用模型配置默认值，approvalMode 为 null 视为手动审批。 */
     public record Draft(
             long revision,
             String name,
@@ -52,6 +53,7 @@ public final class AutomationService implements AutoCloseable {
             int scheduleWeekday,
             String cron,
             boolean allowCommands,
+            String approvalMode,
             boolean enabled) {}
 
     private final AutomationStore store;
@@ -130,6 +132,8 @@ public final class AutomationService implements AutoCloseable {
         if (existing == null || !profileId.equals(existing.modelProfileId())) settings.profile(profileId);
         if (draft.reasoningEffort() != null && !ModelSelection.EFFORTS.contains(draft.reasoningEffort()))
             throw new HarnessException("INVALID", "不支持的思考强度");
+        ApprovalMode approvalMode =
+                draft.approvalMode() == null ? ApprovalMode.MANUAL : ApprovalMode.parse(draft.approvalMode());
         String kind = draft.scheduleKind() == null ? "" : draft.scheduleKind();
         String time = draft.scheduleTime() == null ? "09:00" : draft.scheduleTime();
         String cron = cron(kind, time, draft.scheduleWeekday(), draft.cron());
@@ -147,6 +151,7 @@ public final class AutomationService implements AutoCloseable {
                 draft.scheduleWeekday(),
                 cron,
                 draft.allowCommands(),
+                approvalMode.name(),
                 draft.enabled(),
                 draft.enabled() ? next(cron, now) : null,
                 existing == null ? now : existing.createdAt(),
@@ -242,7 +247,13 @@ public final class AutomationService implements AutoCloseable {
         SessionStore.Submission submission;
         try {
             Supplier<SessionStore.Submission> submit = () ->
-                    engine.submit(sessionId, UUID.randomUUID().toString(), automation.prompt(), "NORMAL", selection);
+                    engine.submit(
+                            sessionId,
+                            UUID.randomUUID().toString(),
+                            automation.prompt(),
+                            "NORMAL",
+                            selection,
+                            ApprovalMode.valueOf(automation.approvalMode()));
             submission = automation.allowCommands() ? submit.get() : unattended.withoutCommands(sessionId, submit);
         } catch (HarnessException error) {
             return store.fail(execution.id(), error.getMessage());

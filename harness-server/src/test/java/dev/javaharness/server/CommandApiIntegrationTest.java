@@ -193,4 +193,30 @@ class CommandApiIntegrationTest {
             upstream.stop(0);
         }
     }
+
+    @Test
+    void approvalRulesAndSubmittedModeAreValidated() throws Exception {
+        long revision = get("/approval-policy").path("revision").asLong();
+        var saved = post(
+                "/approval-policy",
+                Map.of("revision", revision, "deny", List.of("git push"), "ask", List.of(), "allow", List.of("mvn test")));
+        assertThat(saved.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(saved.body()).path("allow").get(0).asText()).isEqualTo("mvn test");
+        assertThat(post("/approval-policy", Map.of("revision", revision, "deny", List.of(), "ask", List.of(), "allow", List.of()))
+                        .statusCode())
+                .isEqualTo(409);
+        assertThat(post("/approval-policy", Map.of("revision", revision + 1, "deny", List.of(), "ask", List.of(), "allow", List.of("bash")))
+                        .statusCode())
+                .isEqualTo(400);
+
+        String session = json.readTree(post("/sessions", Map.of("title", "mode")).body())
+                .path("id")
+                .asText();
+        assertThat(get("/sessions/" + session).path("session").path("approvalMode").asText()).isEqualTo("MANUAL");
+        var invalid = post(
+                "/sessions/" + session + "/runs",
+                Map.of("requestId", UUID.randomUUID().toString(), "prompt", "hi", "approvalMode", "YOLO"));
+        assertThat(invalid.statusCode()).isEqualTo(400);
+        assertThat(get("/sessions/" + session).path("session").path("approvalMode").asText()).isEqualTo("MANUAL");
+    }
 }

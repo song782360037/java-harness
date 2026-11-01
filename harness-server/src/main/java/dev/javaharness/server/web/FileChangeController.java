@@ -34,4 +34,10 @@ public class FileChangeController {
     public FileChange reject(@PathVariable String id) {
         return changes.reject(id);
     }
+
+    /** Undo an applied edit while the session is idle; a file changed since then is never overwritten. */
+    @PostMapping(value = "/file-changes/{id}/revert", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public FileChange revert(@PathVariable String id) {
+        return changes.revert(id);
+    }
 }

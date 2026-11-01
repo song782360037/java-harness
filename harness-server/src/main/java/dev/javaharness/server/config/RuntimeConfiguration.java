@@ -1,5 +1,7 @@
 package dev.javaharness.server.config;
 
+import dev.javaharness.adapters.approval.ApprovalPolicy;
+import dev.javaharness.adapters.approval.ApprovalReviewer;
 import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.command.CommandService;
 import dev.javaharness.adapters.plugins.PluginService;
@@ -11,6 +13,7 @@ import dev.javaharness.adapters.usage.LocalAgentUsageReader;
 import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
+import dev.javaharness.server.service.LlmApprovalJudge;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.SettingsService;
 import dev.javaharness.server.service.UnattendedSubmissions;
@@ -23,6 +26,8 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
@@ -154,6 +159,35 @@ public class RuntimeConfiguration {
     @DependsOnDatabaseInitialization
     CommandService commandService(JdbcTemplate jdbc, PlatformTransactionManager transactions, SessionStore sessions) {
         return new CommandService(jdbc, new TransactionTemplate(transactions), sessions);
+    }
+
+    /** The LLM reviewer resolves model profiles lazily: the settings service itself depends on the command service. */
+    @Bean(destroyMethod = "close")
+    LlmApprovalJudge llmApprovalJudge(ObjectProvider<RunConfigurationSource> configurations) {
+        return new LlmApprovalJudge(configurations::getObject);
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    ApprovalReviewer approvalReviewer(
+            JdbcTemplate jdbc, LlmApprovalJudge llm, @Value("${harness.settings.key-file}") String keyFile) {
+        return new ApprovalReviewer(jdbc, new LocalSecretCipher(Path.of(keyFile)), llm);
+    }
+
+    /** Attach the reviewer after all singletons exist; no run can start before the context is ready. */
+    @Bean
+    SmartInitializingSingleton approvalReviewWiring(
+            CommandService commands, PluginService plugins, ApprovalReviewer reviewer) {
+        return () -> {
+            commands.useReviewer(reviewer);
+            plugins.approvals().useReviewer(reviewer);
+        };
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    ApprovalPolicy approvalPolicy(JdbcTemplate jdbc) {
+        return new ApprovalPolicy(jdbc);
     }
 
     @Bean(destroyMethod = "close")

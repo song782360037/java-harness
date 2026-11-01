@@ -16,4 +16,5 @@ public record CommandExecution(
         String stderr,
         Integer exitCode,
         String detail,
-        Instant createdAt) {}
+        Instant createdAt,
+        String decidedBy) {}

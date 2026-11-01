@@ -50,8 +50,9 @@ public final class CommandWorkspaceTools implements WorkspaceTools {
                         + "No command runs before approval. Use an existing workspace-relative directory, normally '.'. "
                         + "Explain the purpose. Timeout is 1–300 seconds after launch; approval waiting counts toward the overall run deadline. "
                         + "No interactive input or background services. Output limited to 32000 characters. "
-                        + "Use this for builds/tests, not to bypass file diff review. A proposed file edit is not applied yet: "
-                        + "finish the answer and let the user apply the diff before asking to test it in a later turn. "
+                        + "Use this for builds/tests, not to bypass file diff review. A file edit saved for review is not "
+                        + "applied yet: finish the answer and let the user apply the diff before asking to test it in a "
+                        + "later turn. Edits reported as written are already on disk and can be tested now. "
                         + "If rejected or stopped, do not retry without a new user request.",
                 Map.of(
                         "type",

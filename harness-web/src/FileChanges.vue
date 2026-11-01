@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type FileChange } from './api'
 import FileChangeCard from './FileChangeCard.vue'
-const props = defineProps<{ runId: string; revision: string; canApply: boolean }>()
+const props = defineProps<{ runId: string; revision: string; canApply: boolean; canRevert: boolean }>()
 const changes = ref<FileChange[]>([])
 const error = ref('')
 const busy = ref(false)
@@ -20,7 +20,7 @@ async function load() {
   } catch { if (!disposed) error.value = '文件修改记录读取失败，请重试。' }
   finally { loading = false; if (dirty && !disposed) { dirty = false; void load() } }
 }
-async function review(change: FileChange, action: 'apply' | 'reject') {
+async function review(change: FileChange, action: 'apply' | 'reject' | 'revert') {
   if (busy.value) return
   busy.value = true; error.value = ''; version++
   try {
@@ -38,6 +38,6 @@ onUnmounted(() => { disposed = true })
   <section v-if="changes.length || error" class="file-changes" aria-label="文件修改审核">
     <h3>文件修改 <span>{{ changes.length }}</span></h3>
     <p v-if="error" class="dialog-error" role="alert">{{ error }} <button type="button" @click="retry">刷新记录</button></p>
-    <FileChangeCard v-for="change in changes" :key="change.id" :change="change" :busy="busy" :can-apply="canApply" @apply="review(change, 'apply')" @reject="review(change, 'reject')" />
+    <FileChangeCard v-for="change in changes" :key="change.id" :change="change" :busy="busy" :can-apply="canApply" :can-revert="canRevert" @apply="review(change, 'apply')" @reject="review(change, 'reject')" @revert="review(change, 'revert')" />
   </section>
 </template>

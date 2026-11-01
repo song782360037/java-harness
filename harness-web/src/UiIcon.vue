@@ -24,6 +24,7 @@ const paths: Record<string, string> = {
   eye: 'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
   sun: 'M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
   reasoning: 'm13 2-9 12h7l-1 8 10-13h-7l1-7Z',
+  shield: 'M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z',
   coffee: 'M4 4h12v9a5 5 0 0 1-10 0V4M16 5h2a3 3 0 0 1 0 6h-2M3 20h16',
   flask: 'M9 3h6M10 3v6L4 20h16L14 9V3M7 14h10',
   rocket: 'M14 4c3-1 6-1 6-1s0 3-1 6l-8 8-5-5 8-8ZM6 12H3l3-6h5M11 17v4l6-3v-5M5 16l-2 5 5-2M16 7h.01',

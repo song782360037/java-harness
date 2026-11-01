@@ -12,6 +12,16 @@ public interface AgentEngine extends AutoCloseable {
 
     SessionStore.Submission submit(
             String sessionId, String requestId, String prompt, String scenario, ModelSelection selection);
+    /** Null approval mode keeps the session's last choice; a retried request id keeps the original run's mode. */
+    default SessionStore.Submission submit(
+            String sessionId,
+            String requestId,
+            String prompt,
+            String scenario,
+            ModelSelection selection,
+            ApprovalMode approvalMode) {
+        return submit(sessionId, requestId, prompt, scenario, selection);
+    }
 
     Run cancel(String runId);
 

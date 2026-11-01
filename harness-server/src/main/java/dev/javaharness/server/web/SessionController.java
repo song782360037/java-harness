@@ -5,6 +5,7 @@ import dev.javaharness.server.service.WorkspaceDirectories;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.AgentEngine;
+import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunStep;
 import dev.javaharness.spi.run.SubagentRun;
@@ -51,7 +52,12 @@ public class SessionController {
     public record RenameSession(String title) {}
 
     public record SubmitRun(
-            String requestId, String prompt, String scenario, String modelProfileId, String reasoningEffort) {}
+            String requestId,
+            String prompt,
+            String scenario,
+            String modelProfileId,
+            String reasoningEffort,
+            String approvalMode) {}
 
     @GetMapping("/sessions")
     public List<Session> sessions() {
@@ -121,12 +127,15 @@ public class SessionController {
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
         var selection = new ModelSelection(request.modelProfileId(), request.reasoningEffort());
+        // Omitting the mode keeps the session's last choice.
+        var mode = request.approvalMode() == null ? null : ApprovalMode.parse(request.approvalMode());
         var result = engine.submit(
                 id,
                 request.requestId(),
                 request.prompt(),
                 request.scenario() == null ? "NORMAL" : request.scenario(),
-                selection);
+                selection,
+                mode);
         // 首个任务创建成功即触发 AI 命名，与任务执行并行；占位标题用于识别用户是否已手动改名。
         if (result.created()) {
             var snapshot = store.snapshot(id);

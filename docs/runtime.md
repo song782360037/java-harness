@@ -79,7 +79,9 @@ QUEUED 或 RUNNING → CANCELLING → CANCELLED / TIMED_OUT
 
 提交为 `{ "requestId": "标准小写 UUID", "prompt": "分析项目入口", "modelProfileId": "default", "reasoningEffort": "high" }`。modelProfileId 省略/null 使用 default 配置，reasoningEffort 省略/null 使用该配置默认强度，空字符串明确省略上游参数。唯一键是 `(session_id, request_id)`；同 ID 同内容返回原 Run，含终态，即使配置已删除也不重复运行。复用 ID 修改 prompt/scenario/模型选择/强度返回 409。prompt 为 1–4000 字符。scenario 仅用于旧记录兼容，新请求省略或使用 NORMAL；FAIL / SLOW 不能创建真实任务。
 
-Session 保存 id、title、createdAt、workspace、modelProfileId、reasoningEffort，后两项为最近一次成功提交的选择。页面可选择本机现有可读目录，服务端规范化为绝对路径，模型工具仅访问该根目录。Run 保存 provider、model、context、workspace、modelProfileId、reasoningEffort，绑定提交时选择的配置和会话目录。新 provider 为 openai-compatible，不能据此判定实际厂商；旧来源标识保留。ModelRequest 包含 runId、model、scenario、messages、context、step、workspace、tools、instructions、finalAnswerOnly、reasoningEffort。instructions 以首条 system 消息发送，但不写入历史问答；finalAnswerOnly=true 时发送标准 tool_choice=none。页面展示系统指引、思考强度及“收尾回答”标记，消息条数包含系统消息。旧 JSON 的新字段默认为空字符串/false。ToolExecution 包含 runId、step、callId、name、arguments、status、output。快照不含鉴权配置；HTTP 适配器将 toolCalls/toolCallId 映射为标准 tool_calls/tool_call_id。
+可选的 `approvalMode`（MANUAL / SMART / FULL_ACCESS）与新 Run 在同一事务中写入 Run 和会话，Run 内不可变，子 Run 复制父 Run；省略时使用会话上次的选择，非法值 400。提交被拒绝（忙碌、校验失败）不改变会话的选择，复用 requestId 返回原 Run 时也不重新捕获。
+
+Session 保存 id、title、createdAt、workspace、modelProfileId、reasoningEffort、approvalMode，后三项为最近一次成功提交的选择。页面可选择本机现有可读目录，服务端规范化为绝对路径，模型工具仅访问该根目录。Run 保存 provider、model、context、workspace、modelProfileId、reasoningEffort，绑定提交时选择的配置和会话目录。新 provider 为 openai-compatible，不能据此判定实际厂商；旧来源标识保留。ModelRequest 包含 runId、model、scenario、messages、context、step、workspace、tools、instructions、finalAnswerOnly、reasoningEffort。instructions 以首条 system 消息发送，但不写入历史问答；finalAnswerOnly=true 时发送标准 tool_choice=none。页面展示系统指引、思考强度及“收尾回答”标记，消息条数包含系统消息。旧 JSON 的新字段默认为空字符串/false。ToolExecution 包含 runId、step、callId、name、arguments、status、output。快照不含鉴权配置；HTTP 适配器将 toolCalls/toolCallId 映射为标准 tool_calls/tool_call_id。
 
 配置保存请求包含 revision、baseUrl、modelName、apiKey、clearApiKey、apiKeyRequired、connectTimeoutSeconds、runTimeoutSeconds、contextWindowTokens、maxOutputTokens、toolTimeoutSeconds、maxToolsPerRequest。apiKey 省略/空白表示保留，非空替换；clearApiKey=true 清除，不能同时提交新 Key。响应包含除 apiKey/clearApiKey 外的配置字段，并增加 apiKeyConfigured 和 model（ModelInfo）。保存不调用上游、不证明连通性；缺少模型名或必需 Key 时仍可保存，但不能提交新任务。字段范围及兼容地址示例见 README 的页面配置说明。
 
@@ -126,7 +128,7 @@ HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工�
 
 默认总超时 600 秒覆盖整个循环（已保存的模型配置保持原值），HTTP 连接超时 10 秒，单工具默认 5 秒。终止本机请求不能保证撤销上游计费。读取工具在操作之间检查截止时间；文件提案在进入持久化前检查取消、并在存储锁内再次校验 RUNNING，不保证强行中断磁盘或数据库 I/O。工具目录、排除规则、预算及配置方法见 README“启用工作区”。本版支持文件修改审核与命令审批，没有通用审批扩展、多用户隔离、操作系统沙箱或跨进程协调，不应用于不可信进程可恶意改写的文件系统。
 
-文件提案独立于 Run 终态保存。ReviewWorkspaceTools 的 propose_file_change 只创建 PENDING 记录并回传提案 ID；Run 继续回答，不等待用户审批，也不因应用动作自动续跑。审核 API 通过 FileChangeService 校验 Run 正常完成、会话空闲及工作区一致。每次提案/处理变化提交 FILE_CHANGE 事件；恢复连接及刷新页面可重新读取完整记录。文件被改动时 CONFLICT 是持久化审核结果，不是成功写入；UNCERTAIN 需要检查文件并重新生成提案。模型下次使用工具重新读取磁盘，不将历史待审核提案视为已应用。
+文件提案独立于 Run 终态保存。手动审批的 Run 与受保护路径：ReviewWorkspaceTools 的 propose_file_change 只创建 PENDING 记录并回传提案 ID；Run 继续回答，不等待用户审批，也不因应用动作自动续跑。智能审批与完全访问的 Run 先写 APPLYING 再落盘，结果为 APPLIED / CONFLICT / UNCERTAIN，工具结果明确告知是否已写入；APPLIED（含人工应用的）可在会话空闲时撤销，文件内容需仍等于修改后内容，新建文件撤销即删除，REVERTING 在重启后记为 UNCERTAIN。审核 API 通过 FileChangeService 校验 Run 正常完成、会话空闲及工作区一致。每次提案/处理变化提交 FILE_CHANGE 事件；恢复连接及刷新页面可重新读取完整记录。文件被改动时 CONFLICT 是持久化审核结果，不是成功写入；UNCERTAIN 需要检查文件并重新生成提案。模型下次使用工具重新读取磁盘，不将历史待审核提案视为已应用。
 
 ## 子智能体
 
@@ -151,6 +153,30 @@ V9 的 harness_command 固定保存命令、用途、规范化目录、shell、�
 
 API 为 GET `/api/runs/{id}/commands`，以及 POST JSON `/api/commands/{id}/approve`、`reject`、`stop`。沿用本机 Host/Origin 保护，不提供模型侧批准工具。命令可操作服务账户可访问的资源，不属于文件工具的排除路径沙箱；环境不会主动注入模型 Key，并移除继承的 HARNESS_MODEL_API_KEY，但不能隔离账户本来可访问的其他凭据。
 
+## 审批模式
+
+V18 增加 harness_session / harness_run 的 approval_mode、命令与外部工具审批的 decided_by（USER / RULE / FULL_ACCESS，未决与旧记录为 NULL），以及单行的 harness_approval_policy（revision 与 deny/ask/allow 命令规则）。命令提案在存储锁内由 `ApprovalPolicy` 判定，结论与提案在同一次插入中写入，工具线程照常消费 APPROVED，单次消费与重启不重放的约束不变：
+
+1. 高危命令（删除根目录、用户目录、盘符或整个当前目录，磁盘与系统级命令，下载后管道执行）在任何模式下都保持 PENDING 并在详情中注明原因。
+2. MANUAL：其余命令全部等待用户，不使用规则。
+3. deny 规则 → REJECTED；ask 规则 → PENDING。两者都检查整条命令及按 `; | & ( ) { } < >`、反引号、`$(` 拆出的每一段。
+4. FULL_ACCESS：其余命令 APPROVED。
+5. SMART：含组合、重定向、变量或子命令结构的命令 → PENDING；不含时匹配 allow 规则或内置只读命令（git status/diff/log/show 等、目录与文件查看、版本查询，参数不能指向绝对路径、用户目录、盘符或上级目录）→ APPROVED；其余 PENDING。
+
+规则按词前缀匹配、不区分大小写；allow 规则不能含组合符号，也不能只写解释器或 shell 名。这是尽力而为的文本匹配，不是安全边界。插件外部工具：已预授权的照常放行（decided_by=RULE），FULL_ACCESS 自动批准其余调用。
+
+V19 增加评审器：SMART 下规则未覆盖的命令（不含高危与询问规则命中）和未预授权的外部工具调用，在配置了评审器时以 `REVIEWING` 插入，由工具线程在锁外调用 TypeSafe Jev 和/或 LLM 评审，回到锁内仅在仍为 REVIEWING 时写入 APPROVED / REJECTED（decided_by=JUDGE）或 PENDING；评审期间用户可直接批准、拒绝或停止。超时、错误、无法解析都转 PENDING；同一 Run 被评审器拒绝连续 3 次或累计 20 次后不再评审。启动恢复把 REVIEWING 记为 INTERRUPTED。评审只发送会话用户请求、本 Run 工具调用名称与参数（不含输出）和待审批动作；每次评审写入只追加的 harness_approval_review，token 计入使用统计。
+
+SMART 与 FULL_ACCESS 下文件修改即时写盘，受保护路径（.github、.mvn、.vscode、mvnw、AGENTS.md 等）仍为 Run 结束后人工审核；已写入的修改在会话空闲时可撤销，见下方文件提案说明。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | `/api/approval-policy` | `{ revision, deny, ask, allow }` |
+| POST | `/api/approval-policy` | 同结构整体替换；revision 不匹配 409；每类最多 100 条、每条 1–200 字符且不含换行，非法 400；保存后对之后提出的命令生效 |
+| GET | `/api/approval-reviewer` | `{ revision, reviewers, jevBaseUrl, jevModel, jevApiKeyConfigured, jevTimeoutSeconds, llmProfileId, llmTimeoutSeconds }`，不返回 Key |
+| POST | `/api/approval-reviewer` | 上述字段加 `jevApiKey`（空白保留）与 `clearJevApiKey`；Jev 地址需 HTTPS（本机可 HTTP），超时 Jev 1–60 / LLM 1–120 秒；revision 不匹配 409 |
+| POST | `/api/file-changes/{id}/revert` | JSON 空对象；APPLIED → REVERTED；会话有活动任务或文件已再被修改返回 409，且不覆盖文件 |
+
 ## 定时自动化
 
 V16 增加 harness_automation（定义、cron、下次触发时间、revision）与 harness_automation_run（触发历史，session_id/run_id 不设外键，删除会话后保留记录）。工作区与模型配置按 id 引用，被删除后触发记为失败。
@@ -159,7 +185,9 @@ V16 增加 harness_automation（定义、cron、下次触发时间、revision）
 
 服务停止期间错过的计划只补跑 7 天内最近的一次（trigger=CATCH_UP），更早的合并为一条 SKIPPED 记录；暂停后恢复从当前时间重新计算，不补跑暂停期间。
 
-未勾选“允许执行命令”时，提交期间以 UnattendedSubmissions 标记会话，SettingsService 捕获扩展时用 CommandFreeWorkspaceTools 去掉 `propose_command` 并追加无人值守说明，运行不会停在审批上；标记只覆盖这一次提交，同一会话的手动追问恢复命令工具。勾选后命令仍需在会话中批准，等待计入任务总超时。需要外部审批的插件工具仍会等待审批。
+未勾选“允许执行命令”时，提交期间以 UnattendedSubmissions 标记会话，SettingsService 捕获扩展时用 CommandFreeWorkspaceTools 去掉 `propose_command` 并追加无人值守说明，运行不会停在审批上；标记只覆盖这一次提交，同一会话的手动追问恢复命令工具。勾选后命令按自动化的审批模式处理，需要人工确认的仍在会话中批准，等待计入任务总超时。无论是否勾选，需要外部审批的插件工具与文件修改都按自动化的审批模式处理。
+
+V20 为 harness_automation 增加 approval_mode（默认 MANUAL，已有自动化保持手动审批）。每次触发以该模式提交运行，与新建会话的默认模式无关；请求未提交 approvalMode 时按 MANUAL 保存，无效值返回 400。
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |

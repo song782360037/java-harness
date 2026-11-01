@@ -20,6 +20,10 @@ import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.model.ModelTurn;
 import dev.javaharness.spi.model.TokenCounter;
+import dev.javaharness.adapters.approval.ApprovalPolicy;
+import dev.javaharness.adapters.approval.ApprovalReviewer;
+import dev.javaharness.adapters.settings.LocalSecretCipher;
+import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunConfiguration;
 import dev.javaharness.spi.run.RunConfigurationSource;
@@ -164,6 +168,10 @@ class PluginSystemTest {
     }
 
     Run submit(Session session, RunExtension extension) {
+        return submit(session, extension, null);
+    }
+
+    Run submit(Session session, RunExtension extension, ApprovalMode mode) {
         var result = sessions.submit(
                 session.id(),
                 UUID.randomUUID().toString(),
@@ -172,7 +180,8 @@ class PluginSystemTest {
                 new ModelInfo("test", "test", true),
                 ModelSelection.DEFAULT,
                 new ModelSelection("default", ""),
-                extension.snapshot());
+                extension.snapshot(),
+                mode);
         extension.submitted(result.run().id());
         return sessions.transition(result.run().id(), RunStatus.RUNNING, "");
     }
@@ -436,6 +445,47 @@ class PluginSystemTest {
                             .path("tool")
                             .asText())
                     .isEqualTo("report");
+        }
+    }
+
+    @Test
+    void fullAccessApprovesExternalCallsWithoutWaiting() throws Exception {
+        var item = plugins.importDirectory(pkg("1.0.0", true).toString(), "local");
+        trust(enable(item, List.of(), Map.of()));
+        Session session = session();
+        try (var extension = plugins.prepare(session, "test")) {
+            Run run = submit(session, extension, ApprovalMode.FULL_ACCESS);
+            WorkspaceTools tools = extension.open(run.id(), WorkspaceTools.disabled(), cancellation());
+            assertThat(tools.execute(call(tools), cancellation()).output()).contains("fixture-result");
+            assertThat(calls.get()).isEqualTo(1);
+            var approval = plugins.approvals().list(run.id()).getFirst();
+            assertThat(approval.status()).isEqualTo("COMPLETED");
+            assertThat(approval.decidedBy()).isEqualTo("FULL_ACCESS");
+        }
+    }
+
+    @Test
+    void smartModeLetsTheReviewerSettleExternalCalls() throws Exception {
+        var item = plugins.importDirectory(pkg("1.0.0", true).toString(), "local");
+        trust(enable(item, List.of(), Map.of()));
+        var verdict = new java.util.concurrent.atomic.AtomicReference<>(ApprovalPolicy.Verdict.APPROVE);
+        var reviewer = new ApprovalReviewer(
+                jdbc,
+                new LocalSecretCipher(directory.resolve("review.key")),
+                (profile, state, timeout, cancellation) -> new ApprovalReviewer.Judgement(
+                        verdict.get(), "low", "high", null, null, "测试评审", "test-model", 1, 1));
+        reviewer.save(new ApprovalReviewer.SaveSettings(0, "LLM", "", "", "", false, 10, "default", 10));
+        plugins.approvals().useReviewer(reviewer);
+        Session session = session();
+        try (var extension = plugins.prepare(session, "test")) {
+            Run run = submit(session, extension, ApprovalMode.SMART);
+            WorkspaceTools tools = extension.open(run.id(), WorkspaceTools.disabled(), cancellation());
+            assertThat(tools.execute(call(tools), cancellation()).output()).contains("fixture-result");
+            assertThat(plugins.approvals().list(run.id()).getFirst().decidedBy()).isEqualTo("JUDGE");
+            verdict.set(ApprovalPolicy.Verdict.REJECT);
+            assertThat(tools.execute(call(tools), cancellation()).success()).isFalse();
+            assertThat(calls.get()).isEqualTo(1);
+            assertThat(plugins.approvals().list(run.id()).get(1).status()).isEqualTo("REJECTED");
         }
     }
 

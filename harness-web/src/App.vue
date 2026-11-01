@@ -16,7 +16,7 @@ import SessionDeleteDialog from './SessionDeleteDialog.vue'
 import UiIcon from './UiIcon.vue'
 import { preferences, shouldSendPrompt } from './preferences'
 import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, type Run, type RunEvent, type RunStatus,
-  type Session, type Snapshot, type Submission, type ModelProfile, type Workspace } from './api'
+  type Session, type Snapshot, type Submission, type ModelProfile, type Workspace, type ApprovalMode } from './api'
 import { workspaceSummary } from './workspaces'
 
 const sessions = ref<Session[]>([])
@@ -25,11 +25,12 @@ const editingWorkspace = ref<Workspace>()
 const profiles = ref<ModelProfile[]>([])
 const selectedProfileId = ref('default')
 const reasoningEffort = ref('low')
+const approvalMode = ref<ApprovalMode>('MANUAL')
 const selectedProfile = computed(() => profiles.value.find(profile => profile.id === selectedProfileId.value))
 const model = computed(() => selectedProfile.value?.model)
 const showSettings = ref(false)
 const showAutomations = ref(false)
-const settingsSection = ref<'general' | 'models' | 'workspace'>('general')
+const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
 // 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
 watch(fontSize, value => {
@@ -260,7 +261,7 @@ async function copyAnswer(run: Run) {
   try { await navigator.clipboard.writeText(answerOf(run)); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
   catch { copyError.value = '复制失败，请选择回答内容手动复制。' }
 }
-function openSettings(section: 'general' | 'models' | 'workspace' = 'general', creating = false) {
+function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' = 'general', creating = false) {
   if (workspaceChanging.value) return
   settingsSection.value = section
   creatingWorkspace.value = creating
@@ -492,6 +493,7 @@ async function selectSession(id: string) {
       const session = loaded?.session
       selectedProfileId.value = pending.value?.modelProfileId || session?.modelProfileId || 'default'
       reasoningEffort.value = normalizeReasoningDepth(pending.value?.reasoningEffort ?? (loaded?.runs.length ? session?.reasoningEffort || '' : selectedProfile.value?.reasoningEffort || ''))
+      approvalMode.value = pending.value?.approvalMode || session?.approvalMode || 'MANUAL'
       follow(id, version)
     }
   } catch (cause) {
@@ -499,14 +501,16 @@ async function selectSession(id: string) {
     else if (version === revision) error.value = cause instanceof Error ? cause.message : '加载失败'
   } finally { if (version === revision) loading.value = false }
 }
-async function addSession(title: string, workspaceId: string) {
+// 首页直接发送时沿用已选审批模式；新建空白会话从手动审批开始，完全访问需重新确认。
+async function addSession(title: string, workspaceId: string, keepApproval = false) {
   const profile = selectedProfileId.value
   const effort = reasoningEffort.value
+  const approval = keepApproval ? approvalMode.value : 'MANUAL'
   const session = await api<Session>('/sessions', { title, workspaceId })
   sessions.value = [session, ...sessions.value]
   showAutomations.value = false
   await selectSession(session.id)
-  selectedProfileId.value = profile; reasoningEffort.value = effort
+  selectedProfileId.value = profile; reasoningEffort.value = effort; approvalMode.value = approval
   if (isMobile.value) sidebarCollapsed.value = true
   await nextTick()
   promptInput.value?.focus()
@@ -526,7 +530,7 @@ async function send() {
   const draft = prompt.value
   let ready = false
   submitting.value = true; error.value = ''
-  try { ready = await addSession(draft.trim().slice(0, 40), '') }
+  try { ready = await addSession(draft.trim().slice(0, 40), '', true) }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { prompt.value = draft; submitting.value = false }
   if (ready) { saveDraft('', ''); await submit() }
@@ -549,6 +553,7 @@ async function workspaceSaved(session: Session) {
   const draft = prompt.value
   const profile = selectedProfileId.value
   const effort = reasoningEffort.value
+  const approval = approvalMode.value
   closeSettings()
   sessions.value = creating ? [session, ...sessions.value] : sessions.value.map(value => value.id === session.id ? session : value)
   try {
@@ -556,7 +561,7 @@ async function workspaceSaved(session: Session) {
     sessions.value = await api<Session[]>('/sessions')
     if (creating) {
       await selectSession(session.id)
-      prompt.value = draft; selectedProfileId.value = profile; reasoningEffort.value = effort
+      prompt.value = draft; selectedProfileId.value = profile; reasoningEffort.value = effort; approvalMode.value = approval
       if (fromHome) saveDraft('', '')
     }
     else if (selectedId.value === session.id) await refresh(session.id, revision)
@@ -604,7 +609,7 @@ async function submit() {
   const id = selectedId.value
   const version = revision
   const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: prompt.value,
-    scenario: 'NORMAL', modelProfileId: selectedProfileId.value, reasoningEffort: reasoningEffort.value }
+    scenario: 'NORMAL', modelProfileId: selectedProfileId.value, reasoningEffort: reasoningEffort.value, approvalMode: approvalMode.value }
   setPending(request)
   submitting.value = true
   error.value = ''
@@ -711,7 +716,7 @@ onUnmounted(() => {
             <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
             <p v-if="isActive(run) ? !run.output && (pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
-            <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
+            <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" :can-revert="!isActive(run) && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
             <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
             <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
             <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ run.model }} · {{ effortShortLabel(run.reasoningEffort) }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
@@ -728,7 +733,7 @@ onUnmounted(() => {
           <div v-if="pending" class="pending-note">上次提交结果待确认，重试不会重复创建任务。</div>
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
-            <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" @model="chooseProfile" @effort="reasoningEffort = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
+            <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" :approval-mode="approvalMode" @model="chooseProfile" @effort="reasoningEffort = $event" @approval="approvalMode = $event" @approval-settings="openSettings('approval')" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
             <TokenUsageRing :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
             <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>

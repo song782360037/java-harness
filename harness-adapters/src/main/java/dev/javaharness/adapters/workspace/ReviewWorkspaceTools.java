@@ -42,12 +42,15 @@ public final class ReviewWorkspaceTools implements WorkspaceTools {
         var definitions = new ArrayList<>(reader.definitions());
         definitions.add(new ToolDefinition(
                 "propose_file_change",
-                "Propose one UTF-8 file edit for user review; NEVER writes the file. Read the file first. "
+                "Make one UTF-8 file edit. Depending on the user's approval mode it is either written immediately or "
+                        + "saved for review after the run (always for protected paths such as .github/, .mvn/, mvnw, AGENTS.md); "
+                        + "the result says which. Read the file first. "
                         + "replace: old_text must match exactly once; include surrounding text to disambiguate. new_text replaces that occurrence. "
                         + "create: target must not exist, old_text must be empty, new_text is the entire file. Parent directory must exist. "
                         + "Use workspace-relative slash-separated paths. At most 32 proposals per run; files <=1 MiB. "
                         + "Do not propose multiple dependent edits to the same file; combine them into one replacement. "
-                        + "Tell the user to review the diff; do not claim changes are applied. Existing disk files remain the source of truth.",
+                        + "Report exactly what the result says: written edits are already on disk; saved ones are not applied "
+                        + "until the user reviews them. Existing disk files remain the source of truth.",
                 Map.of(
                         "type",
                         "object",
@@ -92,8 +95,15 @@ public final class ReviewWorkspaceTools implements WorkspaceTools {
                     args.get("operation").asText(),
                     args.get("old_text").asText(),
                     args.get("new_text").asText());
-            return new Result(
-                    true, "已保存待审核修改 " + change.id() + "，文件：" + change.path() + "。文件尚未修改；任务完成后请用户在差异卡片中应用或拒绝。");
+            return switch (change.status()) {
+                case "APPLIED" -> new Result(
+                        true, "已写入文件 " + change.path() + "（修改 " + change.id() + "），用户可在差异卡片中撤销。后续读取会看到新内容。");
+                case "PENDING" -> new Result(
+                        true,
+                        "已保存待审核修改 " + change.id() + "，文件：" + change.path() + "。文件尚未修改；任务完成后请用户在差异卡片中应用或拒绝。"
+                                + (change.detail().isEmpty() ? "" : "（" + change.detail() + "）"));
+                default -> new Result(false, "修改 " + change.id() + " 未写入：" + change.detail());
+            };
         } catch (HarnessException error) {
             return new Result(false, error.getMessage());
         } catch (java.io.IOException | IllegalArgumentException error) {

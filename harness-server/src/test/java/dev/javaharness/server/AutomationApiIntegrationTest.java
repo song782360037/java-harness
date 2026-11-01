@@ -274,6 +274,44 @@ class AutomationApiIntegrationTest {
     }
 
     @Test
+    void triggeredRunUsesTheAutomationApprovalMode() throws Exception {
+        var invalid = draft("MANUAL", "09:00", "", false);
+        invalid.put("approvalMode", "ALWAYS");
+        assertThat(post("/automations", invalid).statusCode()).isEqualTo(400);
+
+        // 未提交审批模式的旧客户端保持手动审批。
+        var legacy = json.readTree(post("/automations", draft("MANUAL", "09:00", "", false)).body());
+        assertThat(legacy.path("approvalMode").asText()).isEqualTo("MANUAL");
+
+        var smart = draft("MANUAL", "09:00", "", true);
+        smart.put("approvalMode", "SMART");
+        var created = json.readTree(post("/automations", smart).body());
+        assertThat(created.path("approvalMode").asText()).isEqualTo("SMART");
+        var execution = json.readTree(
+                post("/automations/" + created.path("id").asText() + "/run", Map.of()).body());
+        String run = execution.path("runId").asText();
+        assertThat(jdbc.queryForObject("SELECT approval_mode FROM harness_run WHERE id=?", String.class, run))
+                .isEqualTo("SMART");
+        await().atMost(Duration.ofSeconds(10))
+                .until(() -> !sessions.run(run).status().active());
+
+        // 编辑后下一次触发使用新的模式。
+        smart.put("revision", created.path("revision").asLong());
+        smart.put("approvalMode", "FULL_ACCESS");
+        var edited = json.readTree(
+                post("/automations/" + created.path("id").asText(), smart).body());
+        assertThat(edited.path("approvalMode").asText()).isEqualTo("FULL_ACCESS");
+        String next = json.readTree(
+                        post("/automations/" + created.path("id").asText() + "/run", Map.of()).body())
+                .path("runId")
+                .asText();
+        assertThat(jdbc.queryForObject("SELECT approval_mode FROM harness_run WHERE id=?", String.class, next))
+                .isEqualTo("FULL_ACCESS");
+        await().atMost(Duration.ofSeconds(10))
+                .until(() -> !sessions.run(next).status().active());
+    }
+
+    @Test
     void ticksTriggerOnScheduleCatchUpOnceAndSkipWhileRunning() throws Exception {
         var clock = new MutableClock(Instant.parse("2026-10-30T10:30:00Z"));
         var service = new AutomationService(
@@ -281,7 +319,7 @@ class AutomationApiIntegrationTest {
         var value = service.save(
                 "",
                 new AutomationService.Draft(
-                        0, "整点巡检", "检查", workspaceId, "default", null, "HOURLY", "00:00", 0, "", false, true));
+                        0, "整点巡检", "检查", workspaceId, "default", null, "HOURLY", "00:00", 0, "", false, null, true));
         assertThat(value.nextRunAt()).isEqualTo(Instant.parse("2026-10-30T11:00:00Z"));
 
         service.tick();

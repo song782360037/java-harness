@@ -3,11 +3,13 @@ import { computed, ref } from 'vue'
 import type { FileChange } from './api'
 import { fileDiff } from './fileDiff'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ change: FileChange; canApply: boolean; busy: boolean }>()
-const emit = defineEmits<{ apply: []; reject: [] }>()
+const props = defineProps<{ change: FileChange; canApply: boolean; canRevert: boolean; busy: boolean }>()
+const emit = defineEmits<{ apply: []; reject: []; revert: [] }>()
 const expanded = ref(false)
 const rows = computed(() => expanded.value ? fileDiff(props.change.beforeContent, props.change.afterContent) : [])
-const labels: Record<string, string> = { PENDING: '待审核', APPLYING: '正在应用', APPLIED: '已应用', REJECTED: '已拒绝', CONFLICT: '文件冲突', UNCERTAIN: '需检查文件' }
+const labels: Record<string, string> = { PENDING: '待审核', APPLYING: '正在应用', APPLIED: '已应用', REJECTED: '已拒绝', CONFLICT: '文件冲突', UNCERTAIN: '需检查文件', REVERTING: '正在撤销', REVERTED: '已撤销' }
+// 智能审批或完全访问下由任务直接写入的修改。
+const autoWritten = computed(() => props.change.decidedBy === 'RULE' || props.change.decidedBy === 'FULL_ACCESS')
 const format = (text: string | null) => text === null ? '新文件' : `UTF-8${text.startsWith('\uFEFF') ? ' BOM' : ''} · ${text.includes('\r\n') ? 'CRLF' : 'LF'}`
 </script>
 <template>
@@ -17,6 +19,7 @@ const format = (text: string | null) => text === null ? '新文件' : `UTF-8${te
         <UiIcon :name="expanded ? 'down' : 'chevron'" :size="14" /><UiIcon name="code" :size="15" />
         <span>{{ change.path }}</span><small>{{ change.operation === 'create' ? '新建' : '修改' }}</small>
       </button>
+      <span v-if="autoWritten" class="command-decided">{{ change.decidedBy === 'FULL_ACCESS' ? '完全访问写入' : '智能审批写入' }}</span>
       <span class="change-status" :class="change.status.toLowerCase()">{{ labels[change.status] || change.status }}</span>
     </div>
     <div v-if="expanded" class="file-change-diff">
@@ -40,6 +43,10 @@ const format = (text: string | null) => text === null ? '新文件' : `UTF-8${te
       <span>{{ canApply ? '审核差异后，确认应用到本机文件。' : '任务正常完成且位于原工作区时可应用。' }}</span>
       <button type="button" :disabled="busy" @click="emit('reject')">拒绝</button>
       <button type="button" class="primary" :disabled="busy || !canApply || !expanded" :title="expanded ? '应用此文件的修改' : '先展开并审核文件差异'" @click="emit('apply')">{{ busy ? '处理中…' : '应用修改' }}</button>
+    </div>
+    <div v-else-if="change.status === 'APPLIED'" class="file-change-actions">
+      <span>{{ canRevert ? '撤销会把文件恢复为修改前的内容；文件之后又被修改时不会覆盖。' : '会话没有进行中的任务、且位于原工作区时可撤销。' }}</span>
+      <button type="button" :disabled="busy || !canRevert" @click="emit('revert')">{{ busy ? '处理中…' : '撤销修改' }}</button>
     </div>
   </article>
 </template>
