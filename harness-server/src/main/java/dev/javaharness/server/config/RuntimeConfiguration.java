@@ -1,9 +1,11 @@
 package dev.javaharness.server.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.approval.ApprovalPolicy;
 import dev.javaharness.adapters.approval.ApprovalReviewer;
 import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.command.CommandService;
+import dev.javaharness.adapters.memory.JdbcMemoryStore;
 import dev.javaharness.adapters.plugins.PluginService;
 import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.adapters.settings.HarnessSettings;
@@ -14,6 +16,7 @@ import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.LlmApprovalJudge;
+import dev.javaharness.server.service.MemoryService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.SettingsService;
 import dev.javaharness.server.service.UnattendedSubmissions;
@@ -191,8 +194,30 @@ public class RuntimeConfiguration {
     }
 
     @Bean(destroyMethod = "close")
-    AgentEngine agentEngine(SessionStore store, RunConfigurationSource configurations) {
-        return new DefaultAgentEngine(store, configurations);
+    AgentEngine agentEngine(SessionStore store, RunConfigurationSource configurations, MemoryService memories) {
+        return new DefaultAgentEngine(store, configurations, memories);
+    }
+
+    /** 复用本地数据库保存长期记忆，不额外启动外部服务。 */
+    @Bean
+    @DependsOnDatabaseInitialization
+    JdbcMemoryStore memoryStore(JdbcTemplate jdbc, PlatformTransactionManager transactions) {
+        return new JdbcMemoryStore(jdbc, new TransactionTemplate(transactions));
+    }
+
+    @Bean(destroyMethod = "close")
+    MemoryService memoryService(
+            JdbcMemoryStore memories,
+            SessionStore sessions,
+            RunConfigurationSource configurations,
+            ObjectMapper json) {
+        return new MemoryService(memories, sessions, configurations, json);
+    }
+
+    /** 自动回填在应用完成启动后才运行。 */
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> startAutomaticMemory(MemoryService memories) {
+        return event -> memories.start();
     }
 
     @Bean(destroyMethod = "close")

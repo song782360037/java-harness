@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ id: string; modelValue: string; options: readonly { value: string; label: string }[] }>()
+const props = defineProps<{ id: string; modelValue: string; options: readonly { value: string; label: string; disabled?: boolean }[]; disabled?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const root = ref<HTMLElement>()
 const trigger = ref<HTMLButtonElement>()
@@ -32,7 +32,7 @@ function navigate(event: KeyboardEvent) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
   if (!open.value) { void show(); return }
-  const options = [...(menu.value?.querySelectorAll<HTMLButtonElement>('button') || [])]
+  const options = [...(menu.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])]
   const index = options.indexOf(event.target as HTMLButtonElement)
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
     : event.key === 'ArrowDown' ? (index + 1) % options.length : (index <= 0 ? options.length : index) - 1
@@ -48,11 +48,11 @@ onUnmounted(() => { document.removeEventListener('pointerdown', outside); docume
 </script>
 <template>
   <div ref="root" class="preference-select" @focusout="focusOut" @keydown="navigate" @keydown.esc.prevent.stop="close(true)">
-    <button :id="id" ref="trigger" type="button" class="preference-select-trigger" aria-haspopup="menu" :aria-expanded="open" :aria-controls="open ? id + '-options' : undefined" :aria-labelledby="id + '-label ' + id + '-value'" :aria-describedby="id + '-help'" @click="open ? close() : show()">
+    <button :id="id" ref="trigger" type="button" class="preference-select-trigger" aria-haspopup="menu" :aria-expanded="open" :aria-controls="open ? id + '-options' : undefined" :aria-labelledby="id + '-label ' + id + '-value'" :aria-describedby="id + '-help'" :disabled="disabled" @click="open ? close() : show()">
       <span :id="id + '-value'">{{ selectedLabel }}</span><UiIcon name="down" :size="14" />
     </button>
     <div v-if="open" :id="id + '-options'" ref="menu" class="selector-popover preference-select-menu" :style="position" role="menu" :aria-labelledby="id + '-label'">
-      <button v-for="option in options" :key="option.value" type="button" class="selector-option" role="menuitemradio" :aria-checked="option.value === modelValue" tabindex="-1" @click="choose(option.value)"><span>{{ option.label }}</span><UiIcon v-if="option.value === modelValue" name="check" :size="15" /></button>
+      <button v-for="option in options" :key="option.value" type="button" class="selector-option" role="menuitemradio" :aria-checked="option.value === modelValue" :disabled="option.disabled" tabindex="-1" @click="choose(option.value)"><span>{{ option.label }}</span><UiIcon v-if="option.value === modelValue" name="check" :size="15" /></button>
     </div>
   </div>
 </template>

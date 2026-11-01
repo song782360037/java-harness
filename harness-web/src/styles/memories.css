@@ -1,0 +1,169 @@
+/* 图谱主题色：浅色主题加深以保证文字对比度，深色主题使用柔和亮色。 */
+:root { --memory-1: #23786d; --memory-2: #6e56a8; --memory-3: #8a6417; --memory-4: #315f9f; --memory-5: #b04a6f; --memory-6: #4b7a2a; }
+:root[data-theme='dark'] { --memory-1: #73cfc5; --memory-2: #c4a0f0; --memory-3: #e7c779; --memory-4: #86bbef; --memory-5: #e69cbb; --memory-6: #a5cf86; }
+
+.memories-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: var(--page); }
+.memories-page button, .memory-editor button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 12px; border: 0.5px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font-size: var(--font-caption); cursor: pointer; transition: background-color .15s, border-color .15s; }
+.memories-page button:hover:not(:disabled), .memory-editor button:hover:not(:disabled) { background: var(--hover); }
+.memories-page button:disabled, .memory-editor button:disabled { opacity: .45; cursor: default; }
+.memories-page .icon-button, .memory-editor .icon-button { min-height: 0; padding: 6px; border-color: transparent; background: transparent; color: var(--muted); }
+.memories-page .memory-primary, .memory-editor .memory-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 550; }
+.memories-page .memory-primary:hover:not(:disabled), .memory-editor .memory-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.memories-page .memory-settings-link { border-color: var(--border); }
+
+/* 工具栏 */
+.memory-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 0.5px solid var(--border); background: var(--surface); }
+.memory-toolbar select, .memory-relation-form select, .memory-relation-form input, .memory-editor input, .memory-editor textarea, .memory-editor select { min-width: 0; min-height: 34px; padding: 7px 10px; border: 0.5px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: inherit; font-size: var(--font-caption); }
+.memory-toolbar select:focus, .memory-relation-form select:focus, .memory-relation-form input:focus, .memory-editor input:focus, .memory-editor textarea:focus, .memory-editor select:focus { border-color: var(--accent); }
+.memory-toolbar > select { max-width: 200px; }
+.memory-search { display: flex; align-items: center; gap: 8px; flex: 1; min-height: 34px; padding: 0 10px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--page); color: var(--muted); }
+.memory-search input { width: 100%; min-width: 70px; padding: 6px 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--font-caption); }
+.memory-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+.memory-view-switch { display: flex; padding: 2px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); }
+.memories-page .memory-view-switch button { min-height: 28px; padding: 4px 12px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); }
+.memories-page .memory-view-switch button[aria-pressed=true] { background: var(--surface); color: var(--text); font-weight: 550; box-shadow: 0 0 0 0.5px var(--border-strong); }
+
+/* 状态条与提示 */
+.memory-automatic-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; padding: 8px 20px; border-bottom: 0.5px solid var(--border); font-size: var(--font-caption); color: var(--muted); }
+.memory-status-state { display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
+.memory-status-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.memory-status-state.enabled i { background: var(--success); box-shadow: 0 0 0 3px var(--success-bg); }
+.memory-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 8px 20px; border-bottom: 0.5px solid var(--border); font-size: var(--font-caption); background: var(--success-bg); color: var(--success); }
+.memory-banner.memory-error { background: var(--danger-bg); color: var(--danger); }
+.memory-banner .icon-button { color: inherit; }
+.memory-error { color: var(--danger); }
+
+/* 工作台三栏 */
+.memory-workbench { display: flex; flex: 1; min-height: 0; }
+.memory-categories { display: flex; flex-direction: column; flex: 0 0 188px; gap: 2px; padding: 18px 10px 12px; overflow-y: auto; scrollbar-gutter: stable; border-right: 0.5px solid var(--border); background: var(--surface); }
+.memory-section-label { margin: 0 10px 12px; font-size: var(--font-caption); font-weight: 550; color: var(--faint); overflow-wrap: anywhere; }
+.memories-page .memory-categories > button { justify-content: flex-start; gap: 9px; min-height: 34px; border-color: transparent; background: transparent; color: var(--text); }
+.memories-page .memory-categories > button:hover:not(:disabled) { background: var(--hover); }
+.memories-page .memory-categories > button.active, .memories-page .memory-categories > button.active:hover:not(:disabled) { background: var(--selected); font-weight: 550; }
+.memory-categories button span { flex: 1; overflow: hidden; text-overflow: ellipsis; text-align: left; white-space: nowrap; }
+.memory-categories i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.memory-categories small { font-size: var(--font-caption); color: var(--faint); font-variant-numeric: tabular-nums; }
+.memory-category-footer { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: auto; padding: 20px 10px 0; font-size: var(--font-caption); color: var(--muted); }
+
+/* 图谱画布 */
+.memory-canvas { flex: 1; min-width: 0; position: relative; background: var(--page); }
+.memory-graph { position: absolute; inset: 0; overflow: hidden; background-image: radial-gradient(var(--border-strong) .8px, transparent .8px); background-size: 24px 24px; }
+.memory-graph > svg { width: 100%; height: 100%; touch-action: none; user-select: none; }
+.memory-cluster-label { font-weight: 600; text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: var(--page); stroke-width: 4px; stroke-linejoin: round; }
+.memory-node { cursor: pointer; outline: none; }
+.memory-node text { font-size: 12px; paint-order: stroke; stroke: var(--page); stroke-width: 3px; stroke-linejoin: round; }
+.memory-node-core { fill: var(--surface); stroke-width: 1.5; }
+.memory-node:hover .memory-node-core, .memory-node:focus-visible .memory-node-core { stroke-width: 3; }
+.memory-node.is-selected .memory-node-core { stroke-width: 2.5; }
+.memory-relation-lines line, .memory-cluster-lines line { stroke-width: 1; vector-effect: non-scaling-stroke; }
+.memory-graph-controls { display: flex; align-items: center; gap: 2px; position: absolute; bottom: 44px; left: 16px; padding: 3px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--composer-shadow); color: var(--muted); font-size: var(--font-caption); }
+.memories-page .memory-graph-controls button { min-height: 28px; padding: 4px 9px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); }
+.memory-graph-controls span { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.memory-graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; position: absolute; bottom: 14px; left: 18px; color: var(--muted); font-size: var(--font-caption); pointer-events: none; }
+.memory-graph-legend span { display: flex; align-items: center; gap: 6px; }
+.memory-graph-legend i { width: 9px; height: 9px; border: 1.5px solid var(--muted); border-radius: 50%; background: var(--surface); }
+.memory-graph-legend i.candidate { border-style: dashed; }
+.memory-graph-legend b { width: 16px; border-top: 1.5px solid var(--muted); }
+.memory-graph-legend b.dashed { border-top-style: dashed; }
+.memory-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100%; padding: 32px; text-align: center; color: var(--muted); }
+.memory-empty > .ui-icon { padding: 14px; box-sizing: content-box; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.memory-empty h2 { margin: 4px 0 0; color: var(--text); font-size: var(--font-heading); font-weight: 600; }
+.memory-empty p { max-width: 340px; margin: 0; font-size: var(--font-caption); line-height: 1.8; }
+.memory-empty .memory-primary { margin-top: 6px; }
+
+/* 列表视图 */
+.memory-list { display: flex; flex-direction: column; gap: 8px; height: 100%; padding: 16px 20px; overflow: auto; box-sizing: border-box; }
+.memories-page .memory-list > button { display: block; flex-shrink: 0; width: 100%; padding: 14px 16px; border: 0.5px solid var(--border); border-radius: var(--radius-md); text-align: left; }
+.memories-page .memory-list > button.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--surface); }
+.memory-list-meta { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--muted); font-size: var(--font-caption); }
+.memory-list-meta small { font-size: var(--font-caption); color: var(--faint); }
+.memory-list strong { font-size: var(--font-body); font-weight: 550; overflow-wrap: anywhere; }
+.memory-list p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 6px 0; color: var(--muted); font-size: var(--font-caption); line-height: 1.7; }
+.memory-list-tags { color: var(--faint); font-size: var(--font-caption); }
+
+/* 详情栏 */
+.memory-inspector { flex: 0 0 320px; min-width: 0; overflow-y: auto; padding: 22px 22px 28px; border-left: 0.5px solid var(--border); background: var(--surface); scrollbar-gutter: stable; }
+.memory-detail-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: var(--font-caption); }
+.memory-detail-meta span { padding: 2px 9px; border-radius: 20px; background: var(--subtle); color: var(--muted); }
+.memory-detail-meta .memory-status-badge.active { background: var(--success-bg); color: var(--success); }
+.memory-detail-meta .memory-status-badge.candidate { background: var(--warning-bg); color: var(--warning); }
+.memory-inspector h2 { margin: 16px 0 12px; font-size: var(--font-heading); font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.memory-content, .memory-source-excerpt { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: var(--font-body); }
+.memory-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 0; }
+.memory-tags span { padding: 2px 8px; border-radius: var(--radius-sm); background: var(--subtle); color: var(--muted); font-size: var(--font-caption); }
+.memory-detail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 0; }
+.memory-detail-section { margin-top: 22px; padding-top: 18px; border-top: 0.5px solid var(--border); font-size: var(--font-caption); color: var(--muted); }
+.memory-detail-section h3 { margin: 0 0 10px; color: var(--text); font-size: var(--font-caption); font-weight: 600; }
+.memory-detail-section p { margin: 0; line-height: 1.7; }
+.memory-detail-section summary { margin: 10px 0 8px; cursor: pointer; }
+.memory-source-excerpt { max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-md); background: var(--subtle); font-size: var(--font-caption); }
+.memories-page .memory-detail-section .memory-source-link { min-height: 0; padding: 0; border: 0; background: transparent; color: var(--accent); }
+.memories-page .memory-detail-section .memory-source-link:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+.memory-related-row { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+.memories-page .memory-related-row button:first-child { flex: 1; min-width: 0; justify-content: flex-start; border-color: var(--border); text-align: left; overflow-wrap: anywhere; }
+.memories-page .memory-related-row button:last-child { min-height: 28px; padding: 4px 8px; border-color: transparent; background: transparent; color: var(--muted); }
+.memory-related-row small { flex-shrink: 0; font-size: var(--font-caption); }
+.memory-relation-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.memory-relation-form select { width: 100%; }
+.memory-relation-form input { flex: 1; width: 70px; }
+.memory-timestamps { display: flex; flex-direction: column; gap: 6px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.memory-delete { margin-top: 22px; font-size: var(--font-caption); color: var(--muted); line-height: 1.7; }
+.memory-delete p { margin: 0 0 10px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--danger-bg); color: var(--danger); }
+.memory-delete button { margin-right: 6px; }
+.memories-page .memory-delete > button:only-child { border-color: transparent; background: transparent; color: var(--danger); padding-left: 0; }
+.memories-page .memory-delete .danger { background: var(--danger); border-color: var(--danger); color: var(--on-danger); }
+.memories-page .memory-delete .danger:hover:not(:disabled) { background: var(--danger-hover); }
+.memory-inspector-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 150px; color: var(--faint); font-size: var(--font-body); }
+.memory-inspector-empty p { margin: 10px 0 4px; color: var(--muted); }
+.memory-inspector-empty small { font-size: var(--font-caption); }
+
+/* 编辑弹窗 */
+.memory-editor { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 22px 24px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-shadow: var(--popover-shadow); }
+.memory-editor::backdrop { background: var(--scrim); }
+.memory-editor header { display: flex; align-items: center; justify-content: space-between; }
+.memory-editor h2 { margin: 0; font-size: var(--font-heading); font-weight: 600; }
+.memory-editor-scope { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0 4px; color: var(--muted); font-size: var(--font-caption); }
+.memory-editor label { display: flex; flex-direction: column; gap: 7px; margin-top: 16px; font-size: var(--font-caption); font-weight: 550; }
+.memory-editor textarea { resize: vertical; line-height: 1.7; }
+.memory-form-row { display: flex; gap: 14px; }
+.memory-form-row label { flex: 1; min-width: 0; }
+.memory-editor footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+
+/* 回答下方的引用快照 */
+.memory-usage { margin: 12px 0; color: var(--muted); font-size: var(--font-caption); }
+.memory-usage summary { cursor: pointer; }
+.memory-usage summary span { margin-left: 8px; }
+.memory-usage > div { margin-top: 10px; padding: 12px; border: 0.5px solid var(--border); border-radius: var(--radius-md); }
+.memory-usage small { margin-left: 12px; font-size: var(--font-caption); }
+.memory-usage p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+
+/* 设置页 */
+.memory-settings { max-width: 780px; }
+.memory-settings .preference-copy { max-width: 520px; }
+.memory-settings .preference-copy label { display: block; margin: 0 0 6px; color: var(--text); font-weight: 550; }
+.memory-settings .preference-select { width: 220px; }
+.memory-settings .dialog-error { margin: 28px 0 0; }
+.memory-settings-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 16px; }
+.memory-processing { margin-top: 28px; padding: 20px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.memory-processing-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.memory-processing h2 { margin: 0; font-size: var(--font-body); font-weight: 600; }
+.memory-processing-state { padding: 2px 10px; border-radius: 20px; background: var(--subtle); color: var(--muted); font-size: var(--font-caption); }
+.memory-processing-state.enabled { background: var(--success-bg); color: var(--success); }
+.memory-processing-state.active { background: var(--info-bg); color: var(--info); }
+.memory-processing-summary { display: flex; align-items: baseline; gap: 6px; margin: 18px 0 10px; color: var(--muted); font-size: var(--font-caption); }
+.memory-processing-summary strong { color: var(--text); font-size: var(--font-title); font-weight: 600; font-variant-numeric: tabular-nums; }
+.memory-progress { height: 6px; overflow: hidden; border-radius: 6px; background: var(--subtle); }
+.memory-progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s; }
+.memory-processing-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 18px 0 0; }
+.memory-processing-counts div { padding: 10px 12px; border-radius: var(--radius-md); background: var(--subtle); }
+.memory-processing-counts dt { color: var(--muted); font-size: var(--font-caption); }
+.memory-processing-counts dd { margin: 4px 0 0; font-size: var(--font-heading); font-weight: 600; font-variant-numeric: tabular-nums; }
+.memory-processing-counts .failed { background: var(--danger-bg); }
+.memory-processing-counts .failed dt, .memory-processing-counts .failed dd { color: var(--danger); }
+.memory-processing-failed { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; font-size: var(--font-caption); color: var(--muted); line-height: 1.7; }
+.memory-processing-failed p { margin: 0; }
+.memory-processing-failed button { flex-shrink: 0; }
+
+@media (max-width: 1200px) { .memory-categories { flex-basis: 150px; } .memory-inspector { flex-basis: 280px; padding: 18px; } .memory-toolbar { gap: 8px; } }
+@media (max-width: 900px) { .memory-workbench { flex-wrap: wrap; overflow-y: auto; } .memory-categories { flex: 0 0 150px; height: 420px; } .memory-canvas { height: 420px; } .memory-inspector { flex: 1 0 100%; border-left: 0; border-top: 0.5px solid var(--border); overflow: visible; } .memory-toolbar { flex-wrap: wrap; } .memory-toolbar > select { max-width: 150px; } .memory-search { flex-basis: 120px; } .memory-graph-legend { gap: 8px; } }
+@media (max-width: 600px) { .memory-workbench { align-content: flex-start; } .memory-categories { flex: 0 0 100%; flex-direction: row; align-items: center; height: auto; padding: 8px; overflow-x: auto; scrollbar-gutter: auto; border-right: 0; border-bottom: 0.5px solid var(--border); } .memory-section-label { display: none; } .memories-page .memory-categories > button { flex-shrink: 0; } .memory-categories button span { flex: none; } .memory-category-footer { flex-shrink: 0; flex-direction: row; align-items: center; margin: 0; padding: 0 8px; white-space: nowrap; } .memory-canvas { flex: 1 0 100%; } .memory-processing-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); } .memory-settings .preference-select { width: 100%; } .memory-processing-failed { flex-direction: column; align-items: flex-start; } }

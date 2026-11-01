@@ -2,6 +2,7 @@ package dev.javaharness.core;
 
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.ModelException;
+import dev.javaharness.spi.memory.LongTermMemory;
 import dev.javaharness.spi.model.ContextSummary;
 import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelProvider;
@@ -44,6 +45,7 @@ public final class DefaultAgentEngine implements AgentEngine {
     private static final int MAX_SUBAGENT_RESULT = 60_000;
     private final SessionStore store;
     private final RunConfigurationSource configurations;
+    private final LongTermMemory memories;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("run-deadline").factory());
@@ -75,6 +77,7 @@ public final class DefaultAgentEngine implements AgentEngine {
             Toolset toolset,
             List<ModelMessage> messages,
             ContextSummary history,
+            LongTermMemory.Context memory,
             long timeoutNanos,
             long deadlineNanos) {}
 
@@ -114,8 +117,14 @@ public final class DefaultAgentEngine implements AgentEngine {
     }
 
     public DefaultAgentEngine(SessionStore store, RunConfigurationSource configurations) {
+        this(store, configurations, LongTermMemory.disabled());
+    }
+
+    /** 注入长期记忆服务；既有嵌入和测试构造器保持禁用记忆。 */
+    public DefaultAgentEngine(SessionStore store, RunConfigurationSource configurations, LongTermMemory memories) {
         this.store = store;
         this.configurations = configurations;
+        this.memories = memories;
         store.recoverInterruptedRuns();
     }
 
@@ -238,22 +247,36 @@ public final class DefaultAgentEngine implements AgentEngine {
             resources = configuration.resources().open(run.workspace());
             ModelProvider.Cancellation cancellation = cancellation(task);
             WorkspaceTools tools = extension.open(run.id(), resources.tools(), cancellation);
-            Toolset toolset = toolset(tools, extension.instructions(), null);
+            String extensionInstructions = extension.instructions();
+            Toolset toolset = toolset(tools, extensionInstructions, null);
             TokenCounter counter = configuration.tokenCounter();
-            int contextWindowTokens = configuration.contextWindowTokens();
-            // History gets what remains after output, tool schemas, instructions and a safety margin.
-            int reserved = configuration.maxOutputTokens()
-                    + new TokenBudget(counter).tools(toolset.definitions())
-                    + counter.count(toolset.instructions());
-            int historyBudget = contextWindowTokens - reserved - TokenBudget.safety(contextWindowTokens);
+            int historyBudget = historyBudget(configuration, toolset);
+            synchronized (this) {
+                cancellation.check();
+                run = store.bindWorkspace(run.id(), tools.workspace());
+            }
+            int memoryBudget = Math.min(2048, Math.max(0, (historyBudget - counter.count(run.prompt()) - 256) / 4));
+            LongTermMemory.Context memory;
+            try {
+                memory = memories.recall(run, counter, memoryBudget);
+            } catch (RuntimeException error) {
+                // Memory is optional reference material; a recall failure must not fail the run.
+                memory = LongTermMemory.Context.EMPTY;
+                System.getLogger(getClass().getName())
+                        .log(System.Logger.Level.WARNING, "Memory recall skipped for " + run.id());
+            }
+            // Memory rides on the current user message, so it shares the history budget.
+            historyBudget -= counter.count(memory.text());
             if (historyBudget < 256) throw new ModelException("模型上下文窗口不足以容纳系统指引、工具定义和输出预留，请提高上下文窗口或降低最大输出");
             ModelRequest request;
             synchronized (this) {
                 if (task.stopReason != null) return;
-                run = store.bindWorkspace(run.id(), tools.workspace());
                 request = new ConversationContext(counter, historyBudget)
                         .build(run, store.contextHistory(run.id()), prior -> store.conversation(prior.id()));
             }
+            var messages = new ArrayList<>(request.messages());
+            if (!memory.text().isEmpty())
+                messages.set(messages.size() - 1, new ModelMessage("user", memory.text() + run.prompt()));
             outcome = loop(new Loop(
                     run,
                     run.id(),
@@ -263,10 +286,11 @@ public final class DefaultAgentEngine implements AgentEngine {
                     resources.model(),
                     tools,
                     configuration,
-                    extension.instructions(),
+                    extensionInstructions,
                     toolset,
-                    request.messages(),
+                    messages,
                     request.context(),
+                    memory,
                     timeoutNanos,
                     deadlineNanos));
         } catch (InterruptedException error) {
@@ -294,7 +318,26 @@ public final class DefaultAgentEngine implements AgentEngine {
                 }
             }
             settle(run.id(), task, failure, outcome);
+            if (outcome != null && failure == null && task.stopReason == null) {
+                try {
+                    memories.completed(store.run(run.id()));
+                } catch (RuntimeException error) {
+                    System.getLogger(getClass().getName())
+                            .log(System.Logger.Level.INFO, "Memory extraction not scheduled for " + run.id());
+                }
+            }
         }
+    }
+
+    /** History gets what remains after output, tool schemas, instructions and a safety margin. */
+    private static int historyBudget(RunConfiguration configuration, Toolset toolset) {
+        TokenCounter counter = configuration.tokenCounter();
+        int contextWindowTokens = configuration.contextWindowTokens();
+        return contextWindowTokens
+                - configuration.maxOutputTokens()
+                - new TokenBudget(counter).tools(toolset.definitions())
+                - counter.count(toolset.instructions())
+                - TokenBudget.safety(contextWindowTokens);
     }
 
     /** Record the final status once the worker has stopped touching the run. */
@@ -412,6 +455,14 @@ public final class DefaultAgentEngine implements AgentEngine {
             synchronized (this) {
                 cancellation.check();
                 store.saveModelRequest(next);
+                if (step == 1 && !loop.memory().entries().isEmpty()) {
+                    try {
+                        memories.recordUsage(runId, loop.memory().entries());
+                    } catch (RuntimeException error) {
+                        System.getLogger(getClass().getName())
+                                .log(System.Logger.Level.WARNING, "Memory usage not recorded for " + runId);
+                    }
+                }
             }
             // Reasoning streams token by token; batch it so each write and event covers ~2 KB or 300 ms.
             final int currentStep = step;
@@ -445,7 +496,10 @@ public final class DefaultAgentEngine implements AgentEngine {
                 String detail = !finalRequest
                         ? ""
                         : stalled ? "检测到重复的工具调用且结果无变化，已停止工具并生成收尾回答" : "时间预算不足，已跳过剩余工具并生成收尾回答";
-                return new Outcome(List.copyOf(messages.subList(historySize, messages.size())), detail);
+                var completed = new ArrayList<>(messages.subList(historySize, messages.size()));
+                // The conversation keeps the original prompt; recalled memory stays only in the saved request.
+                completed.set(0, new ModelMessage("user", run.prompt()));
+                return new Outcome(List.copyOf(completed), detail);
             }
             if (finalRequest) {
                 synchronized (this) {
@@ -640,6 +694,7 @@ public final class DefaultAgentEngine implements AgentEngine {
                     toolset(tools, parent.extensionInstructions(), agent),
                     List.of(new ModelMessage("user", child.prompt())),
                     new ContextSummary(0, 0, 0, 0, 0),
+                    LongTermMemory.Context.EMPTY,
                     timeoutNanos,
                     deadlineNanos));
         } catch (InterruptedException error) {

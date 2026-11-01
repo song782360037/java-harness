@@ -458,6 +458,11 @@ public final class JdbcSessionStore implements SessionStore {
                 """, RUN_MAPPER, current.sessionId(), runId);
     }
 
+    /** 首个请求的用户消息须为原始提问，或召回记忆块加原始提问。 */
+    private static boolean prompted(String content, String prompt) {
+        return content.equals(prompt) || content.startsWith("<retrieved_memory>") && content.endsWith(prompt);
+    }
+
     @Override
     public synchronized void saveModelRequest(ModelRequest request) {
         tx.executeWithoutResult(status -> {
@@ -467,7 +472,7 @@ public final class JdbcSessionStore implements SessionStore {
                     || !run.scenario().equals(request.scenario())
                     || !run.workspace().equals(request.workspace())
                     || (request.step() == 1
-                            && !run.prompt().equals(request.messages().getLast().content()))) {
+                            && !prompted(request.messages().getLast().content(), run.prompt()))) {
                 throw new HarnessException("CONFLICT", "请求快照与当前任务不匹配");
             }
             if (request.step() == 1) {
@@ -811,8 +816,8 @@ public final class JdbcSessionStore implements SessionStore {
             String mode = approvalMode == null ? session(sessionId).approvalMode() : approvalMode.name();
             jdbc.update(
                     """
-                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,approval_mode)
-                    VALUES (?,?,?,?,?,'QUEUED','','',?,?,?,?,?,?,?,?,?)
+                    INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,approval_mode,memory_workspace_id)
+                    VALUES (?,?,?,?,?,'QUEUED','','',?,?,?,?,?,?,?,?,?,?)
                     """,
                     id,
                     sessionId,
@@ -827,7 +832,8 @@ public final class JdbcSessionStore implements SessionStore {
                     selected.reasoningEffort(),
                     encode(requested),
                     extensions,
-                    mode);
+                    mode,
+                    session(sessionId).workspaceId());
             jdbc.update(
                     "UPDATE harness_session SET active_run_id=?,model_profile_id=?,reasoning_effort=?,approval_mode=? WHERE id=?",
                     id,

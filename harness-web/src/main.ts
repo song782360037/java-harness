@@ -9,5 +9,6 @@ import './styles/markdown.css'
 import './styles/file-changes.css'
 import './styles/commands.css'
 import './styles/automations.css'
+import './styles/memories.css'
 
 createApp(App).mount('#app')

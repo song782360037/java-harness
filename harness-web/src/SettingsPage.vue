@@ -8,17 +8,19 @@ import GeneralSettings from './GeneralSettings.vue'
 import ExtensionCenter from './ExtensionCenter.vue'
 import UsageSettings from './UsageSettings.vue'
 import ApprovalSettings from './ApprovalSettings.vue'
+import MemorySettings from './MemorySettings.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace' | 'approval'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace' | 'approval' | 'memory'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
 const currentWorkspace = computed(() => props.workspaces.find(workspace => workspace.id === props.session?.workspaceId))
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
-const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage'>(props.initialSection)
+const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory'>(props.initialSection)
 const pageTitle = ref<HTMLElement>()
 const sections = [{ id: 'general', label: '常规', icon: 'settings' },
   { id: 'appearance', label: '外观', icon: 'palette' },
   { id: 'models', label: '模型与提供商', icon: 'cube' },
   { id: 'workspace', label: '工作区', icon: 'folder' },
   { id: 'approval', label: '审批', icon: 'shield' },
+  { id: 'memory', label: '记忆', icon: 'branch' },
   { id: 'plugins', label: '扩展', icon: 'puzzle' },
   { id: 'usage', label: '使用统计', icon: 'chart' }] as const
 const sectionInfo = computed(() => sections.find(item => item.id === section.value)!)
@@ -186,6 +188,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
           <AppearanceSettings v-show="section === 'appearance'" />
           <UsageSettings v-if="section === 'usage'" />
           <ApprovalSettings v-if="section === 'approval'" @busy="pluginBusy = $event" />
+          <MemorySettings v-if="section === 'memory'" @busy="pluginBusy = $event" />
           <section v-show="section === 'models'" class="provider-console" aria-label="自定义提供商与模型">
             <aside class="provider-rail" aria-label="自定义提供商">
               <div class="provider-rail-heading"><h2>提供商</h2><span>{{ providers.length.toString().padStart(2, '0') }}</span></div>
