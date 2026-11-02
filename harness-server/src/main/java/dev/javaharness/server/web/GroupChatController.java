@@ -143,7 +143,8 @@ public class GroupChatController {
                     version = current;
                 }
                 if (System.nanoTime() - heartbeat > TimeUnit.SECONDS.toNanos(5)) {
-                    emitter.send(SseEmitter.event().comment("keepalive"));
+                    // A named event, unlike an SSE comment, reaches the browser so its watchdog can see liveness.
+                    emitter.send(SseEmitter.event().name("ping").data("ping"));
                     heartbeat = System.nanoTime();
                 }
                 Thread.sleep(300);

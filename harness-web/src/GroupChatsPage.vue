@@ -47,6 +47,9 @@ const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'En
 
 let source: EventSource | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+let watchdogTimer: ReturnType<typeof setTimeout> | undefined
+let reconnectDelay = 1500
+let lastStreamMessageAt = 0
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let revision = 0
@@ -82,24 +85,62 @@ function scheduleRefresh(id: string, version: number, delay = 150) {
     }
   }, delay)
 }
+// 服务端每 5 秒发送 ping；15 秒内没有任何消息就视为连接已静默失效并重建。
+function armWatchdog(version: number, stream: EventSource) {
+  lastStreamMessageAt = Date.now()
+  clearTimeout(watchdogTimer)
+  watchdogTimer = setTimeout(() => { if (version === revision && source === stream) restartStream() }, 15000)
+}
 function follow(id: string, version: number) {
+  // 加载快照期间 resumeStream 可能已先建流，这里关闭它，保证始终只有一条连接。
+  source?.close()
   const stream = new EventSource(`/api/groups/${id}/events`)
   source = stream
-  stream.onopen = () => { if (version === revision && source === stream) scheduleRefresh(id, version) }
+  armWatchdog(version, stream)
+  stream.onopen = () => {
+    if (version !== revision || source !== stream) return
+    reconnectDelay = 1500
+    armWatchdog(version, stream)
+    scheduleRefresh(id, version)
+  }
   stream.onerror = () => {
     if (version !== revision || source !== stream) return
     // 显式重建连接；服务端每 55 秒结束一次流，重连后重新读取快照即可。读取快照也能发现群聊已被删除。
     stream.close()
+    clearTimeout(watchdogTimer)
     scheduleRefresh(id, version, 1000)
     clearTimeout(reconnectTimer)
-    reconnectTimer = setTimeout(() => { if (version === revision && source === stream) follow(id, version) }, 1500)
+    // 后端持续不可用时按指数退避重连，连接成功后恢复为 1.5 秒。
+    const delay = reconnectDelay
+    reconnectDelay = Math.min(reconnectDelay * 2, 15000)
+    reconnectTimer = setTimeout(() => { if (version === revision && source === stream) follow(id, version) }, delay)
   }
-  stream.addEventListener('group-event', () => { if (version === revision && source === stream) scheduleRefresh(id, version) })
+  stream.addEventListener('ping', () => { if (version === revision && source === stream) armWatchdog(version, stream) })
+  stream.addEventListener('group-event', () => {
+    if (version !== revision || source !== stream) return
+    armWatchdog(version, stream)
+    scheduleRefresh(id, version)
+  })
+}
+// 替换可能已静默失效的连接；连接打开后会补读一次快照。
+function restartStream() {
+  const id = selectedId.value
+  if (!id) return
+  source?.close(); source = null
+  clearTimeout(reconnectTimer); reconnectTimer = undefined
+  follow(id, revision)
+}
+// 后台标签页的计时器可能被节流，回到前台或网络恢复时按最近消息或建连时间补做一次存活检查。
+function resumeStream(event: Event) {
+  if (!selectedId.value || document.visibilityState !== 'visible') return
+  if (event.type === 'online') reconnectDelay = 1500
+  if (event.type === 'online' || Date.now() - lastStreamMessageAt > 15000) restartStream()
 }
 async function select(id: string) {
   const version = ++revision
   source?.close(); source = null
-  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); refreshTimer = undefined
+  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); reconnectDelay = 1500
+  clearTimeout(refreshTimer); refreshTimer = undefined
   // 清空输入，避免发给上一个群的内容被误发到新群。
   selectedId.value = id; snapshot.value = null; processes.value = {}; error.value = ''; text.value = ''; requestId = ''
   try { localStorage.setItem('harness.group', id) } catch { /* 无本地存储时不记住选择 */ }
@@ -202,6 +243,8 @@ function resizeInput() {
 // 内容改变后视为新消息，不再沿用上一次待确认的 requestId。
 watch(text, () => { requestId = ''; void nextTick(resizeInput) })
 onMounted(async () => {
+  document.addEventListener('visibilitychange', resumeStream)
+  window.addEventListener('online', resumeStream)
   try {
     templates.value = await api<GroupTemplate[]>('/group-templates')
     await loadGroups()
@@ -216,7 +259,9 @@ onMounted(async () => {
 onUnmounted(() => {
   revision++
   source?.close()
-  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); clearInterval(pollTimer)
+  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer); clearInterval(pollTimer)
+  document.removeEventListener('visibilitychange', resumeStream)
+  window.removeEventListener('online', resumeStream)
 })
 </script>
 

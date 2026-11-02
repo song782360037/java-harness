@@ -75,7 +75,7 @@ QUEUED 或 RUNNING → CANCELLING → CANCELLED / TIMED_OUT
 | GET | `/api/sessions/{id}` | `{ session, runs, lastSeq }` 一致快照 |
 | POST | `/api/sessions/{id}/runs` | 新请求 202；同内容幂等重试 200；会话忙碌 409 |
 | POST | `/api/runs/{id}/cancel` | JSON 空对象；200 返回 CANCELLING 或既有终态 |
-| GET | `/api/sessions/{id}/events?after=0` | SSE；Last-Event-ID 优先 |
+| GET | `/api/sessions/{id}/events?after=0` | SSE；Last-Event-ID 优先；事件名 `run-event`，另有每 5 秒一次的存活事件 `ping`（无 id，客户端应忽略其数据） |
 
 提交为 `{ "requestId": "标准小写 UUID", "prompt": "分析项目入口", "modelProfileId": "default", "reasoningEffort": "high" }`。modelProfileId 省略/null 使用 default 配置，reasoningEffort 省略/null 使用该配置默认强度，空字符串明确省略上游参数。唯一键是 `(session_id, request_id)`；同 ID 同内容返回原 Run，含终态，即使配置已删除也不重复运行。复用 ID 修改 prompt/scenario/模型选择/强度返回 409。prompt 为 1–4000 字符。scenario 仅用于旧记录兼容，新请求省略或使用 NORMAL；FAIL / SLOW 不能创建真实任务。
 

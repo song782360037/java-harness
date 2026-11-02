@@ -60,7 +60,7 @@
 | POST | `/api/groups/{id}/members/{memberId}/delete` | 移除成员与其会话，历史发言保留作者名；成员正在发言时返回 409 |
 | POST | `/api/groups/{id}/messages` | `{ requestId, content }`，202；同一 requestId 重试返回原消息 |
 | POST | `/api/groups/{id}/stop` | 停止本轮协作 |
-| GET | `/api/groups/{id}/events` | SSE，事件名 `group-event`，数据为 `{ version }`（字符串，群序号与成员会话可见事件序号拼接）；只表示"群聊视图可能变化"，客户端收到后重新读取快照 |
+| GET | `/api/groups/{id}/events` | SSE，事件名 `group-event`，数据为 `{ version }`（字符串，群序号与成员会话可见事件序号拼接）；只表示"群聊视图可能变化"，客户端收到后重新读取快照；另有每 5 秒一次的存活事件 `ping` |
 
 ## 持久化
 

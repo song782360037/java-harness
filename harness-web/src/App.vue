@@ -147,7 +147,7 @@ async function sessionDeleted(session: { id: string }) {
   if (next) { await selectSession(next); return }
   revision++
   source?.close(); source = null
-  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); refreshTimer = undefined
+  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer); refreshTimer = undefined
   refreshing = false; dirty = false; connected.value = false
   selectedId.value = ''; snapshot.value = null; pending.value = null
   prompt.value = readDraft('')
@@ -340,6 +340,9 @@ const labels: Record<RunStatus, string> = {
 }
 let source: EventSource | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+let watchdogTimer: ReturnType<typeof setTimeout> | undefined
+let reconnectDelay = 1500
+let lastStreamMessageAt = 0
 let revision = 0
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 let refreshing = false
@@ -419,11 +422,22 @@ function scheduleRefresh(id: string, version: number, delay = 200) {
     }
   }, delay)
 }
+// 服务端每 5 秒发送 ping；15 秒内没有任何消息就视为连接已静默失效并重建。
+function armWatchdog(version: number, stream: EventSource) {
+  lastStreamMessageAt = Date.now()
+  clearTimeout(watchdogTimer)
+  watchdogTimer = setTimeout(() => { if (version === revision && source === stream) restartStream() }, 15000)
+}
 function follow(id: string, version: number) {
+  // 加载快照期间 resumeStream 可能已先建流，这里关闭它，保证始终只有一条连接。
+  source?.close()
   const stream = new EventSource(`/api/sessions/${id}/events?after=${snapshot.value?.lastSeq ?? 0}`)
   source = stream
+  armWatchdog(version, stream)
   stream.onopen = () => {
     if (version !== revision || source !== stream) return
+    reconnectDelay = 1500
+    armWatchdog(version, stream)
     connected.value = true
     void loadProfiles().catch(() => { /* Keep known profiles during temporary connection loss. */ })
     scheduleRefresh(id, version)
@@ -434,14 +448,20 @@ function follow(id: string, version: number) {
     // A proxy 500/invalid SSE response can permanently close native EventSource retries.
     // Recreate explicitly and resume from the last committed snapshot cursor.
     stream.close()
+    clearTimeout(watchdogTimer)
     clearTimeout(reconnectTimer)
+    // 后端持续不可用时按指数退避重连，连接成功后恢复为 1.5 秒。
+    const delay = reconnectDelay
+    reconnectDelay = Math.min(reconnectDelay * 2, 15000)
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined
       if (version === revision && source === stream) follow(id, version)
-    }, 1500)
+    }, delay)
   }
+  stream.addEventListener('ping', () => { if (version === revision && source === stream) armWatchdog(version, stream) })
   stream.addEventListener('run-event', (message: MessageEvent<string>) => {
     if (version !== revision || source !== stream) return
+    armWatchdog(version, stream)
     const event = JSON.parse(message.data) as RunEvent
     if (event.type === 'TOOL' && event.runId) toolRevisions.value[event.runId] = event.seq
     // 子智能体的进展记在父运行上，使父运行时间线里的嵌套过程随之刷新。
@@ -466,6 +486,12 @@ function restartStream() {
   connected.value = false
   follow(id, version)
 }
+// 后台标签页的计时器可能被节流，回到前台或网络恢复时按最近消息或建连时间补做一次存活检查。
+function resumeStream(event: Event) {
+  if (!selectedId.value || document.visibilityState !== 'visible') return
+  if (event.type === 'online') reconnectDelay = 1500
+  if (event.type === 'online' || Date.now() - lastStreamMessageAt > 15000) restartStream()
+}
 async function selectSession(id: string) {
   awayFromLatest.value = false
   closeSettings()
@@ -473,6 +499,8 @@ async function selectSession(id: string) {
   source?.close()
   source = null
   clearTimeout(reconnectTimer)
+  clearTimeout(watchdogTimer)
+  reconnectDelay = 1500
   clearTimeout(refreshTimer)
   refreshTimer = undefined
   refreshing = false
@@ -675,11 +703,15 @@ onMounted(() => {
   document.addEventListener('focusin', focusOutsideSessionMenu)
   document.addEventListener('scroll', scrollSessionMenu, true)
   window.addEventListener('resize', resizeSessionMenu)
+  document.addEventListener('visibilitychange', resumeStream)
+  window.addEventListener('online', resumeStream)
 })
 onUnmounted(() => {
   revision++
   source?.close()
-  clearTimeout(reconnectTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer)
+  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer)
+  document.removeEventListener('visibilitychange', resumeStream)
+  window.removeEventListener('online', resumeStream)
   mobileLayout.removeEventListener('change', onLayoutChange)
   window.removeEventListener('focus', reloadSessions)
   document.removeEventListener('keydown', closeSidebarOnEscape)

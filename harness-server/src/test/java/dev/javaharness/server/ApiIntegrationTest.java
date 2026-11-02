@@ -310,7 +310,18 @@ class ApiIntegrationTest {
                 .isEqualTo("CANCELLED");
     }
 
+    @Test
+    void sseSendsPingEventsVisibleToBrowserWatchdogs() throws Exception {
+        String id = newSession();
+        assertThat(readOneData(id, 0, null, "ping")).isEqualTo("ping");
+    }
+
     private JsonNode readOneEvent(String id, long after, String lastId) throws Exception {
+        return json.readTree(readOneData(id, after, lastId, "run-event"));
+    }
+
+    /** Returns the data of the first SSE event with the given name, skipping other events such as pings. */
+    private String readOneData(String id, long after, String lastId, String name) throws Exception {
         var builder = HttpRequest.newBuilder(uri("/sessions/" + id + "/events?after=" + after))
                 .timeout(Duration.ofSeconds(5))
                 .GET();
@@ -319,11 +330,14 @@ class ApiIntegrationTest {
         assertThat(response.statusCode()).isEqualTo(200);
         try (var input = response.body();
                 var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<JsonNode> result = executor.submit(() -> {
+            Future<String> result = executor.submit(() -> {
                 var reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
                 String line;
+                String event = "message";
                 while ((line = reader.readLine()) != null) {
-                    if (line.startsWith("data:")) return json.readTree(line.substring(5));
+                    if (line.isEmpty()) event = "message";
+                    else if (line.startsWith("event:")) event = line.substring(6).trim();
+                    else if (line.startsWith("data:") && event.equals(name)) return line.substring(5);
                 }
                 throw new AssertionError("SSE ended without an event");
             });
