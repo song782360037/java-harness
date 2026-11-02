@@ -24,6 +24,9 @@ import java.util.List;
 public interface SessionStore {
     record Submission(Run run, boolean created) {}
 
+    /** 会话在某个工作区下的滚动历史摘要，覆盖合格历史的前 coveredTurns 轮，截止于 throughRunId。 */
+    record CompactedHistory(String throughRunId, int coveredTurns, String summary) {}
+
     Session createSession(String title);
 
     Session createSession(String title, String workspace);
@@ -53,6 +56,14 @@ public interface SessionStore {
     Run run(String runId);
     /** Runs preceding this run's QUEUED event, ordered by session sequence. */
     List<Run> contextHistory(String runId);
+
+    /** 读取会话在该工作区下的历史摘要；没有或不支持时返回 null。 */
+    default CompactedHistory compactedHistory(String sessionId, String workspace) {
+        return null;
+    }
+
+    /** 保存（覆盖）会话在该工作区下的历史摘要；不支持时忽略。 */
+    default void saveCompactedHistory(String sessionId, String workspace, CompactedHistory history) {}
 
     void saveModelRequest(ModelRequest request);
     /** Null for legacy runs or work cancelled before request preparation. */

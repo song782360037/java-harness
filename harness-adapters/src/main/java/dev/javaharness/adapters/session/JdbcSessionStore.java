@@ -514,6 +514,29 @@ public final class JdbcSessionStore implements SessionStore {
     }
 
     @Override
+    public synchronized CompactedHistory compactedHistory(String sessionId, String workspace) {
+        var rows = jdbc.query(
+                "SELECT through_run_id,covered_turns,summary FROM harness_context_summary WHERE session_id=? AND workspace=?",
+                (rs, row) -> new CompactedHistory(rs.getString(1), rs.getInt(2), rs.getString(3)),
+                sessionId,
+                workspace);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    @Override
+    public synchronized void saveCompactedHistory(String sessionId, String workspace, CompactedHistory history) {
+        session(sessionId);
+        jdbc.update(
+                "MERGE INTO harness_context_summary KEY(session_id) VALUES (?,?,?,?,?,?)",
+                sessionId,
+                workspace,
+                history.throughRunId(),
+                history.coveredTurns(),
+                history.summary(),
+                now());
+    }
+
+    @Override
     public synchronized ModelRequest modelRequest(String runId) {
         run(runId);
         var rows = jdbc.query(

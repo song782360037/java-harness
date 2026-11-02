@@ -304,7 +304,8 @@ const latestContext = computed(() => [...(snapshot.value?.runs ?? [])].reverse()
 // 上下文与工作区说明放在模型信息的悬浮提示中。
 function contextTitle(run: Run) {
   const context = run.context
-  const parts = context ? [`携带 ${context.includedTurns} 轮历史`, context.droppedTurns ? `已裁剪 ${context.droppedTurns} 轮` : '', context.excludedTurns ? `已跳过 ${context.excludedTurns} 条` : ''] : []
+  const compacted = context?.compactedTurns ?? 0
+  const parts = context ? [`携带 ${context.includedTurns} 轮历史`, compacted ? `已压缩 ${compacted} 轮为摘要` : '', context.droppedTurns > compacted ? `已裁剪 ${context.droppedTurns - compacted} 轮` : '', context.excludedTurns ? `已跳过 ${context.excludedTurns} 条` : ''] : []
   if (run.workspace) parts.push(`工作区：${workspaceSummary(run.workspace)}`)
   return parts.filter(Boolean).join('，')
 }

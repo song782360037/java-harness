@@ -610,6 +610,7 @@ class ToolLoopTest {
         Flyway.configure().dataSource(ds).load().migrate();
         var migrated = new JdbcSessionStore(old, new TransactionTemplate(new DataSourceTransactionManager(ds)));
         assertThat(migrated.modelRequest("r").step()).isEqualTo(1);
+        assertThat(migrated.modelRequest("r").context().compactedTurns()).isZero();
         assertThat(migrated.modelRequests("r")).hasSize(1);
         assertThat(migrated.modelRequest("r").tools()).isEmpty();
         assertThat(migrated.modelRequest("r").instructions()).isEmpty();

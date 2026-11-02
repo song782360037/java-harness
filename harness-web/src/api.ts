@@ -68,7 +68,7 @@ export interface ModelRequest {
 }
 export interface ContextSummary {
   includedTurns: number; droppedTurns: number; excludedTurns: number; characters: number; maxCharacters: number
-  tokens?: number; maxTokens?: number
+  tokens?: number; maxTokens?: number; compactedTurns?: number
 }
 export interface Run {
   id: string; sessionId: string; requestId: string; prompt: string; scenario: string

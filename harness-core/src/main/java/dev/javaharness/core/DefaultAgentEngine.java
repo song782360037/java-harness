@@ -43,6 +43,9 @@ public final class DefaultAgentEngine implements AgentEngine {
     // A subagent needs room for a few model steps and its own final answer.
     private static final long MIN_SUBAGENT_NANOS = Duration.ofSeconds(15).toNanos();
     private static final int MAX_SUBAGENT_RESULT = 60_000;
+    private static final long COMPACTION_TIMEOUT_NANOS = Duration.ofSeconds(30).toNanos();
+    // After a failed compaction a session truncates for a while instead of waiting on the model every run.
+    private static final long COMPACTION_BACKOFF_NANOS = Duration.ofMinutes(10).toNanos();
     private final SessionStore store;
     private final RunConfigurationSource configurations;
     private final LongTermMemory memories;
@@ -50,6 +53,8 @@ public final class DefaultAgentEngine implements AgentEngine {
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("run-deadline").factory());
     private final Map<String, Task> tasks = new HashMap<>();
+    // Session id to the nanoTime until which compaction is skipped; guarded by this.
+    private final Map<String, Long> compactionBackoff = new HashMap<>();
     private boolean closed;
 
     private static final class Task {
@@ -273,14 +278,58 @@ public final class DefaultAgentEngine implements AgentEngine {
             if (shared != null) historyBudget -= counter.count(shared);
             if (shared != null && historyBudget < counter.count(run.prompt()) + 256)
                 throw new ModelException("模型上下文窗口不足以容纳群聊上下文和本次任务，请提高上下文窗口或减少成员职责描述");
-            ModelRequest request;
+            var context = new ConversationContext(counter, historyBudget);
+            ConversationContext.History history;
+            SessionStore.CompactedHistory stored;
+            String sessionId = run.sessionId();
+            boolean backoff;
             synchronized (this) {
                 if (task.stopReason != null) return;
-                request = new ConversationContext(counter, historyBudget)
-                        .build(
-                                run,
-                                shared == null ? store.contextHistory(run.id()) : List.of(),
-                                prior -> store.conversation(prior.id()));
+                history = context.history(
+                        run,
+                        shared == null ? store.contextHistory(run.id()) : List.of(),
+                        prior -> store.conversation(prior.id()));
+                stored = shared == null ? store.compactedHistory(sessionId, run.workspace()) : null;
+                Long until = compactionBackoff.get(sessionId);
+                backoff = until != null && System.nanoTime() - until < 0;
+            }
+            // Compaction calls the model, so it runs outside the engine lock; a group chat has no session history.
+            // During backoff a stored summary is still reused; only new summaries are skipped.
+            ConversationContext.Compaction compaction =
+                    shared == null ? (previous, turns, maxTokens) -> null : null;
+            if (shared == null && !backoff) {
+                var compactor = new ContextCompactor(
+                        resources.model(),
+                        run.model(),
+                        counter,
+                        configuration.contextWindowTokens(),
+                        configuration.maxOutputTokens(),
+                        workers,
+                        Math.min(COMPACTION_TIMEOUT_NANOS, (deadlineNanos - System.nanoTime()) / 4));
+                compaction = (previous, turns, maxTokens) -> {
+                    String summary = compactor.summarize(previous, turns, maxTokens);
+                    if (summary == null || summary.isBlank()) {
+                        synchronized (this) {
+                            compactionBackoff.put(sessionId, System.nanoTime() + COMPACTION_BACKOFF_NANOS);
+                        }
+                    }
+                    return summary;
+                };
+            }
+            var built = context.build(history, stored, compaction);
+            ModelRequest request = built.request();
+            synchronized (this) {
+                cancellation.check();
+                if (built.updated() != null) {
+                    compactionBackoff.remove(sessionId);
+                    try {
+                        store.saveCompactedHistory(sessionId, run.workspace(), built.updated());
+                    } catch (RuntimeException error) {
+                        // The summary is a cache; this request still carries it.
+                        System.getLogger(getClass().getName())
+                                .log(System.Logger.Level.WARNING, "Context summary not saved for " + run.id(), error);
+                    }
+                }
             }
             var messages = new ArrayList<>(request.messages());
             String prefix = (shared == null ? "" : shared) + memory.text();
@@ -458,7 +507,8 @@ public final class DefaultAgentEngine implements AgentEngine {
                     characters,
                     0,
                     tokens,
-                    contextWindowTokens);
+                    contextWindowTokens,
+                    loop.history().compactedTurns());
             var next = new ModelRequest(
                     runId,
                     run.model(),
