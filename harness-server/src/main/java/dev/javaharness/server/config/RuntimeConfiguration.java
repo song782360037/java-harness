@@ -14,6 +14,7 @@ import dev.javaharness.adapters.settings.JdbcSettingsStore;
 import dev.javaharness.adapters.settings.LocalSecretCipher;
 import dev.javaharness.adapters.usage.LocalAgentUsageReader;
 import dev.javaharness.adapters.workspace.FileChangeService;
+import dev.javaharness.adapters.workspace.RunArtifacts;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.GroupChatService;
@@ -67,6 +68,11 @@ public class RuntimeConfiguration {
     FileChangeService fileChangeService(
             JdbcTemplate jdbc, PlatformTransactionManager transactions, SessionStore sessions) {
         return new FileChangeService(jdbc, new TransactionTemplate(transactions), sessions);
+    }
+
+    @Bean
+    RunArtifacts runArtifacts(FileChangeService changes, SessionStore sessions) {
+        return new RunArtifacts(changes, sessions);
     }
 
     @Bean

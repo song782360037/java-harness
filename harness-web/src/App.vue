@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import RunTimeline from './RunTimeline.vue'
 import FileChanges from './FileChanges.vue'
+import ArtifactCards from './ArtifactCards.vue'
 import Commands from './Commands.vue'
 import PluginRunDetails from './PluginRunDetails.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
@@ -775,6 +776,7 @@ onUnmounted(() => {
             <MemoryUsage :run-id="run.id" :revision="`${run.status}:${run.context ? 'prepared' : 'pending'}`" />
             <p v-if="isActive(run) ? !run.output && (pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
+            <ArtifactCards v-if="run.workspace" :run-id="run.id" :workspace="run.workspace" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" />
             <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" :can-revert="!isActive(run) && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
             <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
             <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />

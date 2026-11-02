@@ -73,6 +73,13 @@ public final class FileChangeService {
         }
     }
 
+    /** 按 id 读取一条文件修改。 */
+    public FileChange find(String id) {
+        synchronized (sessions) {
+            return get(id);
+        }
+    }
+
     private FileChange get(String id) {
         var rows = jdbc.query("SELECT * FROM harness_file_change WHERE id=?", MAPPER, id);
         if (rows.isEmpty()) throw new HarnessException("NOT_FOUND", "文件修改不存在");

@@ -209,12 +209,21 @@ class FileChangeApiIntegrationTest {
             assertThat(post("/file-changes/" + edit + "/apply", Map.of()).body())
                     .contains("APPLIED");
             assertThat(Files.readString(file)).contains("value = 2");
+            var artifacts = json.readTree(get("/runs/" + run + "/artifacts").body());
+            assertThat(artifacts).hasSize(1);
+            assertThat(artifacts.get(0).path("changeId").asText()).isEqualTo(edit);
+            assertThat(artifacts.get(0).path("state").asText()).isEqualTo("FILE");
+            assertThat(get("/file-changes/" + edit + "/content").body()).contains("value = 2");
+            assertThat(post("/file-changes/" + edit + "/open", Map.of("action", "delete")).statusCode())
+                    .isEqualTo(400);
             assertThat(post("/file-changes/" + edit + "/apply", Map.of()).statusCode())
                     .isEqualTo(200);
             assertThat(post("/file-changes/" + create + "/reject", Map.of()).body())
                     .contains("REJECTED");
             assertThat(workspace.resolve("New.txt")).doesNotExist();
             assertThat(post("/file-changes/" + create + "/apply", Map.of()).statusCode())
+                    .isEqualTo(409);
+            assertThat(post("/file-changes/" + create + "/open", Map.of("action", "reveal")).statusCode())
                     .isEqualTo(409);
             assertThat(get("/runs/missing/file-changes").statusCode()).isEqualTo(404);
             assertThat(post("/file-changes/missing/apply", Map.of()).statusCode())
