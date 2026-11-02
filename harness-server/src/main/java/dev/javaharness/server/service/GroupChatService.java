@@ -6,6 +6,7 @@ import dev.javaharness.adapters.group.GroupStore.Member;
 import dev.javaharness.adapters.group.GroupStore.Message;
 import dev.javaharness.adapters.group.GroupStore.Round;
 import dev.javaharness.adapters.group.GroupStore.RunState;
+import dev.javaharness.adapters.group.GroupStore.Task;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ModelProvider;
 import dev.javaharness.spi.model.ModelSelection;
@@ -29,7 +30,7 @@ public final class GroupChatService {
     private static final Pattern COLOR = Pattern.compile("#[0-9a-fA-F]{6}");
     private static final Pattern MEMBER_NAME = Pattern.compile("[^\\s@]{1,20}");
 
-    /** 群设置；templates 仅在新建时使用，按顺序添加这些内置模板成员。 */
+    /** 群设置；mode 为空时沿用原值（新建为 DISCUSS），templates 仅在新建时使用，按顺序添加这些内置模板成员。 */
     public record GroupDraft(
             String name,
             String color,
@@ -37,6 +38,7 @@ public final class GroupChatService {
             String hostProfileId,
             String hostReasoningEffort,
             Integer maxTurns,
+            String mode,
             long revision,
             List<String> templates) {}
 
@@ -54,11 +56,13 @@ public final class GroupChatService {
     /** 群列表项；busy 表示有进行中的协作。 */
     public record Summary(Group group, int members, boolean busy) {}
 
+    /** 群快照；tasks 为最新一轮的任务计划，讨论模式的轮次为空。 */
     public record Snapshot(
             Group group,
             List<Member> members,
             List<Message> messages,
             Round round,
+            List<Task> tasks,
             boolean busy,
             List<RunState> runs,
             String version) {}
@@ -94,11 +98,13 @@ public final class GroupChatService {
         synchronized (sessions) {
             return tx.execute(status -> {
                 Group group = groups.get(id);
+                Round round = groups.latestRound(id);
                 return new Snapshot(
                         group,
                         groups.members(id),
                         groups.messages(id),
-                        groups.latestRound(id),
+                        round,
+                        round == null ? List.of() : groups.tasks(round.id()),
                         busy,
                         groups.runs(id),
                         version(id));
@@ -251,6 +257,8 @@ public final class GroupChatService {
         checkEffort(draft.hostReasoningEffort());
         int maxTurns = draft.maxTurns() == null ? 12 : draft.maxTurns();
         if (maxTurns < 1 || maxTurns > 50) throw new HarnessException("INVALID", "每轮发言上限需为 1–50 次");
+        String mode = blank(draft.mode()) ? existing == null ? "DISCUSS" : existing.mode() : draft.mode();
+        if (!mode.equals("DISCUSS") && !mode.equals("TASKS")) throw new HarnessException("INVALID", "不支持的协作模式");
         return new Group(
                 id,
                 name,
@@ -259,6 +267,7 @@ public final class GroupChatService {
                 host,
                 draft.hostReasoningEffort(),
                 maxTurns,
+                mode,
                 existing == null ? null : existing.createdAt(),
                 draft.revision());
     }

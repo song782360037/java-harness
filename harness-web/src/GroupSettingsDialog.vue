@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { api, approvalModeOptions, effortLabel, reasoningOptions, type ModelProfile, type Workspace } from './api'
-import { avatarText, emptyGroupDraft, emptyMemberDraft, groupDraft, memberDraft,
+import { avatarText, emptyGroupDraft, emptyMemberDraft, groupDraft, memberDraft, modeOptions,
   type GroupDraft, type GroupMember, type GroupSnapshot, type GroupTemplate, type MemberDraft } from './groups'
 import UiIcon from './UiIcon.vue'
 const props = defineProps<{ snapshot?: GroupSnapshot; workspaces: Workspace[]; profiles: ModelProfile[]; templates: GroupTemplate[]; defaultProfileId: string }>()
@@ -112,12 +112,15 @@ onMounted(() => {
             <label for="group-workspace">工作区</label>
             <select id="group-workspace" v-model="form.workspaceId" :disabled="groupBusy" aria-describedby="group-workspace-note"><option value="">不绑定（只讨论）</option><option v-if="form.workspaceId && !workspaces.some(item => item.id === form.workspaceId)" :value="form.workspaceId">工作区已不存在，请重新选择</option><option v-for="item in workspaces" :key="item.id" :value="item.id">{{ item.name }}</option></select>
             <p id="group-workspace-note" class="field-note">{{ groupBusy ? '协作进行中，停止后才能切换工作区。' : '绑定后成员可以读取项目、提出文件修改和执行命令，修改经你审核后写入。' }}</p>
+            <label for="group-mode">协作模式</label>
+            <select id="group-mode" v-model="form.mode" aria-describedby="group-mode-note"><option v-for="option in modeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
+            <p id="group-mode-note" class="field-note">{{ modeOptions.find(option => option.value === form.mode)?.description }}{{ groupBusy ? ' 修改后从下一条消息开始生效。' : '' }}</p>
             <div class="automation-grid">
               <div><label for="group-host">主持人模型</label><select id="group-host" v-model="form.hostProfileId"><option v-if="!profiles.some(item => item.id === form.hostProfileId)" :value="form.hostProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></div>
               <div><label for="group-host-effort">主持人思考强度</label><select id="group-host-effort" v-model="form.hostReasoningEffort"><option :value="null">模型默认</option><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
               <div><label for="group-turns">每轮发言上限</label><input id="group-turns" v-model.number="form.maxTurns" type="number" min="1" max="50" required /></div>
             </div>
-            <p class="field-note">主持人不在群里发言，只负责安排下一步由谁发言；被 @ 的成员会优先回应。</p>
+            <p class="field-note">{{ form.mode === 'TASKS' ? '主持人不在群里发言，只负责拆分任务并分配成员；被 @ 的成员会直接回应。每次任务尝试计入发言上限。' : '主持人不在群里发言，只负责安排下一步由谁发言；被 @ 的成员会优先回应。' }}</p>
             <template v-if="!editing">
               <label id="group-templates-label">默认成员</label>
               <div class="group-template-grid" role="group" aria-labelledby="group-templates-label">

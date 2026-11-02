@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError, type ModelProfile, type Run, type Snapshot, type Workspace } from './api'
-import { avatarText, insertMention, mentionCandidates, mentionQuery, roundNotice, speakingMembers,
+import { avatarText, insertMention, mentionCandidates, mentionQuery, roundNotice, speakingMembers, taskLabel, taskSteps,
   type GroupMember, type GroupMessage, type GroupSnapshot, type GroupSummary, type GroupTemplate } from './groups'
 import { preferences, shouldSendPrompt } from './preferences'
 import MarkdownContent from './MarkdownContent.vue'
@@ -38,6 +38,10 @@ const workspaceName = (id: string) => id ? props.workspaces.find(item => item.id
 const message = (cause: unknown, fallback: string) => cause instanceof Error ? cause.message : fallback
 const memberOf = (item: GroupMessage) => snapshot.value?.members.find(member => member.id === item.memberId)
 const runOf = (id: string | null) => id ? snapshot.value?.runs.find(run => run.id === id) : undefined
+const taskOf = (id: string | null) => id ? snapshot.value?.tasks.find(task => task.runId === id) : undefined
+const steps = computed(() => taskSteps(snapshot.value?.tasks ?? []))
+const finishedTasks = computed(() => snapshot.value?.tasks.filter(task => task.status === 'DONE').length ?? 0)
+const waitingText = computed(() => snapshot.value?.group.mode !== 'TASKS' ? '主持人正在安排下一位发言…' : snapshot.value.tasks.length ? '正在推进任务…' : '主持人正在拆分任务…')
 const time = (value: string) => new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
 
@@ -247,6 +251,20 @@ onUnmounted(() => {
           <div class="group-roster" aria-label="群成员">
             <button v-for="member in snapshot.members" :key="member.id" type="button" class="group-chip" :class="{ disabled: !member.enabled }" :disabled="!member.enabled" :title="`${member.focus}\n点击 @ ${member.name}`" @click="mentionMember(member)"><span class="group-avatar small" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>{{ member.name }}</button>
           </div>
+          <details v-if="snapshot.tasks.length" class="group-tasks" open>
+            <summary>任务计划<span>{{ finishedTasks }} / {{ snapshot.tasks.length }} 已完成</span></summary>
+            <ol>
+              <li v-for="(step, index) in steps" :key="index">
+                <span class="group-task-step">第 {{ index + 1 }} 步</span>
+                <ul>
+                  <li v-for="task in step" :key="task.id" class="group-task" :class="`is-${task.status.toLowerCase()}`">
+                    <span class="group-task-status">{{ taskLabel(task.status) }}</span>
+                    <span class="group-task-copy"><strong>{{ task.title }}</strong><small class="group-task-instruction">{{ task.instruction }}</small><small>{{ task.memberName }}<template v-if="task.attempts > 1"> · 第 {{ task.attempts }} 次尝试</template><template v-if="task.detail"> · {{ task.detail }}</template></small></span>
+                  </li>
+                </ul>
+              </li>
+            </ol>
+          </details>
           <div ref="timeline" class="timeline group-timeline" aria-label="群聊记录" aria-live="polite">
             <div v-if="!snapshot.messages.length" class="welcome"><div class="welcome-copy"><h2>说说你的问题或需求</h2><p class="welcome-description">成员会自动分工协作；输入 @昵称 可以直接点名某位成员。</p></div></div>
             <template v-for="item in snapshot.messages" :key="item.id">
@@ -255,7 +273,7 @@ onUnmounted(() => {
               <article v-else class="group-message">
                 <span class="group-avatar" :style="{ background: memberOf(item)?.color || 'var(--muted)' }" aria-hidden="true">{{ avatarText(item.authorName) }}</span>
                 <div class="group-message-body">
-                  <div class="group-message-heading"><strong>{{ item.authorName }}</strong><time>{{ time(item.createdAt) }}</time><button v-if="runOf(item.runId)" type="button" class="group-process" :aria-expanded="!!item.runId && item.runId in processes" @click="toggleProcess(item)">{{ item.runId && item.runId in processes ? '收起过程' : '查看过程' }}</button></div>
+                  <div class="group-message-heading"><strong>{{ item.authorName }}</strong><span v-if="taskOf(item.runId)" class="group-task-tag">{{ taskOf(item.runId)!.title }}</span><time>{{ time(item.createdAt) }}</time><button v-if="runOf(item.runId)" type="button" class="group-process" :aria-expanded="!!item.runId && item.runId in processes" @click="toggleProcess(item)">{{ item.runId && item.runId in processes ? '收起过程' : '查看过程' }}</button></div>
                   <div class="group-bubble"><MarkdownContent :content="item.content" /></div>
                   <div v-if="item.runId && item.runId in processes" class="group-process-panel">
                     <RunTimeline v-if="processes[item.runId]" :run="processes[item.runId]!" :revision="processes[item.runId]!.status" />
@@ -275,7 +293,7 @@ onUnmounted(() => {
                 <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${run.activity}`" :active="run.status === 'RUNNING'" />
               </div>
             </article>
-            <p v-if="snapshot.busy && !speaking.length" class="group-system"><span class="activity-dot"></span>主持人正在安排下一位发言…</p>
+            <p v-if="snapshot.busy && !speaking.length" class="group-system"><span class="activity-dot"></span>{{ waitingText }}</p>
             <p v-if="notice" class="run-notice" :class="{ 'has-error': notice.error }">{{ notice.text }}</p>
           </div>
           <div class="composer-dock">

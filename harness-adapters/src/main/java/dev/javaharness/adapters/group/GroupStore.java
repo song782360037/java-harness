@@ -9,9 +9,12 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
-/** 群聊、成员、协作轮次与群消息的 JDBC 存储；并发协调与事务由调用方负责。 */
+/** 群聊、成员、协作轮次、计划任务与群消息的 JDBC 存储；并发协调与事务由调用方负责。 */
 public final class GroupStore {
-    /** 一个群聊；workspaceId 为空表示只讨论，hostReasoningEffort 为 null 表示使用主持人模型配置的默认强度。 */
+    /**
+     * 一个群聊；workspaceId 为空表示只讨论，hostReasoningEffort 为 null 表示使用主持人模型配置的默认强度，
+     * mode 为 DISCUSS（自由发言）或 TASKS（任务编排）。
+     */
     public record Group(
             String id,
             String name,
@@ -20,6 +23,7 @@ public final class GroupStore {
             String hostProfileId,
             String hostReasoningEffort,
             int maxTurns,
+            String mode,
             Instant createdAt,
             long revision) {}
 
@@ -53,6 +57,26 @@ public final class GroupStore {
     /** 一轮协作；status 为 RUNNING、COMPLETED、STOPPED、SUPERSEDED、FAILED 或 INTERRUPTED。 */
     public record Round(String id, String groupId, String status, int turns, String detail, Instant createdAt) {}
 
+    /**
+     * 任务模式中一轮计划的一个任务；dependsOn 为同一轮的任务 key，status 为 PENDING、RUNNING、DONE、FAILED、
+     * SKIPPED、CANCELLED 或 INTERRUPTED，runId 指向最近一次尝试的运行。
+     */
+    public record Task(
+            String id,
+            String roundId,
+            int ordinal,
+            String key,
+            String title,
+            String instruction,
+            String memberId,
+            String memberName,
+            List<String> dependsOn,
+            String status,
+            int attempts,
+            String runId,
+            String detail,
+            Instant createdAt) {}
+
     private static final RowMapper<Group> GROUP = (rs, row) -> new Group(
             rs.getString("id"),
             rs.getString("name"),
@@ -61,6 +85,7 @@ public final class GroupStore {
             rs.getString("host_profile_id"),
             rs.getString("host_reasoning_effort"),
             rs.getInt("max_turns"),
+            rs.getString("mode"),
             rs.getObject("created_at", OffsetDateTime.class).toInstant(),
             rs.getLong("revision"));
     private static final RowMapper<Member> MEMBER = (rs, row) -> new Member(
@@ -93,6 +118,23 @@ public final class GroupStore {
             rs.getInt("turns"),
             rs.getString("detail"),
             rs.getObject("created_at", OffsetDateTime.class).toInstant());
+    private static final RowMapper<Task> TASK = (rs, row) -> new Task(
+            rs.getString("id"),
+            rs.getString("round_id"),
+            rs.getInt("ordinal"),
+            rs.getString("task_key"),
+            rs.getString("title"),
+            rs.getString("instruction"),
+            rs.getString("member_id"),
+            rs.getString("member_name"),
+            rs.getString("depends_on").isEmpty()
+                    ? List.of()
+                    : List.of(rs.getString("depends_on").split(",")),
+            rs.getString("status"),
+            rs.getInt("attempts"),
+            rs.getString("run_id"),
+            rs.getString("detail"),
+            rs.getObject("created_at", OffsetDateTime.class).toInstant());
 
     private final JdbcTemplate jdbc;
 
@@ -120,8 +162,8 @@ public final class GroupStore {
             String id = UUID.randomUUID().toString();
             jdbc.update(
                     """
-                    INSERT INTO harness_group(id,name,color,workspace_id,host_profile_id,host_reasoning_effort,max_turns,created_at,revision)
-                    VALUES (?,?,?,?,?,?,?,?,1)
+                    INSERT INTO harness_group(id,name,color,workspace_id,host_profile_id,host_reasoning_effort,max_turns,mode,created_at,revision)
+                    VALUES (?,?,?,?,?,?,?,?,?,1)
                     """,
                     id,
                     value.name(),
@@ -130,13 +172,14 @@ public final class GroupStore {
                     value.hostProfileId(),
                     value.hostReasoningEffort(),
                     value.maxTurns(),
+                    value.mode(),
                     now());
             return get(id);
         }
         int updated = jdbc.update(
                 """
                 UPDATE harness_group SET name=?,color=?,workspace_id=?,host_profile_id=?,host_reasoning_effort=?,max_turns=?,
-                    revision=revision+1,last_seq=last_seq+1 WHERE id=? AND revision=?
+                    mode=?,revision=revision+1,last_seq=last_seq+1 WHERE id=? AND revision=?
                 """,
                 value.name(),
                 value.color(),
@@ -144,6 +187,7 @@ public final class GroupStore {
                 value.hostProfileId(),
                 value.hostReasoningEffort(),
                 value.maxTurns(),
+                value.mode(),
                 value.id(),
                 value.revision());
         if (updated == 0) {
@@ -156,6 +200,7 @@ public final class GroupStore {
     /** Remove the group's own rows; member sessions are deleted by the caller first. */
     public void delete(String id) {
         jdbc.update("DELETE FROM harness_group_message WHERE group_id=?", id);
+        jdbc.update("DELETE FROM harness_group_task WHERE group_id=?", id);
         jdbc.update("DELETE FROM harness_group_round WHERE group_id=?", id);
         jdbc.update("DELETE FROM harness_group_member WHERE group_id=?", id);
         jdbc.update("DELETE FROM harness_group WHERE id=?", id);
@@ -305,15 +350,75 @@ public final class GroupStore {
         touch(round.groupId());
     }
 
-    /** Rounds left running by a previous process end as interrupted; their member runs are recovered by the engine. */
+    /**
+     * Rounds and unfinished tasks left by a previous process end as interrupted; their member runs are recovered by
+     * the engine.
+     */
     public void interruptRounds() {
         for (String groupId : jdbc.queryForList(
-                "SELECT DISTINCT group_id FROM harness_group_round WHERE status='RUNNING'", String.class)) {
+                """
+                SELECT group_id FROM harness_group_round WHERE status='RUNNING'
+                UNION SELECT group_id FROM harness_group_task WHERE status IN ('PENDING','RUNNING')
+                """,
+                String.class)) {
             jdbc.update(
                     "UPDATE harness_group_round SET status='INTERRUPTED',detail='服务已重启，协作中断；不会自动继续' WHERE group_id=? AND status='RUNNING'",
                     groupId);
+            jdbc.update(
+                    "UPDATE harness_group_task SET status='INTERRUPTED',detail='服务已重启' WHERE group_id=? AND status IN ('PENDING','RUNNING')",
+                    groupId);
             touch(groupId);
         }
+    }
+
+    /** Add a planned task as PENDING; the caller validates keys, members and dependencies. */
+    public Task addTask(
+            String groupId,
+            String roundId,
+            int ordinal,
+            String key,
+            String title,
+            String instruction,
+            String memberId,
+            String memberName,
+            List<String> dependsOn) {
+        String id = UUID.randomUUID().toString();
+        jdbc.update(
+                """
+                INSERT INTO harness_group_task(id,group_id,round_id,ordinal,task_key,title,instruction,member_id,member_name,
+                    depends_on,status,attempts,run_id,detail,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,'PENDING',0,NULL,'',?)
+                """,
+                id,
+                groupId,
+                roundId,
+                ordinal,
+                key,
+                title,
+                instruction,
+                memberId,
+                memberName,
+                String.join(",", dependsOn),
+                now());
+        touch(groupId);
+        return jdbc.queryForObject("SELECT * FROM harness_group_task WHERE id=?", TASK, id);
+    }
+
+    public void updateTask(String id, String status, int attempts, String runId, String detail) {
+        String groupId = jdbc.queryForObject("SELECT group_id FROM harness_group_task WHERE id=?", String.class, id);
+        jdbc.update(
+                "UPDATE harness_group_task SET status=?,attempts=?,run_id=?,detail=? WHERE id=?",
+                status,
+                attempts,
+                runId,
+                detail,
+                id);
+        touch(groupId);
+    }
+
+    /** The tasks of a round in plan order; empty for a discussion round. */
+    public List<Task> tasks(String roundId) {
+        return jdbc.query("SELECT * FROM harness_group_task WHERE round_id=? ORDER BY ordinal", TASK, roundId);
     }
 
     /** A member run shown in the group: an active speaker or the run behind a message. */

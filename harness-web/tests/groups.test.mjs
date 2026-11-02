@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { insertMention, mentionCandidates, mentionQuery, roundNotice, speakingMembers } from '../src/groups.ts'
+import { insertMention, mentionCandidates, mentionQuery, roundNotice, speakingMembers, taskSteps } from '../src/groups.ts'
 
 const member = (id, name, enabled = true) => ({ id, name, enabled, sessionId: `s-${id}` })
 
@@ -37,4 +37,11 @@ test('speaking members are the members behind active runs', () => {
     runs: [{ id: 'r1', sessionId: 's-1', status: 'RUNNING' }, { id: 'r2', sessionId: 's-2', status: 'COMPLETED' }, { id: 'r3', sessionId: 'gone', status: 'RUNNING' }],
   }
   assert.deepEqual(speakingMembers(snapshot).map(value => [value.member.name, value.run.id]), [['后端开发', 'r1']])
+})
+
+test('task steps follow the latest dependency and keep plan order', () => {
+  const task = (key, dependsOn = []) => ({ key, dependsOn })
+  const steps = taskSteps([task('a'), task('b'), task('c', ['a']), task('d', ['c', 'b']), task('e', ['a'])])
+  assert.deepEqual(steps.map(step => step.map(value => value.key)), [['a', 'b'], ['c', 'e'], ['d']])
+  assert.deepEqual(taskSteps([]), [])
 })
