@@ -957,6 +957,11 @@ public final class JdbcSessionStore implements SessionStore {
         tx.executeWithoutResult(status -> appendEvent(run(runId).sessionId(), runId, "PLUGIN", null, "插件执行记录已更新"));
     }
 
+    @Override
+    public synchronized void questionsUpdated(String runId) {
+        tx.executeWithoutResult(status -> appendEvent(run(runId).sessionId(), runId, "QUESTION", null, "提问记录已更新"));
+    }
+
     private void appendEvent(String sessionId, String runId, String type, RunStatus state, String text) {
         jdbc.update("UPDATE harness_session SET last_seq=last_seq+1 WHERE id=?", sessionId);
         long seq = jdbc.queryForObject("SELECT last_seq FROM harness_session WHERE id=?", Long.class, sessionId);

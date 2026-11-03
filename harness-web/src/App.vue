@@ -4,6 +4,7 @@ import RunTimeline from './RunTimeline.vue'
 import FileChanges from './FileChanges.vue'
 import ArtifactCards from './ArtifactCards.vue'
 import Commands from './Commands.vue'
+import Questions from './Questions.vue'
 import PluginRunDetails from './PluginRunDetails.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
 import SettingsPage from './SettingsPage.vue'
@@ -152,7 +153,7 @@ async function sessionDeleted(session: { id: string }) {
   refreshing = false; dirty = false; connected.value = false
   selectedId.value = ''; snapshot.value = null; pending.value = null
   prompt.value = readDraft('')
-  toolRevisions.value = {}; stepRevisions.value = {}; answers.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}; pluginActivity.value = {}
+  toolRevisions.value = {}; stepRevisions.value = {}; answers.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}; pluginActivity.value = {}; questionRevisions.value = {}; questionActivity.value = {}
   error.value = ''
   storageSet('harness.session', null)
 }
@@ -286,9 +287,11 @@ const toolRevisions = ref<Record<string, number>>({})
 const stepRevisions = ref<Record<string, number>>({})
 const changeRevisions = ref<Record<string, number>>({})
 const commandRevisions = ref<Record<string, number>>({})
+const questionRevisions = ref<Record<string, number>>({})
+const questionActivity = ref<Record<string, string>>({})
 const commandActivity = ref<Record<string, string>>({})
 const pluginActivity = ref<Record<string, string>>({})
-const activityLabel = (run: Run) => run.status === 'RUNNING' ? pluginActivity.value[run.id] || commandActivity.value[run.id] || labels[run.status] : labels[run.status]
+const activityLabel = (run: Run) => run.status === 'RUNNING' ? questionActivity.value[run.id] || pluginActivity.value[run.id] || commandActivity.value[run.id] || labels[run.status] : labels[run.status]
 // 上下文字符数随每个新步骤变化，SSE 静默失效时快照轮询仍能触发时间线刷新。
 const timelineRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}:${stepRevisions.value[run.id] ?? 0}:${connected.value}`
 // 时间线拆分出的最终回答，复制和空回答提示以它为准。
@@ -471,6 +474,7 @@ function follow(id: string, version: number) {
     if (['CONTEXT', 'REASONING'].includes(event.type) && event.runId) stepRevisions.value[event.runId] = event.seq
     if (event.type === 'FILE_CHANGE' && event.runId) changeRevisions.value[event.runId] = event.seq
     if (['COMMAND', 'PLUGIN'].includes(event.type) && event.runId) commandRevisions.value[event.runId] = event.seq
+    if (event.type === 'QUESTION' && event.runId) questionRevisions.value[event.runId] = event.seq
     if (event.type === 'WORKSPACE') void loadWorkspaces().catch(() => {})
     if (event.seq > (snapshot.value?.lastSeq ?? 0)) scheduleRefresh(id, version)
   })
@@ -514,6 +518,7 @@ async function selectSession(id: string) {
   changeRevisions.value = {}
   commandRevisions.value = {}
   commandActivity.value = {}; pluginActivity.value = {}
+  questionRevisions.value = {}; questionActivity.value = {}
   error.value = ''
   loading.value = true
   prompt.value = readDraft(id)
@@ -774,10 +779,11 @@ onUnmounted(() => {
             <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
             <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
             <MemoryUsage :run-id="run.id" :revision="`${run.status}:${run.context ? 'prepared' : 'pending'}`" />
-            <p v-if="isActive(run) ? !run.output && (pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
+            <p v-if="isActive(run) ? !run.output && (questionActivity[run.id] || pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
             <ArtifactCards v-if="run.workspace" :run-id="run.id" :workspace="run.workspace" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" />
             <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" :can-revert="!isActive(run) && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
+            <Questions :run-id="run.id" :revision="`${run.status}:${questionRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="questionActivity[run.id] = $event" />
             <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
             <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
             <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ run.model }} · {{ effortShortLabel(run.reasoningEffort) }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>

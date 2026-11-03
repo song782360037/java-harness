@@ -26,6 +26,8 @@ final class Subagents {
     // A batch launches at most this many subagents at once; extra calls are skipped for a later response.
     static final int MAX_PARALLEL = 4;
     private static final String COMMAND = "propose_command";
+    // Only the root talks to the user: questions and the progress checklist stay with it.
+    private static final Set<String> ROOT_ONLY = Set.of(COMMAND, "ask_user_question", "update_todos");
     private static final Set<String> READ_ONLY = Set.of(
             "read_file", "list_directory", "search_files", "git_status", "git_diff", "load_skill", "read_plugin_resource");
 
@@ -75,11 +77,11 @@ final class Subagents {
         return new Request(agent, description, prompt);
     }
 
-    /** Tools of the root visible to one built-in agent: explore keeps read-only tools, general drops commands. */
+    /** Tools of the root visible to one built-in agent: explore keeps read-only tools, general drops root-only ones. */
     static WorkspaceTools tools(WorkspaceTools root, String agent) {
         return new WorkspaceTools() {
             boolean allowed(String name) {
-                return agent.equals(EXPLORE) ? READ_ONLY.contains(name) : !name.equals(COMMAND);
+                return agent.equals(EXPLORE) ? READ_ONLY.contains(name) : !ROOT_ONLY.contains(name);
             }
 
             public String workspace() {

@@ -8,6 +8,8 @@ import dev.javaharness.adapters.command.CommandService;
 import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.adapters.memory.JdbcMemoryStore;
 import dev.javaharness.adapters.plugins.PluginService;
+import dev.javaharness.adapters.question.QuestionService;
+import dev.javaharness.adapters.redaction.SecretRedactor;
 import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.adapters.settings.HarnessSettings;
 import dev.javaharness.adapters.settings.JdbcSettingsStore;
@@ -173,6 +175,19 @@ public class RuntimeConfiguration {
         return new CommandService(jdbc, new TransactionTemplate(transactions), sessions);
     }
 
+    /** Attended runs reach the question tool through the settings service's extension capture. */
+    @Bean
+    @DependsOnDatabaseInitialization
+    QuestionService questionService(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            SettingsService settings) {
+        var service = new QuestionService(jdbc, new TransactionTemplate(transactions), sessions);
+        settings.useQuestions(service);
+        return service;
+    }
+
     /** The LLM reviewer resolves model profiles lazily: the settings service itself depends on the command service. */
     @Bean(destroyMethod = "close")
     LlmApprovalJudge llmApprovalJudge(ObjectProvider<RunConfigurationSource> configurations) {
@@ -204,7 +219,7 @@ public class RuntimeConfiguration {
 
     @Bean(destroyMethod = "close")
     AgentEngine agentEngine(SessionStore store, RunConfigurationSource configurations, MemoryService memories) {
-        return new DefaultAgentEngine(store, configurations, memories);
+        return new DefaultAgentEngine(store, configurations, memories, java.util.List.of(new SecretRedactor()));
     }
 
     /** 复用本地数据库保存长期记忆，不额外启动外部服务。 */

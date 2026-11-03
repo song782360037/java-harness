@@ -61,6 +61,11 @@ export interface CommandExecution {
   timeoutSeconds: number; status: string; stdout: string; stderr: string; exitCode: number | null; detail: string; createdAt: string
   decidedBy: string | null
 }
+export interface QuestionOption { label: string; description: string }
+export interface UserQuestion {
+  id: string; runId: string; question: string; options: QuestionOption[]; multiSelect: boolean
+  status: 'PENDING' | 'ANSWERED' | 'SKIPPED' | 'CANCELLED' | 'INTERRUPTED'; selected: string[]; note: string; detail: string; createdAt: string
+}
 export interface ModelRequest {
   instructions: string; finalAnswerOnly: boolean; reasoningEffort: string
   step: number; workspace: string; tools: { name: string }[]

@@ -34,3 +34,13 @@
 }
 /* 规则或完全访问模式自动处理的审批记录。 */
 .command-decided { flex-shrink: 0; padding: 1px 7px; border-radius: var(--radius-sm); background: var(--subtle); color: var(--muted); font-size: var(--font-caption); }
+/* 模型向用户提出的选择题。 */
+.command-status[data-status="ANSWERED"] { color: var(--success); }
+.question-options { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
+.question-card .question-option { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; text-align: left; line-height: 1.6; }
+.question-option strong { font-weight: 600; }
+.question-option span { color: var(--muted); }
+.question-card .question-option.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.question-note { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: inherit; font-size: var(--font-caption); resize: vertical; }
+.question-answer { margin: 0 14px 12px; padding-left: 18px; font-size: var(--font-caption); line-height: 1.7; }
+.question-answer-note { list-style: none; margin-left: -18px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }

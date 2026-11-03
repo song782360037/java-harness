@@ -132,6 +132,10 @@ public interface SessionStore {
     default void pluginsUpdated(String runId) {
         commandsUpdated(runId);
     }
+    /** Notify clients that a question asked to the user was created or settled. */
+    default void questionsUpdated(String runId) {
+        commandsUpdated(runId);
+    }
     /** Validate an exact retry before resolving a profile that may have changed or been deleted. */
     Submission retry(String sessionId, String requestId, String prompt, String scenario, ModelSelection requested);
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, isActive, type Run, type RunStep, type SubagentRun, type ToolExecution } from './api'
-import { buildTimeline, elapsedSeconds, exploreSummary, formatDuration, isBusy, toolLabel } from './executionTimeline'
+import { buildTimeline, elapsedSeconds, exploreSummary, formatDuration, isBusy, latestTodos, toolLabel } from './executionTimeline'
 import MarkdownContent from './MarkdownContent.vue'
 import UiIcon from './UiIcon.vue'
 
@@ -21,12 +21,15 @@ let throttle: ReturnType<typeof setTimeout> | undefined
 
 const active = computed(() => isActive(props.run))
 const timeline = computed(() => loaded.value || error.value ? buildTimeline(props.run.output, steps.value, tools.value, active.value) : { items: [], answer: '' })
+const todos = computed(() => latestTodos(tools.value))
+const todosDone = computed(() => todos.value.filter(todo => todo.status === 'completed').length)
 const open = computed(() => userOpen.value ?? (active.value || !timeline.value.answer.trim()))
 const elapsed = computed(() => elapsedSeconds(steps.value, now.value))
 const summary = computed(() => {
   const parts = [active.value ? '正在处理' : elapsed.value ? `已处理 ${formatDuration(elapsed.value)}` : '执行过程']
   if (active.value && elapsed.value) parts[0] += ` ${formatDuration(elapsed.value)}`
-  if (tools.value.length) parts.push(`${tools.value.length} 次工具调用`)
+  const calls = tools.value.filter(tool => tool.name !== 'update_todos').length
+  if (calls) parts.push(`${calls} 次工具调用`)
   return parts.join(' · ')
 })
 const statusLabels: Record<string, string> = { PENDING: '等待执行', FAILED: '失败', SKIPPED: '未执行', CANCELLED: '已取消', INTERRUPTED: '已中断' }
@@ -76,6 +79,17 @@ onUnmounted(() => { disposed = true; clearInterval(ticker); clearTimeout(throttl
 </script>
 
 <template>
+  <section v-if="todos.length" class="run-todos" aria-label="任务进度">
+    <p class="run-todos-title">任务进度 <span>{{ todosDone }}/{{ todos.length }}</span></p>
+    <ol>
+      <li v-for="(todo, index) in todos" :key="index" :data-status="todo.status">
+        <span v-if="todo.status === 'in_progress' && active" class="loading-indicator"></span>
+        <span v-else class="todo-mark" aria-hidden="true">{{ todo.status === 'completed' ? '✓' : '' }}</span>
+        <span class="todo-content">{{ todo.content }}</span>
+        <span class="sr-only">{{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待处理' }}</span>
+      </li>
+    </ol>
+  </section>
   <section v-if="timeline.items.length || active || error" class="run-process" aria-label="执行过程">
     <button type="button" class="process-toggle" :aria-expanded="open" :aria-controls="`process-${run.id}`" @click="userOpen = !open">
       <span v-if="active" class="loading-indicator"></span>
@@ -130,6 +144,16 @@ onUnmounted(() => { disposed = true; clearInterval(ticker); clearTimeout(throttl
 </template>
 
 <style scoped>
+.run-todos { margin-bottom: 12px; padding: 10px 14px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); font-size: var(--font-caption); }
+.run-todos-title { margin: 0 0 6px; font-weight: 600; color: var(--text); }
+.run-todos-title span { margin-left: 6px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.run-todos ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.run-todos li { display: flex; align-items: center; gap: 8px; line-height: 1.6; color: var(--muted); }
+.run-todos li[data-status="in_progress"] { color: var(--text); font-weight: 550; }
+.run-todos li[data-status="completed"] .todo-content { text-decoration: line-through; color: var(--faint); }
+.todo-mark { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex-shrink: 0; border: 0.5px solid var(--border-strong); border-radius: 50%; font-size: 10px; color: var(--success); }
+.run-todos li[data-status="in_progress"] .todo-mark { border-color: var(--accent); }
+.todo-content { min-width: 0; overflow-wrap: anywhere; }
 .run-process { margin-bottom: 16px; font-size: var(--font-caption); color: var(--muted); }
 .process-toggle { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 4px 8px 4px 4px; border: 0; background: transparent; color: var(--muted); font-size: var(--font-caption); border-radius: var(--radius-md); }
 .process-toggle:hover { color: var(--text); background: var(--hover); }

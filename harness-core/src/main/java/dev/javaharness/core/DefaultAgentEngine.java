@@ -20,6 +20,7 @@ import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolDefinition;
+import dev.javaharness.spi.tool.ToolInterceptor;
 import dev.javaharness.spi.workspace.WorkspaceTools;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -49,6 +50,7 @@ public final class DefaultAgentEngine implements AgentEngine {
     private final SessionStore store;
     private final RunConfigurationSource configurations;
     private final LongTermMemory memories;
+    private final List<ToolInterceptor> interceptors;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("run-deadline").factory());
@@ -127,9 +129,19 @@ public final class DefaultAgentEngine implements AgentEngine {
 
     /** 注入长期记忆服务；既有嵌入和测试构造器保持禁用记忆。 */
     public DefaultAgentEngine(SessionStore store, RunConfigurationSource configurations, LongTermMemory memories) {
+        this(store, configurations, memories, List.of());
+    }
+
+    /** 额外注入工具拦截器，按顺序作用于每一次工具执行。 */
+    public DefaultAgentEngine(
+            SessionStore store,
+            RunConfigurationSource configurations,
+            LongTermMemory memories,
+            List<ToolInterceptor> interceptors) {
         this.store = store;
         this.configurations = configurations;
         this.memories = memories;
+        this.interceptors = List.copyOf(interceptors);
         store.recoverInterruptedRuns();
     }
 
@@ -628,6 +640,16 @@ public final class DefaultAgentEngine implements AgentEngine {
                         cancellation.check();
                         store.updateTool(runId, call.id(), "RUNNING", "");
                     }
+                    // A refused call is recorded as started and failed, so the timeline shows when it was stopped.
+                    String refused = refusal(runId, call);
+                    if (refused != null) {
+                        synchronized (this) {
+                            cancellation.check();
+                            store.updateTool(runId, call.id(), "FAILED", refused);
+                        }
+                        results[index] = refused;
+                        continue;
+                    }
                     if (toolset.delegate() && call.name().equals(Subagents.DELEGATE)) {
                         delegations.put(index, delegate(loop, call, deadlineNanos - finalReserveNanos));
                         continue;
@@ -665,6 +687,15 @@ public final class DefaultAgentEngine implements AgentEngine {
         }
     }
 
+    /** The first interceptor reason to refuse a call, or null when every interceptor lets it run. */
+    private String refusal(String runId, ToolCall call) {
+        for (var interceptor : interceptors) {
+            String reason = interceptor.before(runId, call);
+            if (reason != null) return reason;
+        }
+        return null;
+    }
+
     /** Persist one tool result and return whether repeats now count as stalled; the model-visible text goes to results. */
     private boolean finishTool(
             String runId,
@@ -677,6 +708,7 @@ public final class DefaultAgentEngine implements AgentEngine {
             int index,
             ModelProvider.Cancellation cancellation)
             throws InterruptedException {
+        for (var interceptor : interceptors) result = interceptor.after(runId, call, result);
         synchronized (this) {
             cancellation.check();
             store.updateTool(runId, call.id(), result.success() ? "COMPLETED" : "FAILED", result.output());

@@ -11,8 +11,9 @@ const exploreTools = new Set(['read_file', 'list_directory', 'search_files', 'gi
 export const isBusy = (tool: ToolExecution) => ['PENDING', 'RUNNING'].includes(tool.status)
 const seconds = (from: string | null, to: string | null) => from && to ? Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 1000)) : 0
 
-/** 连续的只读探索合并为一组，其余工具单独成行。 */
+/** 连续的只读探索合并为一组，其余工具单独成行；待办更新由进度清单展示，不进入时间线。 */
 function pushTool(items: TimelineItem[], tool: ToolExecution) {
+  if (tool.name === 'update_todos') return
   const last = items.at(-1)
   if (!exploreTools.has(tool.name)) { items.push({ kind: 'tool', key: tool.callId, tool }); return }
   if (last?.kind === 'explore') last.tools.push(tool)
@@ -70,9 +71,19 @@ export function toolLabel(tool: ToolExecution): ToolLabel {
     case 'propose_file_change': return { icon: 'edit', verb: args.operation === 'create' ? '提议新建' : '提议修改', target: path }
     case 'load_skill': return { icon: 'puzzle', verb: '加载技能', target: text(args.id) }
     case 'read_plugin_resource': return { icon: 'puzzle', verb: '读取插件资源', target: text(args.id) }
+    case 'ask_user_question': return { icon: 'chat', verb: '向你提问', target: text(args.question) }
     case 'delegate_task': return { icon: 'branch', verb: `委派 ${text(args.agent) || '子智能体'}`, target: text(args.description) }
     default: return { icon: 'puzzle', verb: '调用', target: tool.name, raw: true }
   }
+}
+
+export interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed' }
+/** 本次运行最后一次成功提交的待办清单；没有时为空。 */
+export function latestTodos(tools: ToolExecution[]): TodoItem[] {
+  const latest = tools.filter(tool => tool.name === 'update_todos' && tool.status === 'COMPLETED').at(-1)
+  const todos = latest ? parse(latest.arguments).todos : undefined
+  return Array.isArray(todos) ? todos.filter((todo): todo is TodoItem => typeof todo?.content === 'string'
+    && ['pending', 'in_progress', 'completed'].includes(todo?.status)) : []
 }
 
 /** 探索组摘要，例如"已探索 3 个文件，1 次搜索"。 */

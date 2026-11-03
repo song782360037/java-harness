@@ -254,7 +254,7 @@ public final class AutomationService implements AutoCloseable {
                             "NORMAL",
                             selection,
                             ApprovalMode.valueOf(automation.approvalMode()));
-            submission = automation.allowCommands() ? submit.get() : unattended.withoutCommands(sessionId, submit);
+            submission = unattended.submit(sessionId, automation.allowCommands(), submit);
         } catch (HarnessException error) {
             return store.fail(execution.id(), error.getMessage());
         } catch (RuntimeException error) {

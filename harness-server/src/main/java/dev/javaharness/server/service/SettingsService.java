@@ -6,11 +6,14 @@ import dev.javaharness.adapters.command.CommandWorkspaceTools;
 import dev.javaharness.adapters.model.JtokkitTokenCounter;
 import dev.javaharness.adapters.model.OpenAiChatCompletionProvider;
 import dev.javaharness.adapters.plugins.PluginService;
+import dev.javaharness.adapters.question.QuestionService;
+import dev.javaharness.adapters.question.QuestionWorkspaceTools;
 import dev.javaharness.adapters.settings.HarnessSettings;
 import dev.javaharness.adapters.settings.JdbcSettingsStore;
 import dev.javaharness.adapters.settings.ModelParameters;
 import dev.javaharness.adapters.settings.ModelProfile;
 import dev.javaharness.adapters.settings.ProviderSettings;
+import dev.javaharness.adapters.todo.TodoWorkspaceTools;
 import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.adapters.workspace.GitWorkspaceTools;
 import dev.javaharness.adapters.workspace.LocalWorkspaceTools;
@@ -22,6 +25,8 @@ import dev.javaharness.spi.ModelException;
 import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelProvider;
 import dev.javaharness.spi.model.ModelSelection;
+import dev.javaharness.spi.model.TokenCounter;
+import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunConfiguration;
 import dev.javaharness.spi.run.RunConfigurationSource;
 import dev.javaharness.spi.run.RunExtension;
@@ -44,6 +49,8 @@ public final class SettingsService implements RunConfigurationSource {
     private final UnattendedSubmissions unattended;
     // Group chats add their transcript to member runs; attached once the group service exists.
     private volatile java.util.function.BiFunction<Session, RunExtension, RunExtension> groups;
+    // Attended runs may ask the user; attached once the question service exists.
+    private volatile QuestionService questions;
 
     public SettingsService(JdbcSettingsStore store, HarnessSettings initial) {
         this(store, initial, null);
@@ -265,13 +272,58 @@ public final class SettingsService implements RunConfigurationSource {
         var extension = plugins == null ? RunExtension.none() : plugins.prepare(session, prompt);
         if (unattended.commandsBlocked(session.id())) extension = withoutCommands(extension);
         var decorator = groups;
-        if (decorator == null) return extension;
-        try {
-            return decorator.apply(session, extension);
-        } catch (RuntimeException error) {
-            extension.close();
-            throw error;
+        var decorated = extension;
+        if (decorator != null) {
+            try {
+                decorated = decorator.apply(session, extension);
+            } catch (RuntimeException error) {
+                extension.close();
+                throw error;
+            }
         }
+        // The group decorator returns ordinary sessions unchanged; member runs speak in a group and get neither tool.
+        if (decorated != extension) return decorated;
+        return withInteraction(extension, unattended.unattended(session.id()) ? null : questions);
+    }
+
+    /** Let attended runs ask the user questions; set once the question service exists. */
+    public void useQuestions(QuestionService questions) {
+        this.questions = questions;
+    }
+
+    /** Add the todo checklist and, when someone can answer, the question tool outside the extension's tools. */
+    private static RunExtension withInteraction(RunExtension extension, QuestionService questions) {
+        return new RunExtension() {
+            public String snapshot() {
+                return extension.snapshot();
+            }
+
+            public String instructions() {
+                return extension.instructions();
+            }
+
+            public void submitted(String runId) {
+                extension.submitted(runId);
+            }
+
+            public WorkspaceTools open(String runId, WorkspaceTools local, ModelProvider.Cancellation cancellation)
+                    throws Exception {
+                WorkspaceTools tools = new TodoWorkspaceTools(extension.open(runId, local, cancellation));
+                return questions == null ? tools : new QuestionWorkspaceTools(tools, questions);
+            }
+
+            public String context(TokenCounter counter, int maxTokens) {
+                return extension.context(counter, maxTokens);
+            }
+
+            public void settled(Run run) {
+                extension.settled(run);
+            }
+
+            public void close() {
+                extension.close();
+            }
+        };
     }
 
     /** Let group chats wrap the extension of their member sessions. */
