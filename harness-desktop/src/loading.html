@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+  <title>Java Harness</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+      background: #252A28; color: #F5F4EE;
+      font: 14px/1.5 system-ui, "Microsoft YaHei UI", sans-serif;
+    }
+    .bar { width: 160px; height: 3px; border-radius: 2px; background: rgba(245, 244, 238, .15); overflow: hidden; }
+    .bar::after {
+      content: ""; display: block; width: 40%; height: 100%; background: #8DD9B6;
+      animation: slide 1.2s ease-in-out infinite;
+    }
+    @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  </style>
+</head>
+<body>
+  <div>正在启动 Java Harness…</div>
+  <div class="bar"></div>
+</body>
+</html>

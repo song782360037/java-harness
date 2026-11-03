@@ -35,12 +35,17 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
 import org.springframework.context.ApplicationListener;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.ContextClosedEvent;
@@ -54,6 +59,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Configuration
 public class RuntimeConfiguration {
+    private static final Logger log = LoggerFactory.getLogger(RuntimeConfiguration.class);
+
     @Bean
     @DependsOnDatabaseInitialization
     SessionStore sessionStore(JdbcTemplate jdbc, PlatformTransactionManager transactions) {
@@ -278,6 +285,17 @@ public class RuntimeConfiguration {
                 new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), settings, orchestrator);
         settings.useGroups(service::decorate);
         return service;
+    }
+
+    /** 由桌面壳启动时开启：标准输入关闭即视为桌面壳已退出，随之关闭应用。 */
+    @Bean
+    @ConditionalOnProperty(name = "harness.desktop.exit-with-parent", havingValue = "true")
+    ApplicationListener<ApplicationReadyEvent> exitWithParent(ConfigurableApplicationContext context) {
+        return event -> new ParentProcessWatcher(System.in, () -> {
+                    log.info("Desktop shell closed the stdin pipe, shutting down");
+                    System.exit(SpringApplication.exit(context));
+                })
+                .start();
     }
 
     @Bean

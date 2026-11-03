@@ -1,0 +1,52 @@
+{
+  "name": "java-harness-desktop",
+  "productName": "Java Harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Java Harness 桌面客户端",
+  "author": "Java Harness",
+  "type": "module",
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "prepare:backend": "node scripts/prepare-backend.mjs",
+    "dist": "node scripts/prepare-backend.mjs && electron-builder --win nsis --x64",
+    "dist:dir": "node scripts/prepare-backend.mjs && electron-builder --win dir --x64"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "dev.javaharness.desktop",
+    "productName": "Java Harness",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend",
+        "to": "backend"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Java Harness"
+    }
+  }
+}

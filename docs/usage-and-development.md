@@ -11,6 +11,7 @@ java-harness/
   harness-adapters/     OpenAI Chat Completions HTTP 适配、工作区工具、文件审核与 JDBC 存储
   harness-server/       Spring Boot 装配与 Web 入口，依赖 core、adapters
   harness-web/          Vue 3 + TypeScript + Vite
+  harness-desktop/      Electron 桌面壳与 Windows 安装包构建（见 desktop.md）
   .mvn/wrapper/         固定 Maven 版本的 Wrapper
   .github/workflows/    Windows / Linux 构建工作流
   docs/                设计与开发说明

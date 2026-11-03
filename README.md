@@ -55,6 +55,7 @@ Java 构建的本地 AI 编程工作台。连接你选择的模型，在对话�
 
 - [使用与开发参考](docs/usage-and-development.md)：环境准备、构建启动、模型配置和工作区操作。
 - [扩展使用与开发](docs/plugins.md)：插件、技能和 MCP 的安装、配置及开发示例。
+- [桌面客户端](docs/desktop.md)：Windows 安装包构建、数据目录与开发调试。
 - [开发边界](docs/development.md)：工程结构、配置与开发约定。
 - [运行约定](docs/runtime.md)：任务、工具、审核和接口说明。
 - [长期记忆](docs/memory.md)：自动生成、设置开关、历史回填、图谱和召回规则。
