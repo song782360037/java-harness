@@ -91,7 +91,7 @@ defineExpose({ keydown, open, activeId })
     <div v-else-if="matching.length" id="plugin-command-options" class="slash-command-options" role="listbox" aria-label="可用插件命令">
       <button v-for="(command, index) in matching" :id="`plugin-command-${index}`" :key="command.id" type="button" role="option" tabindex="-1" :aria-selected="active === index" :class="{ active: active === index }" :title="`/${command.id} · ${command.description}`" @mouseenter="active = index" @mousedown.prevent @click="choose(command)"><span><strong>/{{ command.id }}</strong><small>{{ command.description }}</small></span><UiIcon v-if="active === index" name="chevron" :size="15" /></button>
     </div>
-    <p v-else role="status">{{ commands.length ? '没有匹配的插件命令，试试其他关键词。' : '暂无可用命令，请在设置 → 扩展中启用带命令的插件。' }}</p>
+    <p v-else role="status">{{ commands.length ? '没有匹配的插件命令' : '暂无可用命令，可在设置 → 扩展中启用插件' }}</p>
     <footer>选择后可补充任务要求，再发送消息。<span>Esc 关闭</span></footer>
   </section>
 </template>

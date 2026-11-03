@@ -51,8 +51,8 @@ export function groupDraft(group: Group): GroupDraft {
 }
 
 export const modeOptions: { value: GroupMode; label: string; description: string }[] = [
-  { value: 'DISCUSS', label: '讨论', description: '主持人安排下一位发言，成员之间可以互相 @，适合讨论方案。' },
-  { value: 'TASKS', label: '任务编排', description: '主持人先把需求拆成任务计划，依赖完成后并行执行，失败的任务会重试一次，最后汇总答复。' },
+  { value: 'DISCUSS', label: '讨论', description: '主持人安排发言顺序，适合讨论方案。' },
+  { value: 'TASKS', label: '任务编排', description: '主持人拆分任务并行执行，最后汇总答复。' },
 ]
 
 const taskLabels: Record<TaskStatus, string> = {

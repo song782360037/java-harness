@@ -166,8 +166,7 @@ onUnmounted(() => window.clearInterval(pollTimer))
           <p v-if="formError" role="alert" class="dialog-error">{{ formError }}</p>
           <fieldset :disabled="busy">
             <label for="automation-name">名称</label><input id="automation-name" v-model="form.name" required maxlength="100" placeholder="例如 每日代码巡检" />
-            <label for="automation-prompt">提示词</label><textarea id="automation-prompt" v-model="form.prompt" required maxlength="4000" rows="6" placeholder="每次运行要做什么，以及什么情况下需要汇报" aria-describedby="automation-prompt-note"></textarea>
-            <p id="automation-prompt-note" class="field-note">运行可能因服务未启动而延后补跑，必要时在提示词中说明时间范围。</p>
+            <label for="automation-prompt">提示词</label><textarea id="automation-prompt" v-model="form.prompt" required maxlength="4000" rows="6" placeholder="每次运行要做什么，以及什么情况下需要汇报"></textarea>
             <label for="automation-workspace">工作区</label><select id="automation-workspace" v-model="form.workspaceId" @change="!form.workspaceId && (form.allowCommands = false)"><option value="">仅聊天</option><option v-if="form.workspaceId && !workspaces.some(item => item.id === form.workspaceId)" :value="form.workspaceId">工作区已不存在，请重新选择</option><option v-for="item in workspaces" :key="item.id" :value="item.id">{{ item.name }}</option></select>
             <div class="automation-grid">
               <div><label for="automation-model">模型</label><select id="automation-model" v-model="form.modelProfileId"><option v-if="!profiles.some(item => item.id === form.modelProfileId)" :value="form.modelProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></div>
@@ -180,8 +179,7 @@ onUnmounted(() => window.clearInterval(pollTimer))
               <div v-if="form.scheduleKind === 'HOURLY'"><label for="automation-minute">第几分钟</label><input id="automation-minute" :value="Number(form.scheduleTime.slice(3)) || 0" type="number" min="0" max="59" step="1" required @input="form.scheduleTime = `00:${String(Math.min(59, Math.max(0, Number(($event.target as HTMLInputElement).value) || 0))).padStart(2, '0')}`" /></div>
             </div>
             <template v-if="form.scheduleKind === 'CUSTOM'"><label for="automation-cron">cron 表达式</label><input id="automation-cron" v-model="form.cron" required maxlength="100" placeholder="0 9 * * 1-5" spellcheck="false" aria-describedby="automation-cron-note" /><p id="automation-cron-note" class="field-note">5 段：分 时 日 月 周，按本机时区；分钟需为单个数字，即最多每小时一次；“日”和“周”只能指定一个。周日为 0。</p></template>
-            <label class="check-label"><input v-model="form.allowCommands" type="checkbox" :disabled="!form.workspaceId" aria-describedby="automation-command-note" /> 允许提议执行命令</label>
-            <p id="automation-command-note" class="field-note">关闭时不提供命令工具；开启后命令按下方审批模式处理，需要人工确认的命令会等你在会话中批准，等待计入任务超时。</p>
+            <label class="check-label"><input v-model="form.allowCommands" type="checkbox" :disabled="!form.workspaceId" /> 允许提议执行命令</label>
             <label for="automation-approval">审批模式</label><select id="automation-approval" v-model="form.approvalMode" aria-describedby="automation-approval-note"><option v-for="option in approvalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
             <p id="automation-approval-note" class="field-note" :role="form.approvalMode === 'FULL_ACCESS' ? 'alert' : undefined">{{ approvalModeOptions.find(option => option.value === form.approvalMode)?.description }}{{ form.approvalMode === 'FULL_ACCESS' ? `。无人值守时${form.allowCommands ? '命令和' : ''}外部工具调用会在无人确认的情况下自动执行，只建议在你信任的工作区使用。` : '' }}</p>
             <label v-if="form.scheduleKind !== 'MANUAL'" class="check-label"><input v-model="form.enabled" type="checkbox" /> 启用定时触发</label>

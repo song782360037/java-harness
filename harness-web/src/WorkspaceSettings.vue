@@ -63,7 +63,7 @@ onUnmounted(() => { version++ })
   <section class="workspace-settings" aria-label="工作区设置">
     <form @submit.prevent="save()">
       <p v-if="error" role="alert" class="dialog-error">{{ error }}</p>
-      <p v-if="disabled" class="field-note">当前任务或提交尚未结束，结束后可以调整工作区。</p>
+      <p v-if="disabled" class="field-note">任务结束后可调整工作区。</p>
       <fieldset :disabled="saving || disabled">
         <div class="workspace-fields">
           <label>源文件夹</label>
@@ -81,10 +81,10 @@ onUnmounted(() => { version++ })
             <div class="directory-toolbar"><button type="button" :disabled="browsing" @click="browse('')">磁盘列表</button><button type="button" :disabled="browsing || !listing?.path" @click="browse(listing?.parent || '')">上一级</button></div>
             <p v-if="browsing" class="field-note">正在读取目录…</p>
             <div v-else class="directory-list" aria-label="本机目录">
-              <p v-if="listing && !listing.directories.length">没有可浏览的子目录，可以添加当前目录。</p>
+              <p v-if="listing && !listing.directories.length">没有子目录，可直接添加当前目录。</p>
               <button v-for="entry in listing?.directories" :key="entry.path" type="button" @click="browse(entry.path)"><UiIcon name="folder" :size="16" /> {{ entry.name }}</button>
             </div>
-            <p v-if="listing?.truncated" class="field-note">当前仅展示部分目录，可直接输入完整路径。</p>
+            <p v-if="listing?.truncated" class="field-note">仅显示部分目录，可直接输入完整路径。</p>
             <div class="workspace-picker-actions"><button type="button" :disabled="browsing" @click="pickerOpen = false">收起</button><button type="button" :disabled="browsing || !path.trim() || directories.length >= 16" @click="addDirectory">添加此目录</button></div>
           </div>
           <label for="workspace-name">工作区名称</label><input id="workspace-name" v-model="name" maxlength="100" placeholder="输入名称…" required />

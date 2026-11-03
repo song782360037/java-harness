@@ -111,7 +111,7 @@ onMounted(() => {
             <label for="group-name">群聊名称</label><input id="group-name" v-model="form.name" required maxlength="100" placeholder="例如 登录改版小组" />
             <label for="group-workspace">工作区</label>
             <select id="group-workspace" v-model="form.workspaceId" :disabled="groupBusy" aria-describedby="group-workspace-note"><option value="">不绑定（只讨论）</option><option v-if="form.workspaceId && !workspaces.some(item => item.id === form.workspaceId)" :value="form.workspaceId">工作区已不存在，请重新选择</option><option v-for="item in workspaces" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-            <p id="group-workspace-note" class="field-note">{{ groupBusy ? '协作进行中，停止后才能切换工作区。' : '绑定后成员可以读取项目、提出文件修改和执行命令，修改经你审核后写入。' }}</p>
+            <p id="group-workspace-note" class="field-note">{{ groupBusy ? '停止协作后才能切换工作区' : '绑定后成员可读写项目文件并执行命令' }}</p>
             <label for="group-mode">协作模式</label>
             <select id="group-mode" v-model="form.mode" aria-describedby="group-mode-note"><option v-for="option in modeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
             <p id="group-mode-note" class="field-note">{{ modeOptions.find(option => option.value === form.mode)?.description }}{{ groupBusy ? ' 修改后从下一条消息开始生效。' : '' }}</p>
@@ -120,13 +120,11 @@ onMounted(() => {
               <div><label for="group-host-effort">主持人思考强度</label><select id="group-host-effort" v-model="form.hostReasoningEffort"><option :value="null">模型默认</option><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
               <div><label for="group-turns">每轮发言上限</label><input id="group-turns" v-model.number="form.maxTurns" type="number" min="1" max="50" required /></div>
             </div>
-            <p class="field-note">{{ form.mode === 'TASKS' ? '主持人不在群里发言，只负责拆分任务并分配成员；被 @ 的成员会直接回应。每次任务尝试计入发言上限。' : '主持人不在群里发言，只负责安排下一步由谁发言；被 @ 的成员会优先回应。' }}</p>
             <template v-if="!editing">
               <label id="group-templates-label">默认成员</label>
               <div class="group-template-grid" role="group" aria-labelledby="group-templates-label">
                 <label v-for="template in templates" :key="template.key" class="group-template" :title="template.focus"><input type="checkbox" :checked="form.templates.includes(template.key)" @change="toggleTemplate(template.key)" /><span class="group-avatar" :style="{ background: template.color }" aria-hidden="true">{{ avatarText(template.name) }}</span><span>{{ template.name }}</span></label>
               </div>
-              <p class="field-note">之后可以在群聊设置里增删成员、自定义成员，并为每个人单独选择模型。</p>
             </template>
           </fieldset>
         </form>

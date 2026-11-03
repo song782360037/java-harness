@@ -64,5 +64,9 @@ export function heatmapWeeks(heatmap: UsageHeatmap): HeatWeek[] {
   // 首列只露出不到 3 周时隐藏其标签，避免与下一个月份重叠。
   const next = weeks.findIndex((week, index) => index > 0 && week.month)
   if (next > 0 && next < 3) weeks[0].month = null
+  // 末列月份同理：不足 3 周时隐藏，避免标签溢出网格产生横向滚动、首尾月份重复。
+  let last = weeks.length - 1
+  while (last > 0 && !weeks[last].month) last--
+  if (last > 0 && weeks.length - last < 3) weeks[last].month = null
   return weeks
 }

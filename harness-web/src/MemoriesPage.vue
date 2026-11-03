@@ -198,7 +198,7 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
             <span class="memory-list-meta">{{ memoryKinds[entry.kind] }}<small>{{ memoryStatuses[entry.status] }}</small></span><strong>{{ entry.title }}</strong><p>{{ entry.content }}</p><span class="memory-list-tags">{{ entry.tags.join(' / ') }}</span>
           </button>
         </div>
-        <div v-else class="memory-empty"><UiIcon name="branch" :size="44" /><h2>{{ loading ? '正在读取记忆…' : query || status ? '没有匹配的记忆' : !automatic ? '正在读取设置…' : !automatic.settings.enabled ? '自动记忆尚未开启' : automatic.progress.pending || automatic.progress.running ? '正在从对话生成记忆' : '暂时没有可保留的记忆' }}</h2><p v-if="!loading && automatic">{{ automatic.settings.enabled ? '记忆将根据历史对话和后续交流自动生成。' : '在设置中开启后，将自动分析历史对话并持续更新。' }}</p><button v-if="!loading && !query && !status && automatic && !automatic.settings.enabled" class="memory-primary" @click="emit('open-settings')">前往设置开启</button></div>
+        <div v-else class="memory-empty"><UiIcon name="branch" :size="44" /><h2>{{ loading ? '正在读取记忆…' : query || status ? '没有匹配的记忆' : !automatic ? '正在读取设置…' : !automatic.settings.enabled ? '自动记忆尚未开启' : automatic.progress.pending || automatic.progress.running ? '正在从对话生成记忆' : '暂时没有可保留的记忆' }}</h2><button v-if="!loading && !query && !status && automatic && !automatic.settings.enabled" class="memory-primary" @click="emit('open-settings')">前往设置开启</button></div>
       </section>
       <aside class="memory-inspector" aria-label="记忆详情">
         <template v-if="selected">
@@ -212,9 +212,9 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
             <form v-if="entries.length > 1" class="memory-relation-form" @submit.prevent="relate()"><select v-model="relationTarget" aria-label="关联记忆" :disabled="busy" required><option value="">选择记忆</option><option v-for="entry in entries.filter(item => item.id !== selectedId)" :key="entry.id" :value="entry.id">{{ entry.title }}</option></select><input v-model="relationLabel" aria-label="关系名称" maxlength="32" required :disabled="busy" /><button :disabled="busy || !relationTarget">关联</button></form>
           </div>
           <div class="memory-detail-section memory-timestamps"><span>创建于 {{ new Date(selected.createdAt).toLocaleString('zh-CN') }}</span><span>更新于 {{ new Date(selected.updatedAt).toLocaleString('zh-CN') }}</span><span>版本 {{ selected.revision }}</span></div>
-          <div class="memory-delete"><template v-if="confirmingDelete"><p>删除后，后续任务不再召回这条记忆。已有任务的输入快照仍会保留。</p><button class="danger" :disabled="busy" @click="remove">确认删除</button><button :disabled="busy" @click="confirmingDelete = false">取消</button></template><button v-else :disabled="busy" @click="confirmingDelete = true">删除记忆</button></div>
+          <div class="memory-delete"><template v-if="confirmingDelete"><p>删除后不再召回这条记忆。</p><button class="danger" :disabled="busy" @click="remove">确认删除</button><button :disabled="busy" @click="confirmingDelete = false">取消</button></template><button v-else :disabled="busy" @click="confirmingDelete = true">删除记忆</button></div>
         </template>
-        <div v-else class="memory-inspector-empty"><UiIcon name="scan" :size="26" /><p>选择一条记忆</p><small>查看内容、来源和关联</small></div>
+        <div v-else class="memory-inspector-empty"><UiIcon name="scan" :size="26" /><p>选择一条记忆</p></div>
       </aside>
     </div>
     <dialog ref="editor" class="memory-editor" aria-labelledby="memory-editor-title" @cancel="busy && $event.preventDefault()" @close="editorClosed">

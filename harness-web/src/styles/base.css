@@ -21,7 +21,6 @@ button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-
 .sidebar-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .brand-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .settings-brand strong { font-size: 1rem; font-weight: 650; letter-spacing: -.2px; }
-.brand-copy small { font-size: var(--font-caption); color: var(--muted); white-space: nowrap; }
 .sidebar-primary { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
 .collapse-sidebar { flex-shrink: 0; width: 38px; height: 38px; color: var(--sidebar-muted); }
 .new-session { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 38px; border-color: transparent; background: transparent; color: var(--sidebar-text); text-align: left; padding: 8px 12px; border-radius: var(--radius-md); font-size: var(--font-body); font-weight: 550; }
@@ -63,8 +62,7 @@ button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-
 .rename-dialog input { width: 100%; min-height: 40px; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: inherit; }
 .sidebar-empty { color: var(--sidebar-muted); font-size: var(--font-caption); padding: 24px 12px; line-height: 1.8; }
 .sidebar-empty > .ui-icon { color: var(--accent); margin-bottom: 4px; }
-.sidebar-empty p { margin: 8px 0 4px; color: var(--sidebar-text); font-weight: 550; }
-.sidebar-empty small { font-size: var(--font-caption); }
+.sidebar-empty p { margin: 8px 0 0; color: var(--sidebar-text); font-weight: 550; }
 .sidebar-footer { padding: 12px 0 0; border-top: 0.5px solid var(--border); }
 .settings-entry { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 40px; border: 0; background: transparent; padding: 8px 10px; text-align: left; color: var(--sidebar-text); font-size: var(--font-body); border-radius: var(--radius-md); }
 .settings-entry > .ui-icon:last-child { margin-left: auto; color: var(--sidebar-muted); }
@@ -124,7 +122,7 @@ button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-
 .send-button { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); border: 0; padding: 0; }
 .send-button:hover:not(:disabled), .primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .stop-button .ui-icon { fill: currentColor; }
-.composer-caption { display: flex; justify-content: space-between; gap: 12px; padding: 9px 4px 0; color: var(--faint); font-size: var(--font-caption); line-height: 1.5; }
+.composer-caption { display: flex; justify-content: flex-end; gap: 12px; padding: 9px 4px 0; color: var(--faint); font-size: var(--font-caption); line-height: 1.5; }
 .configuration-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: var(--font-caption); color: var(--muted); margin: 5px 0; }
 .configuration-hint button { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 3px 0; background: transparent; border: 0; color: var(--accent); font-size: var(--font-caption); }
 .pending-note { font-size: var(--font-caption); color: var(--warning); padding-top: 8px; }

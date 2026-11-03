@@ -68,7 +68,6 @@
 .memory-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100%; padding: 32px; text-align: center; color: var(--muted); }
 .memory-empty > .ui-icon { padding: 14px; box-sizing: content-box; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
 .memory-empty h2 { margin: 4px 0 0; color: var(--text); font-size: var(--font-heading); font-weight: 600; }
-.memory-empty p { max-width: 340px; margin: 0; font-size: var(--font-caption); line-height: 1.8; }
 .memory-empty .memory-primary { margin-top: 6px; }
 
 /* 列表视图 */
@@ -114,8 +113,7 @@
 .memories-page .memory-delete .danger { background: var(--danger); border-color: var(--danger); color: var(--on-danger); }
 .memories-page .memory-delete .danger:hover:not(:disabled) { background: var(--danger-hover); }
 .memory-inspector-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 150px; color: var(--faint); font-size: var(--font-body); }
-.memory-inspector-empty p { margin: 10px 0 4px; color: var(--muted); }
-.memory-inspector-empty small { font-size: var(--font-caption); }
+.memory-inspector-empty p { margin: 10px 0 0; color: var(--muted); }
 
 /* 编辑弹窗 */
 .memory-editor { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 22px 24px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-shadow: var(--popover-shadow); }

@@ -87,9 +87,9 @@ onMounted(load)
     <p v-if="error" role="alert" class="extension-feedback">{{ error }} <button :disabled="busy" @click="load">重新读取配置</button></p>
     <p v-if="busy && !settings" role="status">正在读取配置…</p>
     <template v-if="settings && configurable">
-      <p v-if="!settings.selected" class="extension-callout">此版本尚未选中，当前版本继续生效。请按新版配置要求修改下方 JSON；保存成功后切换到此版本，启停状态以下方选项为准。</p>
-      <p v-if="settings.credentialsUnavailable" class="extension-feedback">原凭据无法读取。请重新填写全部凭据或明确删除旧凭据；保留空值无法恢复连接。</p>
-      <p v-if="editable" class="field-note">连接参数使用添加时的同一表单维护。<button :disabled="busy" @click="emit('edit')">编辑连接器</button></p>
+      <p v-if="!settings.selected" class="extension-callout">此版本尚未生效，按新版要求修改配置并保存后切换到此版本。</p>
+      <p v-if="settings.credentialsUnavailable" class="extension-feedback">原凭据无法读取，请重新填写或删除旧凭据。</p>
+      <p v-if="editable" class="field-note"><button :disabled="busy" @click="emit('edit')">编辑连接参数</button></p>
       <form v-else class="extension-add-form" @submit.prevent="save">
         <fieldset :disabled="busy">
           <label v-if="rawConfig">配置（JSON）<textarea v-model="jsonConfig" rows="5" spellcheck="false" /></label>
@@ -106,7 +106,7 @@ onMounted(load)
             <small v-if="field.description" class="field-note">{{ field.description }}</small>
           </label>
           <template v-if="serverNames.length || credentials.length">
-            <h4>连接凭据</h4><p class="field-note">密钥加密保存。已保存的凭据留空保留，移除后保存即删除。普通配置项请勿填写密钥。</p>
+            <h4>连接凭据</h4><p class="field-note">加密保存，留空保留已保存的凭据；普通配置项勿填密钥。</p>
             <div v-for="(credential, index) in credentials" :key="index" class="extension-credential">
               <select v-model="credential.server" aria-label="MCP 服务" :disabled="credential.stored" @change="credential.location = settings!.servers[credential.server] === 'stdio' ? 'env' : 'header'"><option v-if="credential.stored && !serverNames.includes(credential.server)" :value="credential.server">{{ credential.server }}（新版已移除）</option><option v-for="server in serverNames" :key="server" :value="server">{{ server }}</option></select>
               <input v-model="credential.name" :readonly="credential.stored" :aria-label="credential.location === 'env' ? '环境变量名' : 'Header 名称'" :placeholder="credential.location === 'env' ? 'API_KEY' : 'Authorization'" />
@@ -122,7 +122,7 @@ onMounted(load)
       <p v-if="notice" role="status">{{ notice }}</p>
       <div v-if="serverNames.length" class="extension-diagnose">
         <button :disabled="busy || !settings.selected" @click="diagnose">{{ busy ? '处理中…' : '测试连接' }}</button>
-        <p class="field-note">测试已保存的配置，只连接服务并读取工具目录，不调用工具。结果仅代表本次检查。</p>
+        <p class="field-note">仅连接服务并读取工具目录，不调用工具。</p>
         <div v-for="(result, server) in results" :key="server" :class="{ 'extension-feedback': !result.success }" role="status"><strong>{{ server }} · {{ result.success ? '连接成功' : '连接失败' }}</strong><p>{{ result.message }}</p><details v-if="result.success"><summary>可用工具（{{ result.tools.length }}）</summary><ul><li v-for="tool in result.tools" :key="tool">{{ tool }}</li></ul></details></div>
       </div>
     </template>

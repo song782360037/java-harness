@@ -4,7 +4,7 @@ import { approvalModeLabel, approvalModeOptions, effortShortLabel, type Approval
 import ReasoningSlider from './ReasoningSlider.vue'
 import UiIcon from './UiIcon.vue'
 const props = defineProps<{ profiles: ModelProfile[]; modelId: string; effort: string; disabled: boolean; workspaceId: string; workspaces: Workspace[]; workspaceDisabled: boolean; approvalMode: ApprovalMode }>()
-const emit = defineEmits<{ model: [id: string]; effort: [value: string]; settings: []; workspace: [id: string]; browse: []; edit: []; approval: [value: ApprovalMode]; approvalSettings: [] }>()
+const emit = defineEmits<{ model: [id: string]; effort: [value: string]; settings: []; workspace: [id: string]; browse: []; edit: []; approval: [value: ApprovalMode] }>()
 const root = ref<HTMLElement>()
 const modelButton = ref<HTMLButtonElement>()
 const effortButton = ref<HTMLButtonElement>()
@@ -39,7 +39,7 @@ async function toggle(value: NonNullable<typeof open.value>) {
     const button = buttonFor(value)
     const bounds = button?.getBoundingClientRect()
     if (bounds) {
-      const width = Math.min(value === 'workspace' || value === 'approval' ? 340 : value === 'model' ? 310 : 320, window.innerWidth - 24)
+      const width = Math.min(value === 'workspace' ? 340 : value === 'approval' ? 220 : value === 'model' ? 310 : 320, window.innerWidth - 24)
       menuPosition.value = { left: `${Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12))}px`,
         bottom: `${window.innerHeight - bounds.top + 8}px`, width: `${width}px`, maxHeight: `${Math.max(100, Math.min(480, bounds.top - 20))}px` }
     }
@@ -138,13 +138,12 @@ function outsideResize() { close() }
     <div class="selector-anchor approval-anchor">
       <button id="composer-approval" ref="approvalButton" type="button" class="composer-chip approval-chip" :class="{ 'is-full': approvalMode === 'FULL_ACCESS' }" :disabled="disabled" :aria-expanded="open === 'approval'" aria-controls="approval-options" :aria-label="`审批模式：${approvalModeLabel(approvalMode)}`" :title="approvalModeLabel(approvalMode)" @click="toggle('approval')"><UiIcon name="shield" :size="15" /><span>{{ approvalModeLabel(approvalMode) }}</span><UiIcon class="chevron" name="down" :size="12" /></button>
       <div v-if="open === 'approval'" id="approval-options" ref="panel" :style="menuPosition" class="selector-popover approval-popover" aria-label="审批模式" @keydown="navigate">
-        <div class="popover-heading">审批模式 · 对下一次发送生效</div>
-        <button v-for="option in approvalModeOptions" :key="option.value" type="button" class="selector-option" :aria-pressed="option.value === approvalMode" @click="chooseApproval(option.value)"><span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span><UiIcon v-if="option.value === approvalMode" name="check" :size="15" /></button>
+        <div class="popover-heading">审批模式</div>
+        <button v-for="option in approvalModeOptions" :key="option.value" type="button" class="selector-option" :aria-pressed="option.value === approvalMode" @click="chooseApproval(option.value)"><span><strong>{{ option.label }}</strong></span><UiIcon v-if="option.value === approvalMode" name="check" :size="15" /></button>
         <div v-if="confirmingFull" class="approval-confirm" role="alert">
-          <p><UiIcon name="warning" :size="14" /> 完全访问会自动执行模型提出的命令和外部工具调用，可修改或删除文件、访问网络。本项目没有系统沙箱，只建议在你信任的工作区使用。</p>
+          <p><UiIcon name="warning" :size="14" /> 完全访问会自动执行命令和外部工具且无沙箱，仅在信任的工作区使用。</p>
           <button type="button" class="primary" @click="chooseApproval('FULL_ACCESS')">确认开启完全访问</button>
         </div>
-        <button type="button" class="manage-models" @click="close(true); emit('approvalSettings')">管理审批规则 <UiIcon name="settings" :size="14" /></button>
       </div>
     </div>
   </div>

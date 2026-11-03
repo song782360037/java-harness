@@ -289,7 +289,6 @@ onUnmounted(() => {
         <div v-else-if="!groups.length" class="automations-empty">
           <UiIcon name="users" :size="26" />
           <h2>让 AI 成员一起协作</h2>
-          <p>建一个群，拉上项目经理、设计、开发、测试等成员。你提出问题或需求，成员会分工讨论并各自给出回复。</p>
           <button type="button" class="primary" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
         </div>
         <template v-else-if="snapshot">
@@ -311,7 +310,7 @@ onUnmounted(() => {
             </ol>
           </details>
           <div ref="timeline" class="timeline group-timeline" aria-label="群聊记录" aria-live="polite">
-            <div v-if="!snapshot.messages.length" class="welcome"><div class="welcome-copy"><h2>说说你的问题或需求</h2><p class="welcome-description">成员会自动分工协作；输入 @昵称 可以直接点名某位成员。</p></div></div>
+            <div v-if="!snapshot.messages.length" class="welcome"><div class="welcome-copy"><h2>说说你的问题或需求</h2><p class="welcome-description">输入 @昵称 可点名成员</p></div></div>
             <template v-for="item in snapshot.messages" :key="item.id">
               <div v-if="item.author === 'USER'" class="user-message-wrap"><p class="user-message">{{ item.content }}</p></div>
               <p v-else-if="item.author === 'SYSTEM'" class="group-system">{{ item.content }}</p>
@@ -349,12 +348,12 @@ onUnmounted(() => {
               <label class="sr-only" for="group-input">发送群消息</label>
               <textarea id="group-input" ref="input" v-model="text" rows="2" maxlength="4000" :disabled="sending" placeholder="提出问题或需求，输入 @ 点名成员…" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length ? 'group-mentions' : undefined" :aria-activedescendant="candidates[mentionIndex] ? `group-mention-${candidates[mentionIndex].id}` : undefined" @keydown="onKeydown" @input="trackCaret" @click="trackCaret" @keyup.left="trackCaret" @keyup.right="trackCaret" @blur="caret = -1"></textarea>
               <div class="composer-actions">
-                <span class="group-hint">{{ snapshot.busy ? '协作进行中，发送新消息会让成员转向新问题' : '成员只在群里展示最终回复' }}</span>
+                <span class="group-hint">{{ snapshot.busy ? '发送新消息会让成员转向新问题' : '' }}</span>
                 <button v-if="snapshot.busy" type="button" class="send-button stop-button" :disabled="stopping" aria-label="停止本轮协作" title="停止本轮协作" @click="stop"><UiIcon name="stop" :size="15" /></button>
                 <button type="submit" class="send-button" :disabled="sending || !text.trim()" aria-label="发送消息" :title="sendHint"><UiIcon name="arrow" :size="18" /></button>
               </div>
             </form>
-            <div class="composer-caption"><span>{{ snapshot.group.workspaceId ? '文件修改经你审核后应用' : '本群只讨论，不读写文件' }}</span><span v-if="text.length > 3500">{{ text.length }} / 4000</span><span v-else>{{ sendHint }}</span></div>
+            <div class="composer-caption"><span v-if="text.length > 3500">{{ text.length }} / 4000</span><span v-else>{{ sendHint }}</span></div>
           </div>
         </template>
       </section>

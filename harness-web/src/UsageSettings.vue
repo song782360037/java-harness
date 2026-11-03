@@ -21,7 +21,8 @@ const axisLabels = computed(() => chart.value.unit === 'hour'
   ? [0, 6, 12, 18, 23].map(hour => ({ text: bars.value[hour].date, column: hour + 1 }))
   : [...new Set([bars.value[0]?.date, bars.value[bars.value.length - 1]?.date].filter(Boolean))].map(text => ({ text, column: 0 })))
 const peak = computed(() => Math.max(1, ...bars.value.map(dayTotal)))
-const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+// 只标注日、三、六，其余行留空以保持 7 行网格对齐。
+const weekdays = ['日', '', '', '三', '', '', '六']
 const weeks = computed(() => stats.value ? heatmapWeeks(stats.value.heatmap) : [])
 const heatLabel = computed(() => {
   const tokens = stats.value?.heatmap.tokens ?? []
@@ -63,7 +64,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
     </div>
     <p v-if="error" role="alert" class="dialog-error">{{ error }}</p>
     <div v-if="slow && !stats" class="usage-loading" role="status">
-      <p><span class="loading-indicator" aria-hidden="true" />正在读取用量数据<small>首次需要解析本机各 agent 的日志，可能需要数秒</small></p>
+      <p><span class="loading-indicator" aria-hidden="true" />正在读取用量数据<small>首次加载可能需要数秒</small></p>
       <div class="usage-cards" aria-hidden="true"><div v-for="item in 5" :key="item" class="usage-skeleton" /></div>
       <div class="usage-skeleton tall" aria-hidden="true" />
     </div>
@@ -79,7 +80,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
       <div class="usage-heatmap">
         <div ref="heatScroll" class="heat-scroll">
           <div class="heat-grid" role="img" :aria-label="heatLabel" :style="{ '--weeks': weeks.length }">
-            <span aria-hidden="true" /><span v-for="day in weekdays" :key="day" class="heat-weekday" aria-hidden="true">{{ day }}</span>
+            <span aria-hidden="true" /><span v-for="(day, index) in weekdays" :key="index" class="heat-weekday" aria-hidden="true">{{ day }}</span>
             <template v-for="week in weeks" :key="week.days[0].date">
               <span class="heat-month" aria-hidden="true">{{ week.month }}</span>
               <i v-for="day in week.days" :key="day.date" :class="`level-${day.level}`" :title="`${day.date}：${compactTokens(day.tokens)} tokens`" />
@@ -125,7 +126,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
           </tbody>
         </table>
       </div>
-      <p class="settings-footnote">Java Harness 用量含已删除的会话；Claude Code、Codex、WorkBuddy、Qoder 用量读取自本机 ~/.claude、~/.codex、~/.workbuddy、~/.qoder 下的会话日志，Qoder 内置模型只记录 credits，不计入 token。输入 tokens 均含缓存命中部分。</p>
+      <p class="settings-footnote">外部 agent 用量读取自本机会话日志，输入 tokens 含缓存命中；Qoder 内置模型只计 credits。</p>
     </div>
   </section>
 </template>

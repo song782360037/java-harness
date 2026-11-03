@@ -50,7 +50,7 @@ onUnmounted(() => { disposed = true })
       <p class="command-purpose">{{ command.purpose }}</p>
       <pre class="command-source" aria-label="待执行命令"><code>{{ command.command }}</code></pre>
       <div class="command-meta"><span>{{ command.directory }}</span><span>超时 {{ command.timeoutSeconds }} 秒<span v-if="command.exitCode !== null"> · 退出码 {{ command.exitCode }}</span></span></div>
-      <p v-if="['REVIEWING', 'PENDING'].includes(command.status)" class="command-notice">批准后以本机服务权限运行，可修改文件或访问网络。等待审批计入任务超时。</p>
+      <p v-if="['REVIEWING', 'PENDING'].includes(command.status)" class="command-notice">批准后以本机权限运行，可修改文件或访问网络；等待计入任务超时。</p>
       <details v-if="command.stdout || command.stderr" :open="['RUNNING', 'STOPPING'].includes(command.status)" class="command-output">
         <summary>终端输出</summary>
         <div v-if="command.stdout"><span>stdout</span><pre tabindex="0" aria-label="标准输出">{{ command.stdout }}</pre></div>

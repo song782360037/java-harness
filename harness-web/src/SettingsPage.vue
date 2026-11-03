@@ -173,7 +173,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
   <main class="settings-page reference-settings" aria-labelledby="settings-title">
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="设置分类">
-        <div class="settings-brand"><img class="brand-icon" src="/harness-icon.svg" width="34" height="34" alt="" /><span class="brand-copy"><strong>Harness</strong><small>本地编程工作台</small></span></div>
+        <div class="settings-brand"><img class="brand-icon" src="/harness-icon.svg" width="34" height="34" alt="" /><span class="brand-copy"><strong>Harness</strong></span></div>
         <button class="back-button" aria-label="返回工作区" title="返回工作区" :disabled="busy || workspaceBusy || pluginBusy" @click="emit('close')"><UiIcon name="back" :size="16" /><span>返回工作区</span></button>
         <p class="nav-group-label">基础设置</p>
         <button v-for="item in sections" :key="item.id" :class="{ selected: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" :disabled="busy || workspaceBusy || pluginBusy" @click="section = item.id"><UiIcon :name="item.icon" :size="17" />{{ item.label }}</button>
@@ -194,7 +194,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
               <div class="provider-rail-heading"><h2>提供商</h2><span>{{ providers.length.toString().padStart(2, '0') }}</span></div>
               <div class="provider-items">
                 <button v-for="item in providers" :key="item.id" class="provider-item" :class="{ selected: providerId === item.id }" :disabled="busy" :aria-pressed="providerId === item.id" @click="providerId = item.id; selectProvider()">
-                  <span class="provider-monogram" aria-hidden="true">{{ item.displayName.slice(0, 1).toUpperCase() }}</span><span class="provider-item-copy"><span class="provider-item-name">{{ item.displayName }}</span><small>OpenAI 兼容</small></span><span class="provider-count">{{ profiles.filter(model => model.providerId === item.id).length }}</span>
+                  <span class="provider-monogram" aria-hidden="true">{{ item.displayName.slice(0, 1).toUpperCase() }}</span><span class="provider-item-copy"><span class="provider-item-name">{{ item.displayName }}</span></span><span class="provider-count">{{ profiles.filter(model => model.providerId === item.id).length }}</span>
                 </button>
               </div>
               <button class="add-provider" :disabled="busy" @click="createProvider"><UiIcon name="plus" :size="16" /> 添加提供商</button>
@@ -203,11 +203,11 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
               <template v-if="provider">
                 <div class="provider-heading">
                   <span class="provider-heading-icon"><UiIcon name="cube" :size="22" /></span>
-                  <div class="provider-heading-copy"><div><h2>{{ provider.id ? provider.displayName : '新增提供商' }}</h2><button v-if="provider.id" type="button" class="icon-button" :disabled="busy || editingModel" aria-label="编辑提供商名称" title="编辑名称" @click="renameProvider"><UiIcon name="edit" :size="15" /></button></div><p>OpenAI 兼容服务</p></div>
-                  <div class="provider-status"><span class="connection-badge" :class="{ ready: connectionFilled }">{{ connectionFilled ? '连接已填写' : '待配置' }}</span><small>未验证连通性</small></div>
+                  <div class="provider-heading-copy"><div><h2>{{ provider.id ? provider.displayName : '新增提供商' }}</h2><button v-if="provider.id" type="button" class="icon-button" :disabled="busy || editingModel" aria-label="编辑提供商名称" title="编辑名称" @click="renameProvider"><UiIcon name="edit" :size="15" /></button></div></div>
+                  <div class="provider-status"><span class="connection-badge" :class="{ ready: connectionFilled }">{{ connectionFilled ? '连接已填写' : '待配置' }}</span></div>
                 </div>
                 <form class="provider-form" @submit.prevent="saveProvider">
-                  <div class="connection-card-heading"><h3><UiIcon name="code" :size="17" />连接设置</h3><span>此提供商下的模型共享</span></div>
+                  <div class="connection-card-heading"><h3><UiIcon name="code" :size="17" />连接设置</h3></div>
                   <fieldset :disabled="busy || editingModel">
                     <div v-if="renaming || !provider.id" class="connection-field"><label for="provider-name">提供商名称</label><input id="provider-name" ref="providerNameInput" v-model="provider.displayName" required maxlength="100" placeholder="例如 公司网关" /></div>
                     <div class="connection-fields">
@@ -216,8 +216,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                     </div>
                     <div class="connection-field">
                       <label for="model-key">API Key <span class="key-status" :class="{ configured: provider.apiKeyConfigured }">{{ provider.apiKeyConfigured ? '已保存' : '未设置' }}</span></label>
-                      <div class="key-input"><input id="model-key" v-model="apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="new-password" maxlength="8192" :disabled="clearApiKey" :placeholder="provider.apiKeyConfigured ? '留空保留已保存的密钥' : '填写 API Key'" aria-describedby="api-key-note" /><button type="button" class="icon-button" :disabled="clearApiKey" :aria-pressed="showApiKey" :aria-label="showApiKey ? '隐藏本次输入的 Key' : '显示本次输入的 Key'" @click="showApiKey = !showApiKey"><UiIcon name="eye" :size="16" /></button></div>
-                      <p id="api-key-note" class="field-note">填写新值可替换密钥；已保存的密钥不会回显。</p>
+                      <div class="key-input"><input id="model-key" v-model="apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="new-password" maxlength="8192" :disabled="clearApiKey" :placeholder="provider.apiKeyConfigured ? '留空保留已保存的密钥' : '填写 API Key'" /><button type="button" class="icon-button" :disabled="clearApiKey" :aria-pressed="showApiKey" :aria-label="showApiKey ? '隐藏本次输入的 Key' : '显示本次输入的 Key'" @click="showApiKey = !showApiKey"><UiIcon name="eye" :size="16" /></button></div>
                     </div>
                     <details class="connection-options"><summary><span>连接选项</span><small>{{ provider.apiKeyRequired ? '需要 API Key · ' : '' }}连接超时 {{ provider.connectTimeoutSeconds }} 秒</small></summary>
                       <div class="connection-options-fields">
@@ -242,9 +241,8 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                     </div>
                   </div>
                   <p v-else class="models-empty">{{ provider.id ? '尚未添加模型，添加后即可在聊天中选择。' : '先保存提供商，再添加它支持的模型。' }}</p>
-                  <p v-if="providerModels.some(item => item.id === 'default')" class="model-list-note">默认配置可编辑、可移动，不能删除。</p>
                 </section>
-                <div v-if="provider.id" class="provider-delete"><p>删除提供商前，请先删除或移动其下的模型。</p><button type="button" :disabled="busy || !!providerModels.length" :title="providerModels.length ? '先删除或移动该提供商下的模型' : '删除提供商'" @click="confirmDelete = 'provider'"><UiIcon name="trash" :size="14" />删除提供商</button></div>
+                <div v-if="provider.id" class="provider-delete"><button type="button" :disabled="busy || !!providerModels.length" :title="providerModels.length ? '先删除或移动该提供商下的模型' : '删除提供商'" @click="confirmDelete = 'provider'"><UiIcon name="trash" :size="14" />删除提供商</button></div>
                 <p v-if="confirmDelete" role="alert" class="dialog-error">确认删除{{ confirmDelete === 'provider' ? provider.displayName : deletingModel?.displayName }}？<button type="button" :disabled="busy" @click="remove">确认删除</button><button type="button" :disabled="busy" @click="resetFeedback()">取消</button></p>
               </template>
               <p v-else class="models-empty">{{ busy ? '正在读取配置…' : '添加一个自定义提供商，开始配置模型。' }}</p>
@@ -254,22 +252,19 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
             <div v-if="session && !creatingWorkspace" class="workspace-context"><span class="configuration-icon"><UiIcon :name="currentWorkspace?.icon || 'folder'" :style="{ color: currentWorkspace?.color }" :size="19" /></span><div><strong>{{ currentWorkspace?.name || session.title }}</strong><p>{{ workspaceSummary(session.workspace) || '仅聊天，尚未选择目录' }}</p></div><span class="subtle-badge">当前工作区</span></div>
             <WorkspaceSettings :key="creatingWorkspace ? 'new' : session?.workspaceId || session?.id" class="settings-card" :session-id="creatingWorkspace ? undefined : session?.id" :initial-path="creatingWorkspace ? '' : session?.workspace || ''" :initial-workspace="creatingWorkspace ? undefined : currentWorkspace" :disabled="!creatingWorkspace && workspaceDisabled" @busy="workspaceBusy = $event" @saved="emit('workspaceSaved', $event)" @cancel="emit('close')" />
           </section>
-          <p v-if="section === 'models'" class="settings-footnote">保存后对新任务生效，连接与模型权限会在发送消息时验证</p>
         </div>
       </div>
     </div>
-    <dialog ref="modelEditor" class="model-editor-dialog" aria-labelledby="model-editor-title" @keydown.esc.stop @cancel.prevent="closeModelEditor">
+    <dialog ref="modelEditor" class="model-editor-dialog automation-editor-dialog"aria-labelledby="model-editor-title" @keydown.esc.stop @cancel.prevent="closeModelEditor">
       <form v-if="editingModel && form" class="model-editor-panel" @submit.prevent="saveModel">
         <header class="model-editor-heading"><div><p>模型配置</p><h2 id="model-editor-title">{{ form.id ? '编辑模型' : '添加模型' }}</h2></div><button type="button" class="icon-button" :disabled="busy" aria-label="关闭模型编辑" @click="closeModelEditor"><UiIcon name="close" :size="20" /></button></header>
         <div class="model-editor-content">
           <div class="model-editor-context"><UiIcon name="cube" :size="19" /><strong>{{ form.displayName || '新模型' }}</strong><span v-if="form.id === 'default'" class="default-model-badge">默认配置</span></div>
           <p v-if="error" role="alert" class="dialog-error">{{ error }}</p>
           <fieldset :disabled="busy">
-            <label for="model-name">模型 ID</label><input id="model-name" v-model="form.modelName" required maxlength="128" placeholder="填写服务提供方的模型 ID" aria-describedby="model-id-note" />
-            <p id="model-id-note" class="field-note">与服务提供方的模型 ID 保持一致。</p>
+            <label for="model-name">模型 ID</label><input id="model-name" v-model="form.modelName" required maxlength="128" placeholder="填写服务提供方的模型 ID" />
             <label for="profile-name">显示名称</label><input id="profile-name" v-model="form.displayName" required maxlength="100" placeholder="例如 日常开发 / 深度分析" />
-            <label for="profile-effort">默认思考强度</label><select id="profile-effort" v-model="form.reasoningEffort" aria-describedby="model-effort-note"><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-            <p id="model-effort-note" class="field-note">可在对话中临时切换；不确定支持范围时使用服务默认。</p>
+            <label for="profile-effort">默认思考强度</label><select id="profile-effort" v-model="form.reasoningEffort"><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
             <details class="advanced-settings" open><summary>运行参数与所属提供商</summary>
               <template v-if="form.id"><label for="model-provider">所属提供商</label><select id="model-provider" v-model="form.providerId"><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></template>
               <div class="settings-grid">

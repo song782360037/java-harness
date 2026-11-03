@@ -87,7 +87,7 @@ public final class UsageStatisticsService {
         if (days < 0 || days > 366) throw new HarnessException("INVALID", "统计天数需为 0–366");
         LocalDate today = LocalDate.now(zone);
         LocalDate from = days == 0 ? null : today.minusDays(days - 1L);
-        LocalDate heatFrom = today.minusWeeks(52).with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY));
+        LocalDate heatFrom = today.minusWeeks(51).with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY));
         LocalDate fetchFrom = from == null || heatFrom.isBefore(from) ? heatFrom : from;
         Instant start =
                 from == null ? Instant.EPOCH : fetchFrom.atStartOfDay(zone).toInstant();

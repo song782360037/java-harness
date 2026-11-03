@@ -11,15 +11,15 @@ const autoScroll = computed({ get: () => preferences.value.autoScroll, set: valu
 <template>
   <section class="general-settings" aria-label="常规偏好">
     <div class="preference-row">
-      <div class="preference-copy"><label id="send-shortcut-label" for="send-shortcut">发送快捷键</label><p id="send-shortcut-help">{{ sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行。' : 'Ctrl / ⌘ + Enter 发送，Enter 换行。' }}</p></div>
+      <div class="preference-copy"><label id="send-shortcut-label" for="send-shortcut">发送快捷键</label><p id="send-shortcut-help">{{ sendShortcut === 'enter' ? 'Shift + Enter 换行' : 'Enter 换行' }}</p></div>
       <PreferenceSelect id="send-shortcut" :model-value="sendShortcut" :options="shortcuts" @update:model-value="updatePreferences({ sendShortcut: $event === 'enter' ? 'enter' : 'modifier-enter' })" />
     </div>
     <div class="preference-row">
-      <div class="preference-copy"><label id="font-size-label" for="font-size">全局字号</label><p id="font-size-help">调整整个工作台的文字大小。</p></div>
+      <div class="preference-copy"><p id="font-size-help" class="sr-only">调整整个工作台的文字大小</p><label id="font-size-label" for="font-size">全局字号</label></div>
       <PreferenceSelect id="font-size" :model-value="fontSize" :options="fontSizes" @update:model-value="updatePreferences({ chatFontSize: $event === 'small' || $event === 'large' ? $event : 'standard' })" />
     </div>
     <div class="preference-row">
-      <div class="preference-copy"><label for="auto-scroll">自动跟随最新消息</label><p id="auto-scroll-help">位于对话底部时跟随新内容；向上阅读时暂停。关闭后新内容不会自动滚动。</p></div>
+      <div class="preference-copy"><label for="auto-scroll">自动跟随最新消息</label><p id="auto-scroll-help">向上阅读时暂停跟随</p></div>
       <input id="auto-scroll" v-model="autoScroll" type="checkbox" aria-describedby="auto-scroll-help" />
     </div>
     <p v-if="!preferencesPersistent" class="preferences-status" role="status">浏览器无法保存偏好，更改仅在当前页面生效。</p>

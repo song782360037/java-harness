@@ -42,6 +42,11 @@ test('heatmap lays out Sunday-first weeks with quartile levels and month labels'
   assert.ok(weeks.flatMap(week => week.days).every(day => day.level >= 0 && day.level <= 4))
 })
 
+test('heatmap hides a month label that starts in the last two columns', () => {
+  const weeks = heatmapWeeks({ from: '2026-01-04', zone: 'UTC+00:00', tokens: Array(30).fill(0) })
+  assert.deepEqual(weeks.map(week => week.month), ['1月', null, null, null, null])
+})
+
 test('empty heatmap stays at level zero', () => {
   const weeks = heatmapWeeks({ from: '2026-01-04', zone: 'UTC+00:00', tokens: [0, 0, 0] })
   assert.deepEqual(weeks[0].days.map(day => day.level), [0, 0, 0])

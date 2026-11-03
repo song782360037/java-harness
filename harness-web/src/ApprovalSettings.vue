@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, type ApprovalReviewerSettings, type ApprovalRules, type ModelProfile } from './api'
+import UiIcon from './UiIcon.vue'
 const emit = defineEmits<{ busy: [value: boolean] }>()
 const kinds = [
-  { key: 'deny', label: '拒绝规则', help: '智能审批与完全访问下直接拒绝，命令不会执行。也会检查组合命令中的每一段。', placeholder: 'git push\nnpm publish' },
-  { key: 'ask', label: '询问规则', help: '始终交给你确认，完全访问也不例外。', placeholder: 'git checkout\ngit reset' },
-  { key: 'allow', label: '允许规则', help: '智能审批下自动批准。只匹配不含 ; | & > $ ( ) 等结构的单条命令，不能只写解释器名。', placeholder: 'mvn test\nnpm test' },
+  { key: 'deny', label: '拒绝', icon: 'close', help: '直接拒绝，组合命令逐段检查。', placeholder: 'git push\nnpm publish' },
+  { key: 'ask', label: '询问', icon: 'chat', help: '始终交给你确认，完全访问也不例外。', placeholder: 'git checkout\ngit reset' },
+  { key: 'allow', label: '允许', icon: 'check', help: '智能审批下自动批准，仅匹配不含 ; | & > $ ( ) 的单条命令。', placeholder: 'mvn test\nnpm test' },
 ] as const
 const texts = ref<Record<'deny' | 'ask' | 'allow', string>>({ deny: '', ask: '', allow: '' })
+// 与保存时一致：忽略空行。
+const ruleCount = (key: 'deny' | 'ask' | 'allow') => texts.value[key].split('\n').filter(line => line.trim()).length
 const revision = ref(0), loaded = ref(false), busy = ref(false), error = ref(''), notice = ref('')
 // 每行一条规则，按词前缀匹配，不区分大小写。
 function apply(rules: ApprovalRules) {
@@ -30,10 +33,10 @@ async function save() {
   finally { busy.value = false; emit('busy', false) }
 }
 const reviewerOptions = [
-  { value: 'NONE', label: '不使用评审器', help: '只按规则审批，规则未覆盖的动作交给你确认。' },
+  { value: 'NONE', label: '不使用', help: '只按规则审批，规则未覆盖的动作交给你确认。' },
   { value: 'JEV', label: '仅 Jev', help: 'TypeSafe Jev 高置信的结论直接生效，其余交给你确认。' },
   { value: 'LLM', label: '仅 LLM', help: '用选定的模型判断风险与授权，并给出理由。' },
-  { value: 'JEV_LLM', label: 'Jev → LLM（推荐）', help: 'Jev 先判，没把握的再交 LLM，仍无结论时交给你。' },
+  { value: 'JEV_LLM', label: 'Jev → LLM', help: 'Jev 先判，没把握的再交 LLM，仍无结论时交给你。' },
 ] as const
 const reviewer = ref<ApprovalReviewerSettings | null>(null)
 const profiles = ref<ModelProfile[]>([])
@@ -66,48 +69,51 @@ onMounted(() => { void load(); void loadReviewer() })
 </script>
 <template>
   <section class="approval-settings" aria-label="审批规则">
-    <p class="approval-intro">审批模式在输入框下方切换，随每次发送记录到任务上。<strong>手动审批</strong>不使用这些规则；<strong>智能审批</strong>自动批准只读命令、允许规则和下方评审器判定安全的动作；<strong>完全访问</strong>自动批准其余命令和外部工具。删除根目录、用户目录、磁盘操作、下载后直接执行等高危命令在任何模式下都需要你确认。</p>
+    <p class="approval-note"><UiIcon name="shield" :size="16" /><span>规则在智能审批与完全访问下生效，这两种模式下文件修改直接写入（可撤销），受保护路径（如 .github、AGENTS.md）仍需人工审核。高危命令（如删除根目录、磁盘操作）始终需要你确认。</span></p>
     <p v-if="error" role="alert" class="dialog-error">{{ error }} <button type="button" :disabled="busy" @click="load">{{ loaded ? '重新加载（放弃未保存的修改）' : '重试' }}</button></p>
-    <form v-if="loaded" @submit.prevent="save">
-      <div v-for="kind in kinds" :key="kind.key" class="approval-rule-field">
-        <label :for="`approval-${kind.key}`">{{ kind.label }}</label>
-        <p :id="`approval-${kind.key}-help`">{{ kind.help }}</p>
-        <textarea :id="`approval-${kind.key}`" v-model="texts[kind.key]" rows="4" spellcheck="false" :placeholder="kind.placeholder" :aria-describedby="`approval-${kind.key}-help`" :disabled="busy" />
+    <form v-if="loaded" class="approval-card" @submit.prevent="save">
+      <header class="approval-card-heading"><h2>命令规则</h2><p>每行一条，按命令前缀匹配</p></header>
+      <div class="approval-rules">
+        <div v-for="kind in kinds" :key="kind.key" class="approval-rule" :class="`is-${kind.key}`">
+          <div class="approval-rule-heading"><span class="approval-rule-icon" aria-hidden="true"><UiIcon :name="kind.icon" :size="14" /></span><label :for="`approval-${kind.key}`">{{ kind.label }}</label><span class="approval-rule-count">{{ ruleCount(kind.key) }} 条</span></div>
+          <p :id="`approval-${kind.key}-help`">{{ kind.help }}</p>
+          <textarea :id="`approval-${kind.key}`" v-model="texts[kind.key]" rows="6" spellcheck="false" :placeholder="kind.placeholder" :aria-describedby="`approval-${kind.key}-help`" :disabled="busy" />
+        </div>
       </div>
-      <div class="approval-actions"><span v-if="notice" role="status" class="saved-note">{{ notice }}</span><button type="submit" class="primary" :disabled="busy">保存规则</button></div>
+      <footer class="approval-card-footer"><span v-if="notice" role="status" class="saved-note">{{ notice }}</span><button type="submit" class="primary" :disabled="busy">保存规则</button></footer>
     </form>
-    <h2 class="approval-section-title">智能审批评审器</h2>
-    <p class="approval-intro">规则未覆盖的命令和插件工具调用，可以先交给评审器判断。评审只看你的消息、任务已执行的工具调用和待审批动作，不看助手回答和工具输出；超时、出错或没有把握时一律交给你确认，评审期间你也可以直接批准或拒绝。同一任务被评审器拒绝 3 次（连续）或 20 次后，改为人工确认。</p>
     <p v-if="reviewerError" role="alert" class="dialog-error">{{ reviewerError }} <button type="button" :disabled="reviewerBusy" @click="loadReviewer">重新加载</button></p>
-    <form v-if="reviewer" @submit.prevent="saveReviewer">
-      <div class="approval-rule-field">
-        <label for="approval-reviewers">评审器</label>
-        <p id="approval-reviewers-help">{{ reviewerOptions.find(option => option.value === reviewer?.reviewers)?.help }}</p>
-        <select id="approval-reviewers" v-model="reviewer.reviewers" class="approval-input" aria-describedby="approval-reviewers-help" :disabled="reviewerBusy">
-          <option v-for="option in reviewerOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-        </select>
+    <form v-if="reviewer" class="approval-card" @submit.prevent="saveReviewer">
+      <header class="approval-card-heading"><h2 id="approval-reviewers-title">智能审批评审器</h2><p>规则未覆盖的动作先由评审器判断</p></header>
+      <div class="reviewer-options" role="radiogroup" aria-labelledby="approval-reviewers-title">
+        <label v-for="option in reviewerOptions" :key="option.value" class="reviewer-option" :class="{ selected: reviewer.reviewers === option.value }">
+          <input v-model="reviewer.reviewers" type="radio" name="approval-reviewers" :value="option.value" :disabled="reviewerBusy" />
+          <strong>{{ option.label }}<span v-if="option.value === 'JEV_LLM'" class="reviewer-badge">推荐</span></strong>
+          <small>{{ option.help }}</small>
+        </label>
       </div>
-      <div v-if="usesJev()" class="approval-rule-field">
-        <label>TypeSafe Jev</label>
-        <p>启用后，你的消息、命令文本和工具参数会发送到 TypeSafe 云端服务（仅托管 API）。Jev 只返回风险概率，理由由本机根据概率生成。</p>
-        <div class="approval-grid">
-          <label>API Key<input v-model="jevApiKey" class="approval-input" type="password" autocomplete="off" :placeholder="reviewer.jevApiKeyConfigured ? '已保存，留空保持不变' : '填写 TypeSafe API Key'" :disabled="reviewerBusy || clearJevApiKey" /></label>
-          <label>模型<input v-model="reviewer.jevModel" class="approval-input" spellcheck="false" :disabled="reviewerBusy" /></label>
-          <label>服务地址<input v-model="reviewer.jevBaseUrl" class="approval-input" spellcheck="false" :disabled="reviewerBusy" /></label>
-          <label>超时（秒）<input v-model.number="reviewer.jevTimeoutSeconds" class="approval-input" type="number" min="1" max="60" :disabled="reviewerBusy" /></label>
+      <div v-if="usesJev() || usesLlm()" class="reviewer-config">
+        <div v-if="usesJev()" class="reviewer-panel">
+          <h3>TypeSafe Jev</h3>
+          <p>你的消息、命令和工具参数会发送到 TypeSafe 云端。</p>
+          <div class="approval-grid">
+            <label>API Key<input v-model="jevApiKey" class="approval-input" type="password" autocomplete="off" :placeholder="reviewer.jevApiKeyConfigured ? '已保存，留空保持不变' : '填写 TypeSafe API Key'" :disabled="reviewerBusy || clearJevApiKey" /></label>
+            <label>模型<input v-model="reviewer.jevModel" class="approval-input" spellcheck="false" :disabled="reviewerBusy" /></label>
+            <label>服务地址<input v-model="reviewer.jevBaseUrl" class="approval-input" spellcheck="false" :disabled="reviewerBusy" /></label>
+            <label>超时（秒）<input v-model.number="reviewer.jevTimeoutSeconds" class="approval-input" type="number" min="1" max="60" :disabled="reviewerBusy" /></label>
+          </div>
+          <label v-if="reviewer.jevApiKeyConfigured" class="approval-check"><input v-model="clearJevApiKey" type="checkbox" :disabled="reviewerBusy" @change="jevApiKey = ''" /> 清除已保存的 Key</label>
         </div>
-        <label v-if="reviewer.jevApiKeyConfigured" class="approval-check"><input v-model="clearJevApiKey" type="checkbox" :disabled="reviewerBusy" @change="jevApiKey = ''" /> 清除已保存的 Key</label>
-      </div>
-      <div v-if="usesLlm()" class="approval-rule-field">
-        <label>LLM 评审</label>
-        <p>使用已配置的模型，每次评审多一次模型调用，计入任务超时和使用统计。</p>
-        <div class="approval-grid">
-          <label>评审模型<select v-model="reviewer.llmProfileId" class="approval-input" :disabled="reviewerBusy"><option value="">请选择模型</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id" :disabled="!profile.model.configured && profile.id !== reviewer.llmProfileId">{{ profile.providerName }} / {{ profile.displayName }}{{ profile.model.configured ? '' : '（待配置）' }}</option></select></label>
-          <label>超时（秒）<input v-model.number="reviewer.llmTimeoutSeconds" class="approval-input" type="number" min="1" max="120" :disabled="reviewerBusy" /></label>
+        <div v-if="usesLlm()" class="reviewer-panel">
+          <h3>LLM 评审</h3>
+          <p>每次评审额外调用一次模型。</p>
+          <div class="approval-grid">
+            <label>评审模型<select v-model="reviewer.llmProfileId" class="approval-input" :disabled="reviewerBusy"><option value="">请选择模型</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id" :disabled="!profile.model.configured && profile.id !== reviewer.llmProfileId">{{ profile.providerName }} / {{ profile.displayName }}{{ profile.model.configured ? '' : '（待配置）' }}</option></select></label>
+            <label>超时（秒）<input v-model.number="reviewer.llmTimeoutSeconds" class="approval-input" type="number" min="1" max="120" :disabled="reviewerBusy" /></label>
+          </div>
         </div>
       </div>
-      <div class="approval-actions"><span v-if="reviewerNotice" role="status" class="saved-note">{{ reviewerNotice }}</span><button type="submit" class="primary" :disabled="reviewerBusy">保存评审器</button></div>
+      <footer class="approval-card-footer"><span v-if="reviewerNotice" role="status" class="saved-note">{{ reviewerNotice }}</span><button type="submit" class="primary" :disabled="reviewerBusy">保存评审器</button></footer>
     </form>
-    <p class="approval-intro">智能审批与完全访问下，模型对工作区文件的修改会直接写入，可在差异卡片中撤销；.github、.mvn、.vscode、mvnw、AGENTS.md 等受保护路径仍需在任务结束后人工审核。</p>
   </section>
 </template>

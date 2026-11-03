@@ -66,8 +66,8 @@ onUnmounted(() => { disposed = true; version++; clearTimeout(timer) })
     <p v-if="error || loadingError" class="dialog-error" role="alert">{{ error || loadingError }} <button :disabled="busy" @click="load(true)">重新加载设置</button></p>
     <form v-if="form" @submit.prevent="save">
       <div class="general-settings">
-        <div class="preference-row"><div class="preference-copy"><label for="automatic-memory">启用自动记忆</label><p>开启后自动分析历史对话和新完成的对话，生成的记忆直接用于后续交流。关闭后停止生成和召回，已有记忆保留。</p></div><input id="automatic-memory" v-model="form.enabled" type="checkbox" :disabled="busy" /></div>
-        <div class="preference-row"><div class="preference-copy"><label id="memory-model-label" for="memory-model">生成模型</label><p id="memory-model-help">使用已配置的模型分析对话，会产生额外模型调用。</p></div><PreferenceSelect id="memory-model" v-model="form.modelProfileId" :options="modelOptions" :disabled="busy" /></div>
+        <div class="preference-row"><div class="preference-copy"><label for="automatic-memory">启用自动记忆</label><p>从对话中生成记忆并用于后续交流；关闭后已有记忆保留</p></div><input id="automatic-memory" v-model="form.enabled" type="checkbox" :disabled="busy" /></div>
+        <div class="preference-row"><div class="preference-copy"><label id="memory-model-label" for="memory-model">生成模型</label><p id="memory-model-help">会产生额外的模型调用</p></div><PreferenceSelect id="memory-model" v-model="form.modelProfileId" :options="modelOptions" :disabled="busy" /></div>
       </div>
       <div class="memory-settings-actions"><span v-if="notice" role="status" class="saved-note">{{ notice }}</span><button class="primary" :disabled="busy">保存设置</button></div>
     </form>
@@ -82,7 +82,7 @@ onUnmounted(() => { disposed = true; version++; clearTimeout(timer) })
         <div><dt>已跳过</dt><dd>{{ state.progress.skipped }}</dd></div>
         <div :class="{ failed: state.progress.failed }"><dt>失败</dt><dd>{{ state.progress.failed }}</dd></div>
       </dl>
-      <div v-if="state.progress.failed" class="memory-processing-failed"><p>部分对话在三次尝试后仍未完成，请检查模型连接后重试。</p><button :disabled="busy || !state.settings.enabled" @click="retry">重试失败的对话</button></div>
+      <div v-if="state.progress.failed" class="memory-processing-failed"><p>部分对话生成失败，请检查模型连接后重试。</p><button :disabled="busy || !state.settings.enabled" @click="retry">重试失败的对话</button></div>
     </section>
   </section>
 </template>

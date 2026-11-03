@@ -31,14 +31,14 @@ onUnmounted(() => { disposed = true })
 </script>
 <template>
   <section v-if="approvals.length || loadIssues.length || error" class="command-reviews" aria-label="插件与外部工具审批">
-    <details v-if="loadIssues.length" class="command-details"><summary>部分扩展本次不可用（{{ loadIssues.length }}）</summary><p>其他可用能力继续工作，可到设置 → 扩展检查配置并测试连接。</p><p v-for="(issue, index) in loadIssues" :key="index">{{ issue.name }}{{ issue.server ? ' / ' + issue.server : '' }}：{{ issue.message }}</p></details>
+    <details v-if="loadIssues.length" class="command-details"><summary>部分扩展本次不可用（{{ loadIssues.length }}）</summary><p v-for="(issue, index) in loadIssues" :key="index">{{ issue.name }}{{ issue.server ? ' / ' + issue.server : '' }}：{{ issue.message }}</p></details>
     <p v-if="error" role="alert" class="dialog-error">{{ error }} <button type="button" @click="load">刷新</button></p>
     <article v-for="value in approvals" :key="value.id" class="command-card">
       <details :open="['REVIEWING', 'PENDING', 'APPROVED', 'RUNNING', 'UNKNOWN'].includes(value.status)" class="command-details">
         <summary><span>{{ value.pluginName }} · {{ value.toolName }}</span><span v-if="decidedByLabel(value.decidedBy, value.status)" class="command-decided">{{ decidedByLabel(value.decidedBy, value.status) }}</span><span class="command-status">{{ labels[value.status] || value.status }}</span></summary>
         <p class="command-purpose">{{ value.pluginName }} {{ value.pluginVersion }} / {{ value.serverName }} / {{ value.toolName }}</p>
         <pre class="command-source"><code>{{ value.arguments }}</code></pre>
-        <p v-if="['REVIEWING', 'PENDING'].includes(value.status)" class="command-notice">仅批准当前版本、工具和固定参数。外部工具可能产生副作用；等待审批计入任务超时。</p>
+        <p v-if="['REVIEWING', 'PENDING'].includes(value.status)" class="command-notice">仅批准当前工具与参数，外部工具可能产生副作用；等待计入任务超时。</p>
         <footer><span role="status">{{ value.detail }}</span><div v-if="['REVIEWING', 'PENDING'].includes(value.status)"><button type="button" :disabled="busy" @click="decide(value, false)">拒绝</button><button type="button" class="primary" :disabled="busy || !active" @click="decide(value, true)">批准本次调用</button></div></footer>
       </details>
     </article>

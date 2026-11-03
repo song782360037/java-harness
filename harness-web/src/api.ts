@@ -3,11 +3,11 @@ export type RunStatus = 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED'
 export type ApprovalMode = 'MANUAL' | 'SMART' | 'FULL_ACCESS'
 export interface Session { id: string; title: string; createdAt: string; workspace: string; workspaceId: string; modelProfileId: string; reasoningEffort: string; approvalMode: ApprovalMode }
 export const approvalModeOptions: { value: ApprovalMode; label: string; description: string }[] = [
-  { value: 'MANUAL', label: '手动审批', description: '命令与外部工具都由你逐一确认' },
-  { value: 'SMART', label: '智能审批', description: '只读命令、允许规则和评审器判定安全的动作自动批准，文件修改直接写入' },
+  { value: 'MANUAL', label: '手动', description: '命令与外部工具逐一确认' },
+  { value: 'SMART', label: '智能', description: '安全动作自动批准，文件修改直接写入' },
   { value: 'FULL_ACCESS', label: '完全访问', description: '除高危命令与询问、拒绝规则外全部自动批准，文件修改直接写入' },
 ]
-export const approvalModeLabel = (value: string) => approvalModeOptions.find(option => option.value === value)?.label || '手动审批'
+export const approvalModeLabel = (value: string) => approvalModeOptions.find(option => option.value === value)?.label || '手动'
 /** 审批记录的决策来源；用户决定不额外标注。 */
 export const decidedByLabel = (value: string | null | undefined, status: string) => value === 'FULL_ACCESS' ? '完全访问自动批准'
   : value === 'RULE' ? (status === 'REJECTED' ? '规则拒绝' : '规则自动批准')
