@@ -38,12 +38,12 @@ core 不导入 adapters/server，不依赖 Spring、数据库或 HTTP。Settings
 | --- | --- | --- |
 | `HARNESS_PORT` | 8080 | 本地后端端口 |
 | `spring.datasource.url` | `jdbc:h2:file:./data/harness;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0` | 单实例文件数据库 |
-| `HARNESS_RUN_TIMEOUT` / `harness.run-timeout` | 120s | 一次 Run 的执行时间预算 |
-| `HARNESS_CONTEXT_WINDOW_TOKENS` / `harness.context.window-tokens` | 262144 | 模型上下文窗口估算，1024–2000000 tokens |
-| `HARNESS_MAX_OUTPUT_TOKENS` / `harness.context.max-output-tokens` | 4096 | 输出预留，64–131072 tokens 且小于窗口；用于输入预算，不是上游硬限制 |
+| `HARNESS_RUN_TIMEOUT` / `harness.run-timeout` | 6000s | 一次 Run 的执行时间预算 |
+| `HARNESS_CONTEXT_WINDOW_TOKENS` / `harness.context.window-tokens` | 256000 | 模型上下文窗口估算，1024–2000000 tokens |
+| `HARNESS_MAX_OUTPUT_TOKENS` / `harness.context.max-output-tokens` | 32000 | 输出预留，64–131072 tokens 且小于窗口；用于输入预算，不是上游硬限制 |
 | `HARNESS_SETTINGS_KEY_FILE` | `./data/settings.key` | API Key 加密所需的安装密钥，备份时与数据库一起保留 |
-| `HARNESS_MAX_TOOLS_PER_REQUEST` / `harness.tools.max-tools-per-request` | 32 | 单次模型响应实际执行的工具上限，1–256；解析安全上限固定为 256 |
-| `HARNESS_TOOL_TIMEOUT` | 5s | 单工具协作式截止时间 |
+| `HARNESS_MAX_TOOLS_PER_REQUEST` / `harness.tools.max-tools-per-request` | 200 | 单次模型响应实际执行的工具上限，1–256；解析安全上限固定为 256 |
+| `HARNESS_TOOL_TIMEOUT` | 300s | 单工具协作式截止时间 |
 | `HARNESS_MODEL_API_KEY` | 空 | 首次初始化的 Bearer Key；页面支持保留、替换和清除 |
 | `HARNESS_MODEL_API_KEY_REQUIRED` | true | 无鉴权服务可显式设 false；不影响模型名必填 |
 | `HARNESS_MODEL_NAME` | 空 | 必须显式指定实际模型 ID，最长 128 字符 |

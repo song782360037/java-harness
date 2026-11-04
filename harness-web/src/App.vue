@@ -403,6 +403,11 @@ function timelineLoaded() {
 }
 // 输入框用量圆环以最近一次带 token 预算的请求为准。
 const latestContext = computed(() => [...(snapshot.value?.runs ?? [])].reverse().find(run => !!run.context?.maxTokens)?.context ?? null)
+// 与输入框模型选择器的显示规则一致；配置已删除时退回运行记录中的模型 ID。
+function runModelLabel(run: Run) {
+  const profile = profiles.value.find(item => item.id === run.modelProfileId)
+  return profile?.displayName || profile?.modelName || run.model
+}
 // 上下文与工作区说明放在模型信息的悬浮提示中。
 function contextTitle(run: Run) {
   const context = run.context
@@ -898,7 +903,7 @@ onUnmounted(() => {
             <Questions :run-id="run.id" :revision="`${run.status}:${questionRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="questionActivity[run.id] = $event" />
             <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
             <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
-            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ run.model }} · {{ effortShortLabel(run.reasoningEffort) }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
+            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ runModelLabel(run) }} · {{ effortShortLabel(run.reasoningEffort) }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
           </section>
         </article>
         <p v-if="copyError" role="status" class="run-notice">{{ copyError }}</p>

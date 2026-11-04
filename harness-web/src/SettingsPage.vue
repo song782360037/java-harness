@@ -86,8 +86,8 @@ async function createModel() {
   if (!provider.value?.id) return
   editingId.value = ''
   form.value = { id: '', revision: 0, providerId: provider.value.id, providerName: provider.value.displayName,
-    displayName: '', modelName: '', reasoningEffort: '', runTimeoutSeconds: 600, contextWindowTokens: 262144, maxOutputTokens: 4096,
-    toolTimeoutSeconds: 5, maxToolsPerRequest: 32, model: { provider: 'openai-compatible', model: '', configured: false } }
+    displayName: '', modelName: '', reasoningEffort: '', runTimeoutSeconds: 6000, contextWindowTokens: 256000, maxOutputTokens: 32000,
+    toolTimeoutSeconds: 300, maxToolsPerRequest: 200, model: { provider: 'openai-compatible', model: '', configured: false } }
   resetFeedback()
   editingModel.value = true
   await focusModelEditor()

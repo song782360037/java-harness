@@ -44,12 +44,12 @@ harness:
     enabled: ${HARNESS_AUTOMATIONS_ENABLED:true}
     check-interval: ${HARNESS_AUTOMATIONS_CHECK_INTERVAL:30s}
   tools:
-    max-tools-per-request: ${HARNESS_MAX_TOOLS_PER_REQUEST:32}
-    timeout: ${HARNESS_TOOL_TIMEOUT:5s}
-  run-timeout: ${HARNESS_RUN_TIMEOUT:600s}
+    max-tools-per-request: ${HARNESS_MAX_TOOLS_PER_REQUEST:200}
+    timeout: ${HARNESS_TOOL_TIMEOUT:300s}
+  run-timeout: ${HARNESS_RUN_TIMEOUT:6000s}
   context:
-    window-tokens: ${HARNESS_CONTEXT_WINDOW_TOKENS:262144}
-    max-output-tokens: ${HARNESS_MAX_OUTPUT_TOKENS:4096}
+    window-tokens: ${HARNESS_CONTEXT_WINDOW_TOKENS:256000}
+    max-output-tokens: ${HARNESS_MAX_OUTPUT_TOKENS:32000}
   model:
     base-url: ${HARNESS_MODEL_BASE_URL:https://api.openai.com/v1}
     api-key: ${HARNESS_MODEL_API_KEY:}
