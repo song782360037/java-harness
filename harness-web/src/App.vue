@@ -61,6 +61,16 @@ const sidebarCollapsed = ref(window.innerWidth <= 780)
 const savedSidebarWidth = Number(storageGet('harness.sidebar.width'))
 const sidebarWidth = ref(Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0 ? Math.max(200, Math.min(400, savedSidebarWidth)) : 248)
 watch(sidebarWidth, value => storageSet('harness.sidebar.width', String(value)))
+// 群聊工作室需要整屏空间：进入时收起并锁定侧栏，离开时恢复原来的展开状态。
+const groupStudio = ref(false)
+let sidebarBeforeStudio = false
+function setGroupStudio(active: boolean) {
+  if (active === groupStudio.value) return
+  if (active) sidebarBeforeStudio = sidebarCollapsed.value
+  groupStudio.value = active
+  sidebarCollapsed.value = active || sidebarBeforeStudio || isMobile.value
+}
+watch(sidebarCollapsed, value => { if (groupStudio.value && !value) sidebarCollapsed.value = true })
 const sessionMenuId = ref('')
 const sessionMenuElement = ref<HTMLElement>()
 const sessionMenuPosition = ref<Record<string, string>>({})
@@ -934,7 +944,7 @@ onUnmounted(() => {
     </main>
     <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
     <MemoriesPage v-if="showMemories" v-show="!showSettings" :workspaces="workspaces" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" @open-settings="openSettings('memory')" />
-    <GroupChatsPage v-if="showGroups" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" />
+    <GroupChatsPage v-if="showGroups" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" @studio="setGroupStudio" />
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
       <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="17" /></button></header>
       <WorkspaceSettings v-if="browsingWorkspace" :session-id="snapshot?.session.id" initial-path="" :initial-workspace="editingWorkspace" :disabled="workspaceSyncing || !!current || submitting || !!pending || loading" @busy="workspaceSaving = $event" @saved="workspacePicked" @cancel="closeWorkspaceDialog" />

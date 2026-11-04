@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { api, ApiError, type ModelProfile, type Run, type Snapshot, type Workspace } from './api'
-import { avatarText, insertMention, mentionCandidates, mentionQuery, roundNotice, speakingMembers, taskLabel, taskSteps,
-  type GroupMember, type GroupMessage, type GroupSnapshot, type GroupSummary, type GroupTemplate } from './groups'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { api, ApiError, type CommandExecution, type FileChange, type ModelProfile, type Run, type Snapshot, type Workspace } from './api'
+import { activeStatuses, approvalTargets, avatarText, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, speakingMembers, studioSummary, taskLabel, taskSteps,
+  type GroupMember, type GroupMessage, type GroupSnapshot, type GroupSummary, type GroupTemplate, type RunApprovals } from './groups'
 import { preferences, shouldSendPrompt } from './preferences'
 import MarkdownContent from './MarkdownContent.vue'
 import FileChanges from './FileChanges.vue'
@@ -10,8 +10,10 @@ import Commands from './Commands.vue'
 import RunTimeline from './RunTimeline.vue'
 import GroupSettingsDialog from './GroupSettingsDialog.vue'
 import UiIcon from './UiIcon.vue'
+// 3D 工作室依赖 three，按需加载，不拖慢聊天视图。
+const GroupStudio = defineAsyncComponent(() => import('./GroupStudio.vue'))
 const props = defineProps<{ workspaces: Workspace[]; profiles: ModelProfile[]; sidebarCollapsed: boolean; defaultProfileId: string }>()
-const emit = defineEmits<{ expandSidebar: [] }>()
+const emit = defineEmits<{ expandSidebar: []; studio: [active: boolean] }>()
 const groups = ref<GroupSummary[]>([])
 const templates = ref<GroupTemplate[]>([])
 const selectedId = ref('')
@@ -44,6 +46,12 @@ const finishedTasks = computed(() => snapshot.value?.tasks.filter(task => task.s
 const waitingText = computed(() => snapshot.value?.group.mode !== 'TASKS' ? '主持人正在安排下一位发言…' : snapshot.value.tasks.length ? '正在推进任务…' : '主持人正在拆分任务…')
 const time = (value: string) => new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
+// 每次进入群聊默认显示聊天；工作室期间由 App 收起并锁定全局侧栏。
+const view = ref<'chat' | 'studio'>('chat')
+// 工作室视图需要的命令与文件审核状态，按运行的 status:activity 缓存，变化时才重新读取。
+const approvals = ref<Record<string, RunApprovals>>({})
+let approvalKeys: Record<string, string> = {}
+const summary = computed(() => snapshot.value ? studioSummary(snapshot.value, memberStates(snapshot.value, approvals.value)) : { text: '', attention: false })
 
 let source: EventSource | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -143,6 +151,9 @@ async function select(id: string) {
   clearTimeout(refreshTimer); refreshTimer = undefined
   // 清空输入，避免发给上一个群的内容被误发到新群。
   selectedId.value = id; snapshot.value = null; processes.value = {}; error.value = ''; text.value = ''; requestId = ''
+  approvals.value = {}; approvalKeys = {}
+  // 最后一个群被删除时没有工作室可看，退回聊天以解除侧栏锁定。
+  if (!id && view.value === 'studio') void setView('chat')
   try { localStorage.setItem('harness.group', id) } catch { /* 无本地存储时不记住选择 */ }
   if (!id) return
   try {
@@ -201,6 +212,33 @@ async function toggleProcess(item: GroupMessage) {
     if (item.runId in processes.value) processes.value = { ...processes.value, [item.runId]: value.runs.find(entry => entry.id === item.runId) ?? null }
   } catch (cause) { error.value = message(cause, '读取过程失败') }
 }
+/** 读取工作室需要的审核状态；失败的运行清除缓存键，下次刷新再试。 */
+async function loadApprovals(value: GroupSnapshot, version: number) {
+  const stale = approvalTargets(value).filter(run => approvalKeys[run.id] !== `${run.status}:${run.activity}`)
+  await Promise.all(stale.map(async run => {
+    const key = `${run.status}:${run.activity}`
+    approvalKeys[run.id] = key
+    try {
+      const [commands, changes] = await Promise.all([
+        activeStatuses.includes(run.status) ? api<CommandExecution[]>(`/runs/${run.id}/commands`) : Promise.resolve([]),
+        api<FileChange[]>(`/runs/${run.id}/file-changes`),
+      ])
+      if (version !== revision || approvalKeys[run.id] !== key) return
+      approvals.value = { ...approvals.value, [run.id]: { commands: commands.map(item => item.status), changes: changes.map(item => item.status) } }
+    } catch {
+      if (version === revision && approvalKeys[run.id] === key) delete approvalKeys[run.id]
+    }
+  }))
+}
+watch([snapshot, view], ([value, current]) => { if (value && current === 'studio') void loadApprovals(value, revision) })
+async function setView(value: 'chat' | 'studio') {
+  view.value = value
+  emit('studio', value === 'studio')
+  await nextTick()
+  // 两种视图的输入框行数不同，按新布局重算高度；回到聊天时停在最新消息处。
+  resizeInput()
+  if (value === 'chat') timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
+}
 function trackCaret() { caret.value = input.value?.selectionStart ?? text.value.length; mentionIndex.value = 0 }
 async function pickMention(member: GroupMember) {
   const value = insertMention(text.value, caret.value, member.name)
@@ -257,6 +295,7 @@ onMounted(async () => {
   pollTimer = setInterval(() => { if (snapshot.value?.busy) scheduleRefresh(snapshot.value.group.id, revision) }, 4000)
 })
 onUnmounted(() => {
+  if (view.value === 'studio') emit('studio', false)
   revision++
   source?.close()
   clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer); clearInterval(pollTimer)
@@ -268,15 +307,19 @@ onUnmounted(() => {
 <template>
   <main class="main-panel groups-page" aria-labelledby="groups-title">
     <header class="workspace-header">
-      <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="emit('expandSidebar')"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1 id="groups-title">{{ snapshot?.group.name || '群聊' }}</h1></div>
+      <div class="workspace-title"><button v-if="view === 'studio'" type="button" class="icon-button" aria-label="返回聊天" title="返回聊天" @click="setView('chat')"><UiIcon name="back" /></button><button v-else-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="emit('expandSidebar')"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1 id="groups-title">{{ snapshot?.group.name || '群聊' }}</h1></div>
       <div class="header-meta">
+        <div v-if="snapshot" class="group-view-switch" role="group" aria-label="群聊视图">
+          <button type="button" :aria-pressed="view === 'chat'" @click="setView('chat')"><UiIcon name="chat" :size="14" />聊天</button>
+          <button type="button" :aria-pressed="view === 'studio'" @click="setView('studio')"><UiIcon name="users" :size="14" />工作室</button>
+        </div>
         <span v-if="snapshot" class="readonly-label">{{ workspaceName(snapshot.group.workspaceId) }}</span>
         <button v-if="snapshot" type="button" class="icon-button" aria-label="群聊设置" title="群聊设置" @click="settings = 'edit'"><UiIcon name="settings" :size="16" /></button>
       </div>
     </header>
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
-    <div class="groups-body" :aria-busy="loading">
-      <nav class="group-list" aria-label="群聊列表">
+    <div class="groups-body" :class="{ 'is-studio': view === 'studio' }" :aria-busy="loading">
+      <nav v-if="view === 'chat'" class="group-list" aria-label="群聊列表">
         <button type="button" class="primary group-create" :disabled="loading" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
         <button v-for="item in groups" :key="item.group.id" type="button" class="group-item" :aria-current="item.group.id === selectedId ? 'true' : undefined" @click="select(item.group.id)">
           <span class="group-avatar" :style="{ background: item.group.color }" aria-hidden="true"><UiIcon name="users" :size="15" /></span>
@@ -292,6 +335,8 @@ onUnmounted(() => {
           <button type="button" class="primary" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
         </div>
         <template v-else-if="snapshot">
+          <GroupStudio v-if="view === 'studio'" :snapshot="snapshot" :approvals="approvals" @mention="mentionMember" />
+          <template v-else>
           <div class="group-roster" aria-label="群成员">
             <button v-for="member in snapshot.members" :key="member.id" type="button" class="group-chip" :class="{ disabled: !member.enabled }" :disabled="!member.enabled" :title="`${member.focus}\n点击 @ ${member.name}`" @click="mentionMember(member)"><span class="group-avatar small" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>{{ member.name }}</button>
           </div>
@@ -340,20 +385,24 @@ onUnmounted(() => {
             <p v-if="snapshot.busy && !speaking.length" class="group-system"><span class="activity-dot"></span>{{ waitingText }}</p>
             <p v-if="notice" class="run-notice" :class="{ 'has-error': notice.error }">{{ notice.text }}</p>
           </div>
-          <div class="composer-dock">
+          </template>
+          <div class="composer-dock" :class="{ 'is-floating': view === 'studio' }">
             <form class="composer" @submit.prevent="send">
+              <div v-if="view === 'studio'" class="composer-members" role="group" aria-label="点名成员">
+                <button v-for="member in snapshot.members.filter(item => item.enabled)" :key="member.id" type="button" :style="{ background: member.color }" :title="`@${member.name}`" :aria-label="`@${member.name}`" @click="mentionMember(member)">{{ avatarText(member.name) }}</button>
+              </div>
               <ul v-if="candidates.length" id="group-mentions" class="group-mentions" role="listbox" aria-label="选择要 @ 的成员">
                 <li v-for="(member, index) in candidates" :id="`group-mention-${member.id}`" :key="member.id" role="option" :aria-selected="index === mentionIndex" @mousedown.prevent="pickMention(member)"><span class="group-avatar small" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>{{ member.name }}</li>
               </ul>
               <label class="sr-only" for="group-input">发送群消息</label>
-              <textarea id="group-input" ref="input" v-model="text" rows="2" maxlength="4000" :disabled="sending" placeholder="提出问题或需求，输入 @ 点名成员…" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length ? 'group-mentions' : undefined" :aria-activedescendant="candidates[mentionIndex] ? `group-mention-${candidates[mentionIndex].id}` : undefined" @keydown="onKeydown" @input="trackCaret" @click="trackCaret" @keyup.left="trackCaret" @keyup.right="trackCaret" @blur="caret = -1"></textarea>
+              <textarea id="group-input" ref="input" v-model="text" :rows="view === 'studio' ? 1 : 2" maxlength="4000" :disabled="sending" :placeholder="view === 'studio' ? '对团队说点什么，@ 点名成员…' : '提出问题或需求，输入 @ 点名成员…'" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length ? 'group-mentions' : undefined" :aria-activedescendant="candidates[mentionIndex] ? `group-mention-${candidates[mentionIndex].id}` : undefined" @keydown="onKeydown" @input="trackCaret" @click="trackCaret" @keyup.left="trackCaret" @keyup.right="trackCaret" @blur="caret = -1"></textarea>
               <div class="composer-actions">
                 <span class="group-hint">{{ snapshot.busy ? '发送新消息会让成员转向新问题' : '' }}</span>
                 <button v-if="snapshot.busy" type="button" class="send-button stop-button" :disabled="stopping" aria-label="停止本轮协作" title="停止本轮协作" @click="stop"><UiIcon name="stop" :size="15" /></button>
                 <button type="submit" class="send-button" :disabled="sending || !text.trim()" aria-label="发送消息" :title="sendHint"><UiIcon name="arrow" :size="18" /></button>
               </div>
             </form>
-            <div class="composer-caption"><span v-if="text.length > 3500">{{ text.length }} / 4000</span><span v-else>{{ sendHint }}</span></div>
+            <div class="composer-caption"><span v-if="text.length > 3500">{{ text.length }} / 4000</span><span v-else-if="view === 'studio'" class="studio-summary" :class="{ 'has-attention': summary.attention }">{{ summary.text }}</span><span v-else>{{ sendHint }}</span></div>
           </div>
         </template>
       </section>

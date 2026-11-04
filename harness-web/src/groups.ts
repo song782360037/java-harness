@@ -120,7 +120,7 @@ export function roundNotice(round: GroupRound | null): { text: string; error: bo
   return { text: round.detail ? `${roundLabel(round.status)}：${round.detail}` : roundLabel(round.status), error: ['FAILED', 'INTERRUPTED'].includes(round.status) }
 }
 
-const activeStatuses: RunStatus[] = ['QUEUED', 'RUNNING', 'CANCELLING']
+export const activeStatuses: RunStatus[] = ['QUEUED', 'RUNNING', 'CANCELLING']
 
 /** Members currently speaking, with the run each one is speaking through. */
 export function speakingMembers(snapshot: GroupSnapshot): { member: GroupMember; run: GroupRunState }[] {
@@ -134,3 +134,105 @@ export function speakingMembers(snapshot: GroupSnapshot): { member: GroupMember;
 
 /** The avatar character: the first character of the name. */
 export const avatarText = (name: string) => [...name][0] ?? '?'
+
+/** Statuses of a run's command and file-change records, read from the existing review endpoints. */
+export interface RunApprovals { commands: string[]; changes: string[] }
+export type MemberStateKind = 'approval' | 'reviewing' | 'stopping' | 'working' | 'queued' | 'finishing' | 'blocked'
+  | 'ready' | 'review' | 'failed' | 'skipped' | 'done' | 'disabled' | 'idle'
+/** What the studio shows at a member's desk; attention marks states that wait on the user. */
+export interface MemberState {
+  member: GroupMember; kind: MemberStateKind; label: string; task: GroupTask | null; run: GroupRunState | null; attention: boolean
+}
+
+const stateLabels: Record<MemberStateKind, string> = {
+  approval: '等你批准命令', reviewing: '智能审批中', stopping: '正在停止', working: '工作中', queued: '排队中', finishing: '收尾上一轮',
+  blocked: '等待上游', ready: '待开工', review: '成果待审核', failed: '未完成', skipped: '已跳过', done: '已完成', disabled: '已停用', idle: '空闲',
+}
+
+const runsOf = (snapshot: GroupSnapshot, member: GroupMember) => snapshot.runs.filter(run => run.sessionId === member.sessionId)
+
+/**
+ * Runs whose review records the studio needs: every active run and each member's latest run, when they have a workspace.
+ * Snapshot runs exclude finished runs without a message (a silent reply), so such a run is not seen here.
+ */
+export function approvalTargets(snapshot: GroupSnapshot): GroupRunState[] {
+  const targets = new Map<string, GroupRunState>()
+  for (const member of snapshot.members) {
+    const runs = runsOf(snapshot, member)
+    for (const run of runs) if (activeStatuses.includes(run.status)) targets.set(run.id, run)
+    const latest = runs.at(-1)
+    if (latest) targets.set(latest.id, latest)
+  }
+  return [...targets.values()].filter(run => run.workspace)
+}
+
+/**
+ * Desk state per member, most urgent first: a run waiting on a command approval beats every other signal, an active
+ * run beats task bookkeeping, and a finished run with unreviewed file changes is not reported as done.
+ */
+export function memberStates(snapshot: GroupSnapshot, approvals: Record<string, RunApprovals>): MemberState[] {
+  const byKey = new Map(snapshot.tasks.map(task => [task.key, task]))
+  return snapshot.members.map(member => {
+    const runs = runsOf(snapshot, member)
+    const tasks = snapshot.tasks.filter(task => task.memberId === member.id)
+    const state = (kind: MemberStateKind, task: GroupTask | null, run: GroupRunState | null, label = stateLabels[kind]): MemberState =>
+      ({ member, kind, label, task, run, attention: kind === 'approval' || kind === 'review' })
+    const active = runs.filter(run => activeStatuses.includes(run.status)).at(-1)
+    if (active) {
+      const task = snapshot.tasks.find(value => value.runId === active.id) ?? null
+      const commands = approvals[active.id]?.commands ?? []
+      if (commands.includes('PENDING')) return state('approval', task, active)
+      if (commands.includes('REVIEWING')) return state('reviewing', task, active)
+      if (active.status === 'CANCELLING') return state('stopping', task, active)
+      // Tasks list only the latest round; an active run outside it is a superseded round still winding down.
+      if (snapshot.group.mode === 'TASKS' && snapshot.tasks.length && !task) return state('finishing', null, active)
+      return state(active.status === 'QUEUED' ? 'queued' : 'working', task, active)
+    }
+    if (!member.enabled) return state('disabled', null, null)
+    const pending = snapshot.busy ? tasks.find(task => task.status === 'PENDING') : undefined
+    if (pending) return state(pending.dependsOn.every(key => byKey.get(key)?.status === 'DONE') ? 'ready' : 'blocked', pending, null)
+    const latest = runs.at(-1) ?? null
+    const task = tasks.at(-1) ?? null
+    if (latest && approvals[latest.id]?.changes.includes('PENDING')) return state('review', snapshot.tasks.find(value => value.runId === latest.id) ?? task, latest)
+    if (task?.status === 'FAILED' || task?.status === 'INTERRUPTED') return state('failed', task, latest, taskLabel(task.status))
+    if (task?.status === 'SKIPPED' || task?.status === 'CANCELLED') return state('skipped', task, latest, taskLabel(task.status))
+    if (task?.status === 'DONE') return state('done', task, latest)
+    return state('idle', null, latest)
+  })
+}
+
+/** One-line team status under the studio command bar; attention is true when something waits on the user. */
+export function studioSummary(snapshot: GroupSnapshot, states: MemberState[]): { text: string; attention: boolean } {
+  const count = (...kinds: MemberStateKind[]) => states.filter(state => kinds.includes(state.kind)).length
+  const parts = [
+    [count('working', 'reviewing', 'finishing', 'queued', 'stopping'), '人工作中'],
+    [count('approval'), '个命令待批准'],
+    [count('review'), '位成员的修改待审核'],
+    [count('failed'), '个任务未完成'],
+  ].filter(([value]) => value).map(([value, text]) => `${value} ${text}`)
+  const text = parts.join(' · ') || (snapshot.busy ? `主持人正在${hostLabel(snapshot)}` : '团队空闲')
+  return { text, attention: count('approval', 'review') > 0 }
+}
+
+/** What the hidden host is doing, shown at its own desk. */
+export function hostLabel(snapshot: GroupSnapshot): string {
+  if (!snapshot.busy) return '空闲'
+  const speaking = speakingMembers(snapshot).length > 0
+  if (snapshot.group.mode === 'TASKS') return speaking ? '跟进任务' : snapshot.tasks.length ? '推进任务' : '拆分任务'
+  return speaking ? '等待发言' : '安排发言'
+}
+
+/** Direct upstream and downstream task keys of the chosen task. */
+export function taskRelations(tasks: GroupTask[], key: string): { upstream: Set<string>; downstream: Set<string> } {
+  const task = tasks.find(value => value.key === key)
+  return {
+    upstream: new Set(task?.dependsOn ?? []),
+    downstream: new Set(tasks.filter(value => value.dependsOn.includes(key)).map(value => value.key)),
+  }
+}
+
+/** Member replies of the latest round in speaking order, for the discussion-mode relay strip. */
+export function roundSpeakers(snapshot: GroupSnapshot): GroupMessage[] {
+  const round = snapshot.round?.id
+  return round ? snapshot.messages.filter(message => message.roundId === round && message.author === 'MEMBER') : []
+}
