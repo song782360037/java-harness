@@ -171,6 +171,8 @@ class MemorySystemTest {
     @Test
     void recallRespectsBudgetAndFindsOldRecordsBeyondFirstPage() {
         var old = save(workspaceId, "PostgreSQL 历史配置", "ACTIVE");
+        // 时钟精度不足时后续记录可能与它同一时刻，列表退化为按 id 排序；显式调早以确保它落在第一页之后。
+        jdbc.update("UPDATE harness_memory SET updated_at=DATEADD('HOUR', -1, updated_at) WHERE id=?", old.id());
         for (int i = 0; i < 210; i++)
             service.save("", workspaceId, "普通记录" + i, "其他主题" + i, "FACT", List.of(), "ACTIVE", 0, null, "", 0);
         assertThat(memories.list(workspaceId, "", "", 0, 200))

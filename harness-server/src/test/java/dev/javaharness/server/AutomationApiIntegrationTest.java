@@ -119,7 +119,9 @@ class AutomationApiIntegrationTest {
                 .put("apiKey", "")
                 .put("runTimeoutSeconds", 45);
         assertThat(post("/settings", config).statusCode()).isEqualTo(200);
-        Path root = Files.createDirectories(directory.resolve("workspace-" + UUID.randomUUID()));
+        // 与接口保存工作区时一致使用真实路径；CI 的临时目录是 8.3 短路径（RUNNER~1），否则运行时校验会认为工作区已变化。
+        Path root = Files.createDirectories(directory.resolve("workspace-" + UUID.randomUUID()))
+                .toRealPath();
         workspaceId = sessions.saveWorkspace("", "巡检", List.of(root.toString()), "folder", "#336699", 0)
                 .id();
     }
