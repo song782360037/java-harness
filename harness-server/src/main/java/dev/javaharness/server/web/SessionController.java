@@ -1,5 +1,6 @@
 package dev.javaharness.server.web;
 
+import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.WorkspaceDirectories;
@@ -38,18 +39,21 @@ public class SessionController {
     private final WorkspaceDirectories directories;
     private final SessionNamingService naming;
     private final GroupChatService groups;
+    private final ComposerInputService inputs;
 
     public SessionController(
             SessionStore store,
             AgentEngine engine,
             WorkspaceDirectories directories,
             SessionNamingService naming,
-            GroupChatService groups) {
+            GroupChatService groups,
+            ComposerInputService inputs) {
         this.store = store;
         this.engine = engine;
         this.directories = directories;
         this.naming = naming;
         this.groups = groups;
+        this.inputs = inputs;
     }
 
     public record CreateSession(String title, String workspace, String workspaceId) {}
@@ -64,7 +68,9 @@ public class SessionController {
             String scenario,
             String modelProfileId,
             String reasoningEffort,
-            String approvalMode) {}
+            String approvalMode,
+            List<ComposerInputService.Mention> mentions,
+            List<String> attachmentIds) {}
 
     @GetMapping("/sessions")
     public List<Session> sessions() {
@@ -140,13 +146,21 @@ public class SessionController {
         var selection = new ModelSelection(request.modelProfileId(), request.reasoningEffort());
         // Omitting the mode keeps the session's last choice.
         var mode = request.approvalMode() == null ? null : ApprovalMode.parse(request.approvalMode());
-        var result = engine.submit(
-                id,
-                request.requestId(),
-                request.prompt(),
-                request.scenario() == null ? "NORMAL" : request.scenario(),
-                selection,
-                mode);
+        String scenario = request.scenario() == null ? "NORMAL" : request.scenario();
+        // An exact retry returns the existing run before re-reading mentioned files that may have changed since.
+        var retry = store.retry(id, request.requestId(), request.prompt(), scenario, selection);
+        var result = retry != null
+                ? retry
+                : engine.submit(
+                        id,
+                        request.requestId(),
+                        request.prompt(),
+                        scenario,
+                        selection,
+                        mode,
+                        inputs.resolve(id, request.mentions(), request.attachmentIds()));
+        // Binding skips attachments already bound, so a retry also completes a binding an earlier attempt missed.
+        inputs.bind(result.run().id(), request.attachmentIds());
         // 首个任务创建成功即触发 AI 命名，与任务执行并行；占位标题用于识别用户是否已手动改名。
         if (result.created()) {
             var snapshot = store.snapshot(id);

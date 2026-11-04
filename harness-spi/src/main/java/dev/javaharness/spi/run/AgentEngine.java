@@ -23,6 +23,19 @@ public interface AgentEngine extends AutoCloseable {
         return submit(sessionId, requestId, prompt, scenario, selection);
     }
 
+    /** 携带引用文件、附件或图片提交；不支持附带输入的实现只接受空输入。 */
+    default SessionStore.Submission submit(
+            String sessionId,
+            String requestId,
+            String prompt,
+            String scenario,
+            ModelSelection selection,
+            ApprovalMode approvalMode,
+            RunInput input) {
+        if (!input.empty()) throw new UnsupportedOperationException("Attached input not supported");
+        return submit(sessionId, requestId, prompt, scenario, selection, approvalMode);
+    }
+
     Run cancel(String runId);
 
     @Override

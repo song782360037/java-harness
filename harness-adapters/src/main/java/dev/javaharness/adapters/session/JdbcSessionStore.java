@@ -6,6 +6,7 @@ import dev.javaharness.adapters.workspace.WorkspaceRoots;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ContextSummary;
 import dev.javaharness.spi.model.ModelInfo;
+import dev.javaharness.spi.model.ModelImage;
 import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
@@ -13,6 +14,7 @@ import dev.javaharness.spi.model.ModelUsage;
 import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
+import dev.javaharness.spi.run.RunInput;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
 import dev.javaharness.spi.run.SubagentRun;
@@ -465,11 +467,45 @@ public final class JdbcSessionStore implements SessionStore {
                 """, RUN_MAPPER, current.sessionId(), runId);
     }
 
-    /** 首个请求的用户消息须为原始提问，或群聊上下文/召回记忆块加原始提问。 */
+    /** 首个请求的用户消息须为原始提问，或群聊上下文/召回记忆/附带内容块加原始提问。 */
     private static boolean prompted(String content, String prompt) {
         return content.equals(prompt)
-                || (content.startsWith("<retrieved_memory>") || content.startsWith("<group_chat>"))
+                || (content.startsWith("<retrieved_memory>")
+                                || content.startsWith("<group_chat>")
+                                || content.startsWith(RunInput.TAG))
                         && content.endsWith(prompt);
+    }
+
+    /** 会话记录中的用户消息须为原始提问，或附带内容块加原始提问；召回记忆和群聊上下文不进入会话记录。 */
+    private static boolean attached(String content, String prompt) {
+        return content.equals(prompt) || content.startsWith(RunInput.TAG) && content.endsWith(prompt);
+    }
+
+    /** Snapshots keep image names and types only; the image bytes are already kept with the attachments. */
+    private static ModelRequest withoutImageData(ModelRequest request) {
+        if (request.messages().stream().allMatch(message -> message.images().isEmpty())) return request;
+        var messages = request.messages().stream()
+                .map(message -> message.images().isEmpty()
+                        ? message
+                        : new ModelMessage(
+                                message.role(),
+                                message.content(),
+                                message.toolCalls(),
+                                message.toolCallId(),
+                                message.images().stream().map(ModelImage::withoutData).toList()))
+                .toList();
+        return new ModelRequest(
+                request.runId(),
+                request.model(),
+                request.scenario(),
+                messages,
+                request.context(),
+                request.step(),
+                request.workspace(),
+                request.tools(),
+                request.instructions(),
+                request.finalAnswerOnly(),
+                request.reasoningEffort());
     }
 
     @Override
@@ -488,7 +524,7 @@ public final class JdbcSessionStore implements SessionStore {
                 jdbc.update(
                         "INSERT INTO harness_model_request(run_id,request_json) VALUES (?,?)",
                         run.id(),
-                        encode(request));
+                        encode(withoutImageData(request)));
             } else {
                 var prior = modelRequests(run.id());
                 if (prior.size() != request.step() - 1) throw new HarnessException("CONFLICT", "模型步骤不连续");
@@ -496,7 +532,7 @@ public final class JdbcSessionStore implements SessionStore {
                         "INSERT INTO harness_model_step(run_id,step,request_json) VALUES (?,?,?)",
                         run.id(),
                         request.step(),
-                        encode(request));
+                        encode(withoutImageData(request)));
             }
             // A request snapshot starts the step; later text belongs to it until the next snapshot.
             OffsetDateTime started = now();
@@ -589,7 +625,7 @@ public final class JdbcSessionStore implements SessionStore {
         tx.executeWithoutResult(status -> {
             Run current = run(runId);
             if (current.status() != RunStatus.RUNNING
-                    || !messages.getFirst().content().equals(current.prompt())) {
+                    || !attached(messages.getFirst().content(), current.prompt())) {
                 throw new HarnessException("CONFLICT", "完成记录与任务不匹配");
             }
             jdbc.update("INSERT INTO harness_conversation(run_id,messages_json) VALUES (?,?)", runId, encode(messages));

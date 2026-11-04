@@ -6,15 +6,22 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** 发送给模型的一条对话消息。assistant 消息可携带工具调用，tool 消息引用其应答的调用。 */
-public record ModelMessage(String role, String content, List<ToolCall> toolCalls, String toolCallId) {
+/** 发送给模型的一条对话消息。assistant 消息可携带工具调用，tool 消息引用其应答的调用，user 消息可携带图片。 */
+public record ModelMessage(
+        String role, String content, List<ToolCall> toolCalls, String toolCallId, List<ModelImage> images) {
     public ModelMessage(String role, String content) {
-        this(role, content, List.of(), null);
+        this(role, content, List.of(), null, List.of());
+    }
+
+    public ModelMessage(String role, String content, List<ToolCall> toolCalls, String toolCallId) {
+        this(role, content, toolCalls, toolCallId, List.of());
     }
 
     public ModelMessage {
         if (!List.of("user", "assistant", "tool").contains(role))
             throw new IllegalArgumentException("Unsupported message role");
+        images = images == null ? List.of() : List.copyOf(images);
+        if (!images.isEmpty() && !role.equals("user")) throw new IllegalArgumentException("Only user can attach images");
         Objects.requireNonNull(content);
         toolCalls = toolCalls == null ? List.of() : List.copyOf(toolCalls);
         if (!toolCalls.isEmpty() && !role.equals("assistant"))

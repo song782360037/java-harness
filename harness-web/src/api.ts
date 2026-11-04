@@ -84,7 +84,10 @@ export interface SessionUsage { inputTokens: number; outputTokens: number; cache
 /** 父运行的 delegate_task 调用创建的子智能体运行。 */
 export interface SubagentRun { parentRunId: string; parentCallId: string; agent: string; run: Run }
 export interface Snapshot { session: Session; runs: Run[]; lastSeq: number; usage: SessionUsage | null; subagents?: SubagentRun[] }
-export interface Submission { requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string; approvalMode?: ApprovalMode }
+export interface Submission {
+  requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string; approvalMode?: ApprovalMode
+  mentions?: { root: number; path: string; directory: boolean }[]; attachmentIds?: string[]
+}
 export interface RunEvent { sessionId: string; seq: number; runId: string | null; type: string }
 export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includes(run.status)
 export class ApiError extends Error {
@@ -100,5 +103,16 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
   }
   // 删除类接口返回 204 无内容。
   if (response.status === 204) return undefined as T
+  return response.json() as Promise<T>
+}
+/** 以 multipart 上传单个文件，错误格式与 JSON 接口一致。 */
+export async function upload<T>(path: string, file: File): Promise<T> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`/api${path}`, { method: 'POST', body: form })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { message?: string }
+    throw new ApiError(error.message || `上传失败（${response.status}）`, response.status)
+  }
   return response.json() as Promise<T>
 }

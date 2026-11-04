@@ -11,10 +11,13 @@ import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.adapters.workspace.LocalWorkspaceTools;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.spi.HarnessException;
+import dev.javaharness.spi.model.ModelImage;
 import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelMessage;
+import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
+import dev.javaharness.spi.run.RunInput;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
 import dev.javaharness.spi.session.SessionUsage;
@@ -27,6 +30,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -229,6 +233,42 @@ class OpenAiChatCompletionTest {
             assertThat(second.status()).isEqualTo(RunStatus.COMPLETED);
             // Later requests skip the rejected option instead of retrying again.
             assertThat(calls).hasValue(3);
+        }
+    }
+
+    @Test
+    void imagesTravelAsContentPartsAndARejectionHintsAtVisionSupport() throws Exception {
+        serve(exchange -> {
+            if (calls.get() > 1) {
+                exchange.sendResponseHeaders(400, -1);
+                return;
+            }
+            headers(exchange);
+            write(exchange, chunk("看到了", null) + chunk("", "stop") + "data: [DONE]\n\n");
+        });
+        var input = new RunInput(
+                "<attached_context>\n<image name=\"a.png\" />\n</attached_context>\n\n",
+                List.of(new ModelImage("a.png", "image/png", "iVBORw0KGgo=")));
+        try (var model = provider();
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            String session = store.createSession("图片").id();
+            Run run = settled(engine.submit(
+                            session, UUID.randomUUID().toString(), "这是什么", "NORMAL", ModelSelection.DEFAULT, null, input)
+                    .run());
+            assertThat(run.status()).isEqualTo(RunStatus.COMPLETED);
+            var content = new ObjectMapper().readTree(body.get()).path("messages").get(0).path("content");
+            assertThat(content.get(0).path("type").asText()).isEqualTo("text");
+            assertThat(content.get(0).path("text").asText()).isEqualTo(input.context() + "这是什么");
+            assertThat(content.get(1).path("image_url").path("url").asText())
+                    .isEqualTo("data:image/png;base64,iVBORw0KGgo=");
+            Run rejected = settled(engine.submit(
+                            session, UUID.randomUUID().toString(), "再看", "NORMAL", ModelSelection.DEFAULT, null, input)
+                    .run());
+            assertThat(rejected.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(rejected.detail()).contains("不支持图片输入");
+            // Text-only history is unaffected by the image rejection hint.
+            var history = new ObjectMapper().readTree(body.get()).path("messages").get(0).path("content");
+            assertThat(history.isTextual()).isTrue();
         }
     }
 

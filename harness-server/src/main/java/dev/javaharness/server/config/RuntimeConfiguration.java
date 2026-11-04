@@ -3,6 +3,7 @@ package dev.javaharness.server.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.approval.ApprovalPolicy;
 import dev.javaharness.adapters.approval.ApprovalReviewer;
+import dev.javaharness.adapters.attachment.AttachmentStore;
 import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.command.CommandService;
 import dev.javaharness.adapters.group.GroupStore;
@@ -19,6 +20,7 @@ import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.adapters.workspace.RunArtifacts;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
+import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.GroupOrchestrator;
 import dev.javaharness.server.service.LlmApprovalJudge;
@@ -222,6 +224,12 @@ public class RuntimeConfiguration {
     @DependsOnDatabaseInitialization
     ApprovalPolicy approvalPolicy(JdbcTemplate jdbc) {
         return new ApprovalPolicy(jdbc);
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    ComposerInputService composerInputService(JdbcTemplate jdbc, SessionStore sessions) {
+        return new ComposerInputService(sessions, new AttachmentStore(jdbc));
     }
 
     @Bean(destroyMethod = "close")

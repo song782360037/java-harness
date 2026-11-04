@@ -16,6 +16,7 @@ import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunConfiguration;
 import dev.javaharness.spi.run.RunConfigurationSource;
 import dev.javaharness.spi.run.RunExtension;
+import dev.javaharness.spi.run.RunInput;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.tool.ToolCall;
@@ -85,6 +86,7 @@ public final class DefaultAgentEngine implements AgentEngine {
             List<ModelMessage> messages,
             ContextSummary history,
             LongTermMemory.Context memory,
+            String attached,
             long timeoutNanos,
             long deadlineNanos) {}
 
@@ -165,6 +167,18 @@ public final class DefaultAgentEngine implements AgentEngine {
             String scenario,
             ModelSelection selection,
             ApprovalMode approvalMode) {
+        return submit(sessionId, requestId, prompt, scenario, selection, approvalMode, RunInput.EMPTY);
+    }
+
+    @Override
+    public synchronized SessionStore.Submission submit(
+            String sessionId,
+            String requestId,
+            String prompt,
+            String scenario,
+            ModelSelection selection,
+            ApprovalMode approvalMode,
+            RunInput input) {
         if (closed) throw new HarnessException("UNAVAILABLE", "服务正在停止");
         // A retried request id returns the existing run without capturing new configuration.
         var retry = store.retry(sessionId, requestId, prompt, scenario, selection);
@@ -200,7 +214,7 @@ public final class DefaultAgentEngine implements AgentEngine {
         var task = new Task();
         tasks.put(submission.run().id(), task);
         try {
-            workers.execute(() -> execute(submission.run(), task, configuration, extension));
+            workers.execute(() -> execute(submission.run(), task, configuration, extension, input));
         } catch (RejectedExecutionException error) {
             tasks.remove(submission.run().id());
             extension.close();
@@ -241,7 +255,7 @@ public final class DefaultAgentEngine implements AgentEngine {
         };
     }
 
-    private void execute(Run run, Task task, RunConfiguration configuration, RunExtension extension) {
+    private void execute(Run run, Task task, RunConfiguration configuration, RunExtension extension, RunInput input) {
         ScheduledFuture<?> deadline = null;
         RunConfiguration.Resources resources = null;
         String failure = null;
@@ -284,6 +298,10 @@ public final class DefaultAgentEngine implements AgentEngine {
             }
             // Memory rides on the current user message, so it shares the history budget.
             historyBudget -= counter.count(memory.text());
+            // Attached files and images ride on the current user message as well.
+            historyBudget -= counter.count(input.context()) + input.images().size() * TokenBudget.IMAGE_TOKENS;
+            if (!input.empty() && historyBudget < counter.count(run.prompt()) + 256)
+                throw new ModelException("引用的文件、附件或图片超出模型上下文窗口，请减少引用内容或提高上下文窗口");
             if (historyBudget < 256) throw new ModelException("模型上下文窗口不足以容纳系统指引、工具定义和输出预留，请提高上下文窗口或降低最大输出");
             // A shared context (a group chat transcript) replaces the session history and rides on the prompt too.
             String shared = extension.context(counter, Math.max(0, historyBudget - counter.count(run.prompt()) - 256));
@@ -345,8 +363,11 @@ public final class DefaultAgentEngine implements AgentEngine {
             }
             var messages = new ArrayList<>(request.messages());
             String prefix = (shared == null ? "" : shared) + memory.text();
-            if (!prefix.isEmpty())
-                messages.set(messages.size() - 1, new ModelMessage("user", prefix + run.prompt()));
+            if (!prefix.isEmpty() || !input.empty())
+                messages.set(
+                        messages.size() - 1,
+                        new ModelMessage(
+                                "user", prefix + input.context() + run.prompt(), List.of(), null, input.images()));
             outcome = loop(new Loop(
                     run,
                     run.id(),
@@ -361,6 +382,7 @@ public final class DefaultAgentEngine implements AgentEngine {
                     messages,
                     request.context(),
                     memory,
+                    input.context(),
                     timeoutNanos,
                     deadlineNanos));
         } catch (InterruptedException error) {
@@ -578,8 +600,9 @@ public final class DefaultAgentEngine implements AgentEngine {
                         ? ""
                         : stalled ? "检测到重复的工具调用且结果无变化，已停止工具并生成收尾回答" : "时间预算不足，已跳过剩余工具并生成收尾回答";
                 var completed = new ArrayList<>(messages.subList(historySize, messages.size()));
-                // The conversation keeps the original prompt; recalled memory stays only in the saved request.
-                completed.set(0, new ModelMessage("user", run.prompt()));
+                // The conversation keeps the attached context and original prompt; recalled memory and images
+                // stay only in the request, the context's image placeholders standing in for the latter.
+                completed.set(0, new ModelMessage("user", loop.attached() + run.prompt()));
                 return new Outcome(List.copyOf(completed), detail);
             }
             if (finalRequest) {
@@ -796,6 +819,7 @@ public final class DefaultAgentEngine implements AgentEngine {
                     List.of(new ModelMessage("user", child.prompt())),
                     new ContextSummary(0, 0, 0, 0, 0),
                     LongTermMemory.Context.EMPTY,
+                    "",
                     timeoutNanos,
                     deadlineNanos));
         } catch (InterruptedException error) {

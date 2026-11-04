@@ -7,6 +7,9 @@ import Commands from './Commands.vue'
 import Questions from './Questions.vue'
 import PluginRunDetails from './PluginRunDetails.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
+import MentionPicker from './MentionPicker.vue'
+import ComposerAddMenu from './ComposerAddMenu.vue'
+import ComposerAttachments from './ComposerAttachments.vue'
 import SettingsPage from './SettingsPage.vue'
 import AutomationsPage from './AutomationsPage.vue'
 import MemoriesPage from './MemoriesPage.vue'
@@ -20,8 +23,10 @@ import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionDeleteDialog from './SessionDeleteDialog.vue'
 import UiIcon from './UiIcon.vue'
 import { preferences, shouldSendPrompt } from './preferences'
-import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, type Run, type RunEvent, type RunStatus,
+import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, upload, type Run, type RunEvent, type RunStatus,
   type Session, type Snapshot, type Submission, type ModelProfile, type Workspace, type ApprovalMode } from './api'
+import { addMention, attachmentProblem, droppedFiles, isImage, mentionLabel, MAX_ATTACHMENTS, MAX_MENTIONS, removeFileMentionQuery,
+  type Attachment, type DraftAttachment, type FileEntry } from './composer'
 import { workspaceSummary } from './workspaces'
 
 const sessions = ref<Session[]>([])
@@ -145,6 +150,7 @@ async function sessionDeleted(session: { id: string }) {
   storageSet(`harness.pending.${session.id}`, null)
   saveDraft(session.id, '')
   if (session.id !== selectedId.value) return
+  clearComposerInputs()
   const next = sessions.value[0]?.id
   if (next) { await selectSession(next); return }
   revision++
@@ -176,6 +182,98 @@ function closeSidebarOnEscape(event: KeyboardEvent) {
 const sessionSearch = ref('')
 const promptInput = ref<HTMLTextAreaElement>()
 const pluginCommandPicker = ref<InstanceType<typeof PluginCommandPicker>>()
+const mentionPicker = ref<InstanceType<typeof MentionPicker>>()
+const draftAttachments = ref<DraftAttachment[]>([])
+const draftMentions = ref<FileEntry[]>([])
+const sentAttachments = ref<Attachment[]>([])
+let sentAttachmentsKey = ''
+const multiRoot = computed(() => (workspaces.value.find(value => value.id === snapshot.value?.session.workspaceId)?.directories.length || 0) > 1)
+// 上传中或上传失败的附件需要处理后才能发送。
+const attachmentsBlocked = computed(() => draftAttachments.value.some(item => !item.id || item.error))
+const attachmentsOf = (runId: string) => sentAttachments.value.filter(item => item.runId === runId)
+// 选择、粘贴或拖入后立即上传，失败的附件保留错误提示，移除后才能发送。
+function addFiles(files: File[]) {
+  for (const file of files) {
+    if (draftAttachments.value.length >= MAX_ATTACHMENTS) { error.value = `每条消息最多附带 ${MAX_ATTACHMENTS} 个附件`; break }
+    const item: DraftAttachment = { key: crypto.randomUUID(), name: file.name, size: file.size, mediaType: file.type,
+      preview: isImage(file.type) ? URL.createObjectURL(file) : '', id: '', error: attachmentProblem(file) || '' }
+    draftAttachments.value = [...draftAttachments.value, item]
+    if (!item.error) void uploadAttachment(item.key, file)
+  }
+}
+async function uploadAttachment(key: string, file: File) {
+  try {
+    const saved = await upload<Attachment>('/attachments', file)
+    draftAttachments.value = draftAttachments.value.map(item => item.key === key ? { ...item, id: saved.id, name: saved.name, mediaType: saved.mediaType } : item)
+  } catch (cause) {
+    draftAttachments.value = draftAttachments.value.map(item => item.key === key ? { ...item, error: cause instanceof Error ? cause.message : '上传失败' } : item)
+  }
+}
+function removeAttachment(key: string) {
+  const item = draftAttachments.value.find(value => value.key === key)
+  if (item?.preview) URL.revokeObjectURL(item.preview)
+  draftAttachments.value = draftAttachments.value.filter(value => value.key !== key)
+}
+// 消息发出或切换会话后清空附件与引用。
+function clearComposerInputs() {
+  for (const item of draftAttachments.value) if (item.preview) URL.revokeObjectURL(item.preview)
+  draftAttachments.value = []; draftMentions.value = []
+}
+// Office 等应用复制文字时会附带一张位图，带文本的粘贴按普通文字处理。
+function onPromptPaste(event: ClipboardEvent) {
+  if (event.clipboardData?.types.includes('text/plain')) return
+  const files = droppedFiles(event.clipboardData?.items)
+  if (!files.length) return
+  event.preventDefault(); addFiles(files)
+}
+// 只接管拖入的文件，拖入文字保持输入框原有行为。
+function onComposerDragover(event: DragEvent) { if (event.dataTransfer?.types.includes('Files')) event.preventDefault() }
+function onComposerDrop(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes('Files')) return
+  event.preventDefault()
+  if (submitting.value || pending.value || loading.value || workspaceChanging.value) return
+  addFiles(droppedFiles(event.dataTransfer.items))
+}
+// 选中的文件以卡片显示在输入框上方，并从正文中删掉正在输入的 @ 文本。
+async function pickMention(entry: FileEntry) {
+  const input = promptInput.value
+  const mentions = addMention(draftMentions.value, entry)
+  if (mentions.length > MAX_MENTIONS) { error.value = `每条消息最多引用 ${MAX_MENTIONS} 个文件或目录`; return }
+  const value = removeFileMentionQuery(prompt.value, input?.selectionStart ?? prompt.value.length)
+  prompt.value = value.text
+  draftMentions.value = mentions
+  await nextTick(); input?.focus(); input?.setSelectionRange(value.caret, value.caret)
+}
+function removeMention(entry: FileEntry) {
+  draftMentions.value = draftMentions.value.filter(value => value.root !== entry.root || value.path !== entry.path)
+}
+// "+" 菜单插入 @ 或 /，先放好光标再聚焦，由对应的候选菜单接手。
+async function startMention() {
+  const input = promptInput.value
+  const caret = input?.selectionStart ?? prompt.value.length
+  const before = prompt.value.slice(0, caret)
+  const inserted = before && !/\s$/.test(before) ? ' @' : '@'
+  if (prompt.value.length + inserted.length > 4000) { error.value = '消息已达 4000 字符上限'; return }
+  prompt.value = before + inserted + prompt.value.slice(caret)
+  await nextTick(); input?.setSelectionRange(caret + inserted.length, caret + inserted.length); input?.focus()
+}
+// 已有正文时不改写，命令只能写在开头，空输入框才插入 /。
+async function startCommand() {
+  if (prompt.value && !prompt.value.startsWith('/')) { error.value = '插件命令需写在消息开头，请先清空输入框或在开头输入 /'; return }
+  if (!prompt.value) prompt.value = '/'
+  await nextTick(); promptInput.value?.setSelectionRange(1, 1); promptInput.value?.focus()
+}
+// 运行数量变化时重新读取会话附件，只采纳最新一次请求，失败时等下次刷新重试。
+let sentAttachmentsRequest = 0
+async function loadSentAttachments(id: string, version: number, runs: number) {
+  const key = `${id}:${runs}`
+  if (key === sentAttachmentsKey) return
+  const request = ++sentAttachmentsRequest
+  try {
+    const values = await api<Attachment[]>(`/sessions/${id}/attachments`)
+    if (version === revision && request === sentAttachmentsRequest) { sentAttachments.value = values; sentAttachmentsKey = key }
+  } catch { /* 下次刷新重试 */ }
+}
 const copiedRun = ref('')
 const copyError = ref('')
 let copyTimer: ReturnType<typeof setTimeout> | undefined
@@ -217,7 +315,7 @@ function resizePrompt() {
 watch([fontSize, showSettings, showAutomations, showMemories, showGroups], () => { if (!showSettings.value && !showAutomations.value && !showMemories.value && !showGroups.value) void nextTick(resizePrompt) })
 // 根据常规偏好处理发送，输入法确认回车保留给输入框。
 function onPromptKeydown(event: KeyboardEvent) {
-  if (pluginCommandPicker.value?.keydown(event)) return
+  if (pluginCommandPicker.value?.keydown(event) || mentionPicker.value?.keydown(event)) return
   if (!shouldSendPrompt(event, preferences.value.sendShortcut)) return
   event.preventDefault()
   void send()
@@ -281,7 +379,7 @@ function navigateSession(id: string) {
   showMemories.value = false
   showGroups.value = false
   if (id === selectedId.value && snapshot.value && !loading.value) closeSettings()
-  else void selectSession(id)
+  else { clearComposerInputs(); void selectSession(id) }
 }
 const toolRevisions = ref<Record<string, number>>({})
 const stepRevisions = ref<Record<string, number>>({})
@@ -393,7 +491,9 @@ async function refresh(id: string, version: number) {
   if (pending.value && value.runs.some(run => run.requestId === pending.value?.requestId)) {
     setPending(null)
     prompt.value = ''
+    clearComposerInputs()
   }
+  void loadSentAttachments(id, version, value.runs.length)
   if (scroll) {
     await nextTick()
     if (initialLoad || preferences.value.autoScroll) timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
@@ -527,7 +627,7 @@ async function selectSession(id: string) {
     const saved = storageGet(`harness.pending.${id}`)
     if (saved) pending.value = JSON.parse(saved) as Submission
   } catch { storageSet(`harness.pending.${id}`, null) }
-  if (pending.value) prompt.value = pending.value.prompt
+  if (pending.value) { prompt.value = pending.value.prompt; draftMentions.value = pending.value.mentions ?? [] }
   storageSet('harness.session', id)
   try {
     const loaded = await refresh(id, version)
@@ -562,7 +662,7 @@ async function addSession(title: string, workspaceId: string, keepApproval = fal
 }
 async function createSession() {
   if (loading.value || submitting.value || workspaceChanging.value) return
-  loading.value = true; error.value = ''
+  loading.value = true; error.value = ''; clearComposerInputs()
   try { await addSession('新会话', snapshot.value?.session.workspaceId || '') }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { loading.value = false }
@@ -570,6 +670,7 @@ async function createSession() {
 async function send() {
   if (workspaceChanging.value) return
   if (snapshot.value) { await submit(); return }
+  if (attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
   if (loading.value || submitting.value || selectedId.value || !model.value?.configured || !prompt.value.trim()) return
   const draft = prompt.value
   let ready = false
@@ -599,6 +700,8 @@ async function workspaceSaved(session: Session) {
   const effort = reasoningEffort.value
   const approval = approvalMode.value
   closeSettings()
+  // 引用按目录序号和路径记录，换了工作区就不再适用。
+  draftMentions.value = []
   sessions.value = creating ? [session, ...sessions.value] : sessions.value.map(value => value.id === session.id ? session : value)
   try {
     await loadWorkspaces()
@@ -646,7 +749,7 @@ async function openAutomationSession(id: string) {
 // 从侧栏工作区入口创建绑定该工作区的新会话。
 async function createWorkspaceSession(workspaceId: string) {
   if (loading.value || submitting.value || workspaceChanging.value) return
-  loading.value = true; error.value = ''
+  loading.value = true; error.value = ''; clearComposerInputs()
   try { await addSession('新会话', workspaceId) }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { loading.value = false }
@@ -665,11 +768,16 @@ async function initialize() {
   finally { loading.value = false }
 }
 async function submit() {
-  if (submitting.value || !snapshot.value || (!pending.value && (!model.value?.configured || current.value || !prompt.value.trim()))) return
+  if (!pending.value && attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
+  if (submitting.value || !snapshot.value || (!pending.value && (!model.value?.configured || current.value || (!prompt.value.trim() && !draftMentions.value.length)))) return
+  const mentions = draftMentions.value
+  // 只有引用卡片时用引用路径作正文，与在正文中写 @path 等效。
+  const text = prompt.value.trim() ? prompt.value : mentions.map(entry => `@${mentionLabel(entry, multiRoot.value)}`).join(' ')
   const id = selectedId.value
   const version = revision
-  const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: prompt.value,
-    scenario: 'NORMAL', modelProfileId: selectedProfileId.value, reasoningEffort: reasoningEffort.value, approvalMode: approvalMode.value }
+  const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: text,
+    scenario: 'NORMAL', modelProfileId: selectedProfileId.value, reasoningEffort: reasoningEffort.value, approvalMode: approvalMode.value,
+    mentions, attachmentIds: draftAttachments.value.map(item => item.id) }
   setPending(request)
   submitting.value = true
   error.value = ''
@@ -678,13 +786,18 @@ async function submit() {
     if (version === revision) {
       setPending(null)
       prompt.value = ''
+      clearComposerInputs()
+      // 附件在提交返回前已绑定，强制重读，避免事件刷新抢先读到未绑定的列表。
+      sentAttachmentsKey = ''
       await refresh(id, version)
       restartStream()
     }
   } catch (cause) {
     if (version === revision) {
+      // 刷新页面后恢复的待重试消息只保留附件 ID，被拒绝后附件需要重新添加。
+      const lost = cause instanceof ApiError && cause.status < 500 && !!request.attachmentIds?.length && !draftAttachments.value.length
       if (cause instanceof ApiError && cause.status < 500) setPending(null)
-      error.value = cause instanceof Error ? cause.message : '提交失败'
+      error.value = (cause instanceof Error ? cause.message : '提交失败') + (lost ? '；原消息的附件需要重新添加' : '')
       scheduleRefresh(id, version)
     }
   } finally { submitting.value = false }
@@ -773,7 +886,7 @@ onUnmounted(() => {
           </div>
         </div>
         <article v-for="run in snapshot?.runs" :key="run.id" class="run-card">
-          <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p></div>
+          <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p><ul v-if="attachmentsOf(run.id).length" class="message-attachments" aria-label="消息附件"><li v-for="item in attachmentsOf(run.id)" :key="item.id"><a :href="`/api/attachments/${item.id}/content`" target="_blank" rel="noopener" :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" loading="lazy" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
           <section class="response" :aria-label="run.model + ' 的回答'">
             <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
             <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
@@ -792,17 +905,20 @@ onUnmounted(() => {
       </div>
       <div class="composer-dock">
         <button v-if="awayFromLatest && snapshot?.runs.length" type="button" class="latest-message" @click="goToLatest"><UiIcon name="down" :size="14" />回到最新</button>
-        <form class="composer" @submit.prevent="send">
+        <form class="composer" @submit.prevent="send" @dragover="onComposerDragover" @drop="onComposerDrop">
           <label class="sr-only" for="prompt">输入问题</label>
           <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="!!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
-          <textarea id="prompt" @input="resizePrompt" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，输入 / 选择插件命令…' : '描述你的问题，输入 / 选择插件命令…'" maxlength="4000" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId" @keydown="onPromptKeydown" />
-          <div v-if="pending" class="pending-note">上次提交结果待确认，重试不会重复创建任务。</div>
+          <MentionPicker ref="mentionPicker" :session-id="snapshot?.session.id" :workspace="!!snapshot?.session.workspace" :multi-root="multiRoot" :disabled="submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="pickMention" />
+          <ComposerAttachments :items="draftAttachments" :mentions="draftMentions" :multi-root="multiRoot" :disabled="submitting || !!pending" @remove="removeAttachment" @remove-mention="removeMention" />
+          <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，@ 引用文件，/ 选择插件命令…' : '描述你的问题，可粘贴图片，/ 选择插件命令…'" maxlength="4000" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />
+          <div v-if="pending" class="pending-note">上次提交结果待确认，重试不会重复创建任务。<template v-if="pending.attachmentIds?.length || pending.mentions?.length">重试将带上 {{ pending.attachmentIds?.length || 0 }} 个附件、{{ pending.mentions?.length || 0 }} 个引用。</template></div>
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
+            <ComposerAddMenu :disabled="submitting || !!pending || loading || workspaceChanging" :workspace="!!snapshot?.session.workspace" @files="addFiles" @mention="startMention" @command="startCommand" />
             <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" :approval-mode="approvalMode" @model="chooseProfile" @effort="reasoningEffort = $event" @approval="approvalMode = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
             <TokenUsageRing :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
-            <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !prompt.trim() || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
+            <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || (!prompt.trim() && !draftMentions.length) || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
         </form>
         <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>

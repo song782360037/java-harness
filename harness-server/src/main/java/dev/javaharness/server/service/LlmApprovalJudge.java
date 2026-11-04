@@ -51,8 +51,7 @@ public final class LlmApprovalJudge implements ApprovalReviewer.LlmJudge, AutoCl
         RunConfiguration configuration = configurations.get().snapshot(new ModelSelection(profileId, null));
         if (!configuration.modelInfo().configured()) throw new IllegalStateException("评审模型未配置完成");
         var message = new ModelMessage("user", state);
-        int tokens = new TokenBudget(configuration.tokenCounter()).message(message)
-                + new TokenBudget(configuration.tokenCounter()).message(new ModelMessage("system", INSTRUCTIONS));
+        int tokens = new TokenBudget(configuration.tokenCounter()).input(List.of(message), INSTRUCTIONS, List.of());
         var request = new ModelRequest(
                 UUID.randomUUID().toString(),
                 configuration.modelInfo().model(),

@@ -97,7 +97,13 @@ button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-
 .is-welcome .chat-panel { overflow-y: auto; }
 .is-welcome .workbench-body { min-height: 0; }
 .run-card { margin: 0 0 40px; }
-.user-message-wrap { display: flex; justify-content: flex-end; margin-bottom: 24px; }
+.user-message-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; margin-bottom: 24px; }
+.message-attachments { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 88%; margin: 0; padding: 0; list-style: none; }
+.message-attachments a { display: flex; align-items: center; gap: 6px; max-width: 220px; color: var(--muted); text-decoration: none; font-size: var(--font-caption); }
+.message-attachments a:not(:has(img)) { padding: 6px 10px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); }
+.message-attachments a:hover { color: var(--accent); }
+.message-attachments span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-attachments img { display: block; max-width: 220px; max-height: 160px; border: 0.5px solid var(--border); border-radius: var(--radius-md); object-fit: cover; }
 .user-message { background: var(--subtle); border: 0.5px solid var(--border); border-radius: 14px 14px 4px 14px; padding: 12px 16px; max-width: 88%; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1rem; line-height: 1.8; }
 .response { min-width: 0; }
 .assistant-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 14px; }

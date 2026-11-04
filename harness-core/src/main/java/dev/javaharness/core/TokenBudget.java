@@ -12,6 +12,8 @@ public final class TokenBudget {
     private static final int MESSAGE_OVERHEAD = 4;
     private static final int TOOL_OVERHEAD = 8;
     private static final int REQUEST_OVERHEAD = 8;
+    /** Conservative per-image estimate: providers charge by resolution, which the local tokenizer cannot see. */
+    public static final int IMAGE_TOKENS = 1600;
     private final TokenCounter counter;
 
     public TokenBudget(TokenCounter counter) {
@@ -27,7 +29,7 @@ public final class TokenBudget {
                     + counter.count(call.arguments());
         }
         if (message.toolCallId() != null) tokens += counter.count(message.toolCallId());
-        return tokens;
+        return tokens + message.images().size() * IMAGE_TOKENS;
     }
 
     public int messages(List<ModelMessage> messages) {

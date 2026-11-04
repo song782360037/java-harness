@@ -172,6 +172,9 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                 cancellation.check();
                 if (response.statusCode() == 400 && payload.containsKey("stream_options"))
                     throw new UsageOptionsRejected();
+                if (response.statusCode() == 400 && hasImages(payload))
+                    throw new ModelException(
+                            "模型服务返回 HTTP 400：请求包含图片，可能是当前模型不支持图片输入，或图片与上下文超出服务限制；请换用支持视觉的模型或减少图片");
                 if (response.statusCode() != 200) throw httpFailure(response.statusCode());
                 String contentType =
                         response.headers().firstValue("Content-Type").orElse("");
@@ -218,6 +221,13 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
         }
     }
 
+    /** Multimodal user messages are the only ones whose content is a part list. */
+    private static boolean hasImages(Map<String, Object> payload) {
+        return payload.get("messages") instanceof List<?> messages
+                && messages.stream()
+                        .anyMatch(message -> message instanceof Map<?, ?> map && map.get("content") instanceof List<?>);
+    }
+
     private static ModelException httpFailure(int status) {
         return new ModelException(
                 switch (status) {
@@ -231,7 +241,18 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
     private static Map<String, Object> wireMessage(ModelMessage message) {
         var value = new LinkedHashMap<String, Object>();
         value.put("role", message.role());
-        value.put("content", message.content());
+        if (message.images().isEmpty()) value.put("content", message.content());
+        else {
+            var parts = new ArrayList<Map<String, Object>>();
+            parts.add(Map.of("type", "text", "text", message.content()));
+            for (var image : message.images())
+                parts.add(Map.of(
+                        "type",
+                        "image_url",
+                        "image_url",
+                        Map.of("url", "data:" + image.mediaType() + ";base64," + image.data())));
+            value.put("content", parts);
+        }
         if (!message.toolCalls().isEmpty())
             value.put(
                     "tool_calls",
