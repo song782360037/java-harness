@@ -20,7 +20,7 @@ Java Harness.exe（Electron 主进程）
 
 ## 构建安装包
 
-需要 JDK 21（`JAVA_HOME`，需包含 `jlink`、`jdeps`）、Node.js 22.12+，并且能访问 GitHub：electron-builder 首次构建时要下载 Electron 和 NSIS。
+需要 JDK 21（`JAVA_HOME`，需包含 `jlink`、`jdeps`）、Node.js 22.12+，并且能访问 GitHub：`npm ci` 时要下载 Electron，electron-builder 首次构建时要下载 NSIS。打包直接复用 `node_modules/electron/dist` 里已解压的 Electron（`electronDist`），不会重复下载；该目录缺失时，准备脚本会调用 Electron 的安装脚本补齐，并优先使用本机缓存。
 
 ```powershell
 $env:JAVA_HOME = 'C:\path\to\jdk-21'

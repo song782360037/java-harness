@@ -47,6 +47,11 @@ run(tool('jlink'), [
 ], root)
 
 writeIcon(path.join(desktop, 'build', 'icon.ico'))
+
+// electron-builder 通过 electronDist 直接复用 node_modules 里的 Electron，不再重复下载；
+// 解压目录缺失时（例如安装时跳过了二进制）用 Electron 自带的安装脚本补齐，它会优先命中本机缓存。
+const electron = path.join(desktop, 'node_modules', 'electron')
+if (!fs.existsSync(path.join(electron, 'dist', 'version'))) run(process.execPath, [path.join(electron, 'install.js')], desktop)
 console.log(`后端资源已就绪：${output}`)
 
 /** 解压 Spring Boot JAR，用 jdeps 分析应用类与全部依赖库实际用到的 JDK 模块。 */
