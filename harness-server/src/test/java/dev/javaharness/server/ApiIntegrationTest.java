@@ -237,6 +237,18 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void longPromptsAreAcceptedAndStoredWhole() throws Exception {
+        String id = newSession();
+        String prompt = "长输入".repeat(3000) + "结尾";
+        var submitted = post("/sessions/" + id + "/runs", Map.of("requestId", UUID.randomUUID().toString(), "prompt", prompt));
+        assertThat(submitted.statusCode()).isEqualTo(202);
+        assertThat(store.run(json.readTree(submitted.body()).get("id").asText()).prompt()).isEqualTo(prompt);
+        assertThat(post("/sessions/" + id + "/runs", Map.of("requestId", UUID.randomUUID().toString(), "prompt", "  "))
+                        .statusCode())
+                .isEqualTo(400);
+    }
+
+    @Test
     void modelRequestEndpointReturnsFrozenMessagesAndDistinguishesAbsentSnapshots() throws Exception {
         String id = newSession();
         var submitted = post(

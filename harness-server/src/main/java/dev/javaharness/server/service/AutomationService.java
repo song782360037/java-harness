@@ -121,7 +121,7 @@ public final class AutomationService implements AutoCloseable {
         String name = draft.name() == null ? "" : draft.name().strip();
         String prompt = draft.prompt() == null ? "" : draft.prompt().strip();
         if (name.isEmpty() || name.length() > 100) throw new HarnessException("INVALID", "名称需为 1–100 个字符");
-        if (prompt.isEmpty() || prompt.length() > 4000) throw new HarnessException("INVALID", "提示词需为 1–4000 个字符");
+        if (prompt.isEmpty()) throw new HarnessException("INVALID", "提示词不能为空");
         var existing = id.isEmpty() ? null : store.get(id);
         String workspaceId = draft.workspaceId() == null ? "" : draft.workspaceId();
         String profileId =

@@ -19,8 +19,6 @@ final class GroupPrompts {
     static final int MAX_TASKS = 8;
     private static final int MAX_TASK = 1000;
     private static final int MAX_TITLE = 100;
-    // Each upstream result handed to a downstream task; the full replies stay in the transcript.
-    private static final int MAX_RESULT = 3000;
     private static final ObjectMapper JSON = new ObjectMapper();
     // Opening or closing message, group_chat and task_result tags in any letter case, with optional spaces after "<".
     private static final Pattern TAG =
@@ -324,7 +322,7 @@ final class GroupPrompts {
                         .append(attribute(value.member()))
                         .append("\">\n")
                         .append(escape(
-                                value.result().isBlank() ? "（没有产出内容）" : clip(value.result(), MAX_RESULT)))
+                                value.result().isBlank() ? "（没有产出内容）" : value.result()))
                         .append("\n</task_result>\n");
         }
         return text.append("\n完成后直接回复任务结果；这条回复会发到群里，并交给依赖它的任务。").toString();

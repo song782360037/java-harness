@@ -25,7 +25,7 @@ import UiIcon from './UiIcon.vue'
 import { preferences, shouldSendPrompt } from './preferences'
 import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, upload, type Run, type RunEvent, type RunStatus,
   type Session, type Snapshot, type Submission, type ModelProfile, type Workspace, type ApprovalMode } from './api'
-import { addMention, attachmentProblem, droppedFiles, isImage, mentionLabel, MAX_ATTACHMENTS, MAX_MENTIONS, removeFileMentionQuery,
+import { addMention, attachmentProblem, attachmentsOnlyPrompt, droppedFiles, isImage, isLongPaste, mentionLabel, MAX_ATTACHMENTS, MAX_MENTIONS, nextPastedName, removeFileMentionQuery,
   type Attachment, type DraftAttachment, type FileEntry } from './composer'
 import { workspaceSummary } from './workspaces'
 
@@ -200,6 +200,8 @@ let sentAttachmentsKey = ''
 const multiRoot = computed(() => (workspaces.value.find(value => value.id === snapshot.value?.session.workspaceId)?.directories.length || 0) > 1)
 // 上传中或上传失败的附件需要处理后才能发送。
 const attachmentsBlocked = computed(() => draftAttachments.value.some(item => !item.id || item.error))
+// 正文、引用或附件任一项非空即可发送。
+const hasDraftContent = computed(() => !!prompt.value.trim() || draftMentions.value.length > 0 || draftAttachments.value.length > 0)
 const attachmentsOf = (runId: string) => sentAttachments.value.filter(item => item.runId === runId)
 // 选择、粘贴或拖入后立即上传，失败的附件保留错误提示，移除后才能发送。
 function addFiles(files: File[]) {
@@ -231,6 +233,13 @@ function clearComposerInputs() {
 }
 // Office 等应用复制文字时会附带一张位图，带文本的粘贴按普通文字处理。
 function onPromptPaste(event: ClipboardEvent) {
+  // 长文本不塞进输入框，转成文本附件卡片随消息发送。
+  const pasted = event.clipboardData?.getData('text/plain') ?? ''
+  if (isLongPaste(pasted)) {
+    event.preventDefault()
+    addFiles([new File([pasted], nextPastedName(draftAttachments.value.map(item => item.name)), { type: 'text/plain' })])
+    return
+  }
   if (event.clipboardData?.types.includes('text/plain')) return
   const files = droppedFiles(event.clipboardData?.items)
   if (!files.length) return
@@ -263,7 +272,6 @@ async function startMention() {
   const caret = input?.selectionStart ?? prompt.value.length
   const before = prompt.value.slice(0, caret)
   const inserted = before && !/\s$/.test(before) ? ' @' : '@'
-  if (prompt.value.length + inserted.length > 4000) { error.value = '消息已达 4000 字符上限'; return }
   prompt.value = before + inserted + prompt.value.slice(caret)
   await nextTick(); input?.setSelectionRange(caret + inserted.length, caret + inserted.length); input?.focus()
 }
@@ -784,10 +792,12 @@ async function initialize() {
 }
 async function submit() {
   if (!pending.value && attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
-  if (submitting.value || !snapshot.value || (!pending.value && (!model.value?.configured || current.value || (!prompt.value.trim() && !draftMentions.value.length)))) return
+  if (submitting.value || !snapshot.value || (!pending.value && (!model.value?.configured || current.value || !hasDraftContent.value))) return
   const mentions = draftMentions.value
-  // 只有引用卡片时用引用路径作正文，与在正文中写 @path 等效。
-  const text = prompt.value.trim() ? prompt.value : mentions.map(entry => `@${mentionLabel(entry, multiRoot.value)}`).join(' ')
+  // 只有引用卡片时用引用路径作正文，与在正文中写 @path 等效；只有附件时说明内容在附件里。
+  const text = prompt.value.trim() ? prompt.value
+    : mentions.length ? mentions.map(entry => `@${mentionLabel(entry, multiRoot.value)}`).join(' ')
+    : attachmentsOnlyPrompt(draftAttachments.value.map(item => item.name))
   const id = selectedId.value
   const version = revision
   const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: text,
@@ -925,7 +935,7 @@ onUnmounted(() => {
           <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="!!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
           <MentionPicker ref="mentionPicker" :session-id="snapshot?.session.id" :workspace="!!snapshot?.session.workspace" :multi-root="multiRoot" :disabled="submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="pickMention" />
           <ComposerAttachments :items="draftAttachments" :mentions="draftMentions" :multi-root="multiRoot" :disabled="submitting || !!pending" @remove="removeAttachment" @remove-mention="removeMention" />
-          <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，@ 引用文件，/ 选择插件命令…' : '描述你的问题，可粘贴图片，/ 选择插件命令…'" maxlength="4000" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />
+          <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，@ 引用文件，/ 选择插件命令…' : '描述你的问题，可粘贴图片，/ 选择插件命令…'" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />
           <div v-if="pending" v-show="!submitting" class="pending-note">上次提交结果待确认，重试不会重复创建任务。<template v-if="pending.attachmentIds?.length || pending.mentions?.length">重试将带上 {{ pending.attachmentIds?.length || 0 }} 个附件、{{ pending.mentions?.length || 0 }} 个引用。</template></div>
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
@@ -933,11 +943,11 @@ onUnmounted(() => {
             <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" :approval-mode="approvalMode" @model="chooseProfile" @effort="reasoningEffort = $event" @approval="approvalMode = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
             <TokenUsageRing :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
-            <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || (!prompt.trim() && !draftMentions.length) || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
+            <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
         </form>
         <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>
-        <div class="composer-caption"><span v-if="prompt.length > 3500">{{ prompt.length }} / 4000</span><span v-else>{{ sendShortcutHint }}</span></div>
+        <div class="composer-caption"><span>{{ sendShortcutHint }}</span></div>
       </div>
       </div>
       </div>

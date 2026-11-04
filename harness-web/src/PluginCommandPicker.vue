@@ -45,7 +45,6 @@ function focus() { dismissedText.value = null; sync() }
 async function choose(command: PluginCommand) {
   if (props.disabled || loading.value) return
   const value = completePluginCommand(props.input?.value || props.text, command.id)
-  if (value.text.length > 4000) { error.value = '填入命令后超过 4000 字符，请先缩短消息。'; return }
   close(true); emit('select', value.text)
   await nextTick(); props.input?.focus(); props.input?.setSelectionRange(value.caret, value.caret)
 }

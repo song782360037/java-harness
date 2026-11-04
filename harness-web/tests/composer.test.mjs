@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { addMention, attachmentProblem, droppedFiles, fileMentionQuery, formatSize, mentionLabel, mentionParts, removeFileMentionQuery } from '../src/composer.ts'
+import { addMention, attachmentProblem, attachmentsOnlyPrompt, droppedFiles, isLongPaste, LONG_PASTE_CHARS, nextPastedName, pastedFileName, fileMentionQuery, formatSize, mentionLabel, mentionParts, removeFileMentionQuery } from '../src/composer.ts'
 
 const entry = (path, directory = false, root = 1) => ({ root, path, directory })
 
@@ -40,7 +40,8 @@ test('attachment checks reject empty files, unsupported images and oversized fil
   assert.match(attachmentProblem({ name: 'e.txt', size: 0, type: 'text/plain' }), /空文件/)
   assert.match(attachmentProblem({ name: 'a.bmp', size: 10, type: 'image/bmp' }), /不是支持的图片格式/)
   assert.match(attachmentProblem({ name: 'b.png', size: 6 * 1024 * 1024, type: 'image/png' }), /5 MB/)
-  assert.match(attachmentProblem({ name: 'b.log', size: 300 * 1024, type: 'text/plain' }), /256 KB/)
+  assert.equal(attachmentProblem({ name: 'b.log', size: 300 * 1024, type: 'text/plain' }), null)
+  assert.match(attachmentProblem({ name: 'c.log', size: 17 * 1024 * 1024, type: 'text/plain' }), /16 MB/)
 })
 
 test('sizes are shown in readable units', () => {
@@ -59,4 +60,19 @@ test('pasted files keep their names and nameless screenshots get one', () => {
   ])
   assert.deepEqual(files.map(file => file.name), ['a.txt', '粘贴的图片.png'])
   assert.equal(files[1].type, 'image/png')
+})
+
+test('long pastes become numbered text files and attachment-only messages point at them', () => {
+  assert.equal(LONG_PASTE_CHARS, 5000)
+  assert.equal(isLongPaste('a'.repeat(5000)), false)
+  assert.equal(isLongPaste('a'.repeat(5001)), true)
+  assert.equal(pastedFileName(1), '粘贴的文本.txt')
+  assert.equal(pastedFileName(2), '粘贴的文本 2.txt')
+  assert.equal(attachmentsOnlyPrompt(['粘贴的文本.txt', 'log.txt']), '见附件：粘贴的文本.txt、log.txt')
+})
+
+test('pasted file names skip names still in use', () => {
+  assert.equal(nextPastedName([]), '粘贴的文本.txt')
+  assert.equal(nextPastedName(['粘贴的文本 2.txt']), '粘贴的文本.txt')
+  assert.equal(nextPastedName(['粘贴的文本.txt', '粘贴的文本 2.txt', 'a.txt']), '粘贴的文本 3.txt')
 })

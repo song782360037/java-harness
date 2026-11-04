@@ -10,6 +10,8 @@ import Commands from './Commands.vue'
 import RunTimeline from './RunTimeline.vue'
 import GroupSettingsDialog from './GroupSettingsDialog.vue'
 import UiIcon from './UiIcon.vue'
+import ComposerAttachments from './ComposerAttachments.vue'
+import { isLongPaste, nextPastedName, type DraftAttachment } from './composer'
 // 3D 工作室依赖 three，按需加载，不拖慢聊天视图。
 const GroupStudio = defineAsyncComponent(() => import('./GroupStudio.vue'))
 const props = defineProps<{ workspaces: Workspace[]; profiles: ModelProfile[]; sidebarCollapsed: boolean; defaultProfileId: string }>()
@@ -51,6 +53,10 @@ const view = ref<'chat' | 'studio'>('chat')
 // 工作室视图需要的命令与文件审核状态，按运行的 status:activity 缓存，变化时才重新读取。
 const approvals = ref<Record<string, RunApprovals>>({})
 let approvalKeys: Record<string, string> = {}
+// 粘贴的长文本以文件卡片显示在输入框上方，发送时并入消息正文。
+const pasted = ref<{ item: DraftAttachment; text: string }[]>([])
+const pastedItems = computed(() => pasted.value.map(value => value.item))
+const draftContent = computed(() => [text.value.trim(), ...pasted.value.map(value => value.text)].filter(Boolean).join('\n\n'))
 const summary = computed(() => snapshot.value ? studioSummary(snapshot.value, memberStates(snapshot.value, approvals.value)) : { text: '', attention: false })
 
 let source: EventSource | null = null
@@ -151,7 +157,7 @@ async function select(id: string) {
   clearTimeout(refreshTimer); refreshTimer = undefined
   // 清空输入，避免发给上一个群的内容被误发到新群。
   selectedId.value = id; snapshot.value = null; processes.value = {}; error.value = ''; text.value = ''; requestId = ''
-  approvals.value = {}; approvalKeys = {}
+  approvals.value = {}; approvalKeys = {}; pasted.value = []
   // 最后一个群被删除时没有工作室可看，退回聊天以解除侧栏锁定。
   if (!id && view.value === 'studio') void setView('chat')
   try { localStorage.setItem('harness.group', id) } catch { /* 无本地存储时不记住选择 */ }
@@ -176,7 +182,7 @@ async function groupSaved(value: GroupSnapshot) {
   else if (selectedId.value === value.group.id) snapshot.value = value
 }
 async function send() {
-  const content = text.value.trim()
+  const content = draftContent.value
   if (!snapshot.value || sending.value || !content) return
   const id = snapshot.value.group.id
   const version = revision
@@ -185,7 +191,7 @@ async function send() {
   try {
     await api<GroupMessage>(`/groups/${id}/messages`, { requestId, content })
     if (version !== revision) return
-    text.value = ''; requestId = ''
+    text.value = ''; pasted.value = []; requestId = ''
     // 消息已送达；随后的刷新失败交给重试，不报告为发送失败。
     scheduleRefresh(id, version, 0)
   } catch (cause) {
@@ -280,6 +286,16 @@ function resizeInput() {
 }
 // 内容改变后视为新消息，不再沿用上一次待确认的 requestId。
 watch(text, () => { requestId = ''; void nextTick(resizeInput) })
+watch(() => pasted.value.length, () => { requestId = '' })
+/** 超过阈值的粘贴转成文件卡片，不塞进输入框。 */
+function onPaste(event: ClipboardEvent) {
+  const value = event.clipboardData?.getData('text/plain') ?? ''
+  if (!isLongPaste(value)) return
+  event.preventDefault()
+  const item: DraftAttachment = { key: crypto.randomUUID(), name: nextPastedName(pasted.value.map(entry => entry.item.name)), size: new Blob([value]).size, mediaType: 'text/plain', preview: '', id: 'pasted', error: '' }
+  pasted.value = [...pasted.value, { item, text: value }]
+}
+const removePasted = (key: string) => { pasted.value = pasted.value.filter(value => value.item.key !== key) }
 onMounted(async () => {
   document.addEventListener('visibilitychange', resumeStream)
   window.addEventListener('online', resumeStream)
@@ -357,7 +373,7 @@ onUnmounted(() => {
           <div ref="timeline" class="timeline group-timeline" aria-label="群聊记录" aria-live="polite">
             <div v-if="!snapshot.messages.length" class="welcome"><div class="welcome-copy"><h2>说说你的问题或需求</h2><p class="welcome-description">输入 @昵称 可点名成员</p></div></div>
             <template v-for="item in snapshot.messages" :key="item.id">
-              <div v-if="item.author === 'USER'" class="user-message-wrap"><p class="user-message">{{ item.content }}</p></div>
+              <div v-if="item.author === 'USER'" class="user-message-wrap"><details v-if="isLongPaste(item.content)" class="long-message"><summary><UiIcon name="file" :size="15" /><span>{{ item.content.slice(0, 40) }}…</span><small>{{ item.content.length }} 字符</small></summary><p class="user-message">{{ item.content }}</p></details><p v-else class="user-message">{{ item.content }}</p></div>
               <p v-else-if="item.author === 'SYSTEM'" class="group-system">{{ item.content }}</p>
               <article v-else class="group-message">
                 <span class="group-avatar" :style="{ background: memberOf(item)?.color || 'var(--muted)' }" aria-hidden="true">{{ avatarText(item.authorName) }}</span>
@@ -394,15 +410,16 @@ onUnmounted(() => {
               <ul v-if="candidates.length" id="group-mentions" class="group-mentions" role="listbox" aria-label="选择要 @ 的成员">
                 <li v-for="(member, index) in candidates" :id="`group-mention-${member.id}`" :key="member.id" role="option" :aria-selected="index === mentionIndex" @mousedown.prevent="pickMention(member)"><span class="group-avatar small" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>{{ member.name }}</li>
               </ul>
+              <ComposerAttachments :items="pastedItems" :mentions="[]" :multi-root="false" :disabled="sending" @remove="removePasted" />
               <label class="sr-only" for="group-input">发送群消息</label>
-              <textarea id="group-input" ref="input" v-model="text" :rows="view === 'studio' ? 1 : 2" maxlength="4000" :disabled="sending" :placeholder="view === 'studio' ? '对团队说点什么，@ 点名成员…' : '提出问题或需求，输入 @ 点名成员…'" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length ? 'group-mentions' : undefined" :aria-activedescendant="candidates[mentionIndex] ? `group-mention-${candidates[mentionIndex].id}` : undefined" @keydown="onKeydown" @input="trackCaret" @click="trackCaret" @keyup.left="trackCaret" @keyup.right="trackCaret" @blur="caret = -1"></textarea>
+              <textarea id="group-input" ref="input" v-model="text" :rows="view === 'studio' ? 1 : 2" :disabled="sending" :placeholder="view === 'studio' ? '对团队说点什么，@ 点名成员…' : '提出问题或需求，输入 @ 点名成员…'" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length ? 'group-mentions' : undefined" :aria-activedescendant="candidates[mentionIndex] ? `group-mention-${candidates[mentionIndex].id}` : undefined" @keydown="onKeydown" @paste="onPaste" @input="trackCaret" @click="trackCaret" @keyup.left="trackCaret" @keyup.right="trackCaret" @blur="caret = -1"></textarea>
               <div class="composer-actions">
                 <span class="group-hint">{{ snapshot.busy ? '发送新消息会让成员转向新问题' : '' }}</span>
                 <button v-if="snapshot.busy" type="button" class="send-button stop-button" :disabled="stopping" aria-label="停止本轮协作" title="停止本轮协作" @click="stop"><UiIcon name="stop" :size="15" /></button>
-                <button type="submit" class="send-button" :disabled="sending || !text.trim()" aria-label="发送消息" :title="sendHint"><UiIcon name="arrow" :size="18" /></button>
+                <button type="submit" class="send-button" :disabled="sending || !draftContent" aria-label="发送消息" :title="sendHint"><UiIcon name="arrow" :size="18" /></button>
               </div>
             </form>
-            <div class="composer-caption"><span v-if="text.length > 3500">{{ text.length }} / 4000</span><span v-else-if="view === 'studio'" class="studio-summary" :class="{ 'has-attention': summary.attention }">{{ summary.text }}</span><span v-else>{{ sendHint }}</span></div>
+            <div class="composer-caption"><span v-if="view === 'studio'" class="studio-summary" :class="{ 'has-attention': summary.attention }">{{ summary.text }}</span><span v-else>{{ sendHint }}</span></div>
           </div>
         </template>
       </section>

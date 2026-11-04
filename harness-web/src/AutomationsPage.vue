@@ -166,7 +166,7 @@ onUnmounted(() => window.clearInterval(pollTimer))
           <p v-if="formError" role="alert" class="dialog-error">{{ formError }}</p>
           <fieldset :disabled="busy">
             <label for="automation-name">名称</label><input id="automation-name" v-model="form.name" required maxlength="100" placeholder="例如 每日代码巡检" />
-            <label for="automation-prompt">提示词</label><textarea id="automation-prompt" v-model="form.prompt" required maxlength="4000" rows="6" placeholder="每次运行要做什么，以及什么情况下需要汇报"></textarea>
+            <label for="automation-prompt">提示词</label><textarea id="automation-prompt" v-model="form.prompt" required rows="6" placeholder="每次运行要做什么，以及什么情况下需要汇报"></textarea>
             <label for="automation-workspace">工作区</label><select id="automation-workspace" v-model="form.workspaceId" @change="!form.workspaceId && (form.allowCommands = false)"><option value="">仅聊天</option><option v-if="form.workspaceId && !workspaces.some(item => item.id === form.workspaceId)" :value="form.workspaceId">工作区已不存在，请重新选择</option><option v-for="item in workspaces" :key="item.id" :value="item.id">{{ item.name }}</option></select>
             <div class="automation-grid">
               <div><label for="automation-model">模型</label><select id="automation-model" v-model="form.modelProfileId"><option v-if="!profiles.some(item => item.id === form.modelProfileId)" :value="form.modelProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></div>

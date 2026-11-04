@@ -254,8 +254,10 @@ class ComposerApiIntegrationTest {
     void rejectsUnsupportedUploadsAndUnreadableMentions() throws Exception {
         assertThat(upload("blob.bin", new byte[] {0, (byte) 0xFF, 0x10}).statusCode()).isEqualTo(400);
         assertThat(upload("empty.txt", new byte[0]).statusCode()).isEqualTo(400);
-        assertThat(upload("big.txt", "x".repeat(300 * 1024).getBytes(StandardCharsets.UTF_8)).statusCode())
-                .isEqualTo(400);
+        // 长文本附件不再按 256 KB 截止，只受上传大小限制。
+        var large = upload("big.txt", "x".repeat(300 * 1024).getBytes(StandardCharsets.UTF_8));
+        assertThat(large.statusCode()).isBetween(200, 299);
+        assertThat(json.readTree(large.body()).get("size").asInt()).isEqualTo(300 * 1024);
 
         Files.writeString(root.resolve(".env"), "TOKEN=1\n");
         String session = session(root);

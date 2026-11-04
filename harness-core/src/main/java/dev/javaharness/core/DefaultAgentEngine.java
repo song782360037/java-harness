@@ -298,11 +298,16 @@ public final class DefaultAgentEngine implements AgentEngine {
             }
             // Memory rides on the current user message, so it shares the history budget.
             historyBudget -= counter.count(memory.text());
+            // 插件命令会把输入放进指引，所以这里也提示精简输入。
+            if (historyBudget < 256) throw new ModelException("模型上下文窗口不足以容纳系统指引、工具定义和输出预留，请精简输入、提高上下文窗口或降低最大输出");
+            // 输入长度不设固定上限，只在放不进模型上下文时拒绝；先判断正文，再判断附件，报错才指向真正的原因。
+            int promptTokens = counter.count(run.prompt());
+            if (historyBudget < promptTokens + 256)
+                throw new ModelException("本次输入约 " + promptTokens + " tokens，超出模型上下文窗口，请精简内容或提高上下文窗口");
             // Attached files and images ride on the current user message as well.
             historyBudget -= counter.count(input.context()) + input.images().size() * TokenBudget.IMAGE_TOKENS;
-            if (!input.empty() && historyBudget < counter.count(run.prompt()) + 256)
+            if (!input.empty() && historyBudget < promptTokens + 256)
                 throw new ModelException("引用的文件、附件或图片超出模型上下文窗口，请减少引用内容或提高上下文窗口");
-            if (historyBudget < 256) throw new ModelException("模型上下文窗口不足以容纳系统指引、工具定义和输出预留，请提高上下文窗口或降低最大输出");
             // A shared context (a group chat transcript) replaces the session history and rides on the prompt too.
             String shared = extension.context(counter, Math.max(0, historyBudget - counter.count(run.prompt()) - 256));
             if (shared != null) historyBudget -= counter.count(shared);

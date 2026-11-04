@@ -7,7 +7,18 @@ export interface Attachment { id: string; runId: string | null; name: string; me
 export const MAX_ATTACHMENTS = 8
 export const MAX_MENTIONS = 10
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-export const MAX_TEXT_BYTES = 256 * 1024
+export const MAX_TEXT_BYTES = 16 * 1024 * 1024
+/** 粘贴超过这个长度的文本时转成文件卡片；输入本身不限长度，只受模型上下文约束。 */
+export const LONG_PASTE_CHARS = 5000
+export const isLongPaste = (text: string) => text.length > LONG_PASTE_CHARS
+/** 同一条消息里第 n 段粘贴文本的文件名。 */
+export const pastedFileName = (index: number) => index > 1 ? `粘贴的文本 ${index}.txt` : '粘贴的文本.txt'
+/** 取第一个未被占用的粘贴文件名，删掉卡片后再粘贴也不会重名。 */
+export function nextPastedName(names: string[]): string {
+  for (let index = 1; ; index++) if (!names.includes(pastedFileName(index))) return pastedFileName(index)
+}
+/** 只有附件、没有正文和引用时的正文，说明本条消息的内容在附件里。 */
+export const attachmentsOnlyPrompt = (names: string[]) => `见附件：${names.join('、')}`
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 export const isImage = (mediaType: string) => IMAGE_TYPES.includes(mediaType)
 
@@ -49,7 +60,7 @@ export function attachmentProblem(file: { name: string; size: number; type: stri
   if (file.size === 0) return `${file.name} 是空文件`
   if (isImage(file.type)) return file.size > MAX_IMAGE_BYTES ? `${file.name} 超过 5 MB 图片上限` : null
   if (file.type.startsWith('image/')) return `${file.name} 不是支持的图片格式（PNG、JPEG、WebP、GIF）`
-  return file.size > MAX_TEXT_BYTES ? `${file.name} 超过 256 KB 文本上限` : null
+  return file.size > MAX_TEXT_BYTES ? `${file.name} 超过 16 MB 文本上限` : null
 }
 
 export function formatSize(bytes: number): string {

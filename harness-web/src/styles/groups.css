@@ -153,6 +153,17 @@
 .composer-dock.is-floating .composer textarea { flex: 1; min-width: 0; min-height: 36px; max-height: 72px; padding: 6px 4px; line-height: 1.6; }
 .composer-dock.is-floating .composer-actions { flex-shrink: 0; margin: 0; padding: 0; border: 0; gap: 6px; }
 .composer-dock.is-floating .group-hint { display: none; }
+.composer-dock.is-floating .composer { flex-wrap: wrap; }
+.composer-dock.is-floating .composer-attachments { order: -1; flex-basis: 100%; margin-bottom: 2px; }
+/* 超长的用户消息折叠成文件卡片，点开查看全文。 */
+.long-message { max-width: min(560px, 100%); }
+.long-message summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); cursor: pointer; list-style: none; }
+.long-message summary::-webkit-details-marker { display: none; }
+.long-message summary span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.long-message summary small { flex-shrink: 0; color: var(--muted); font-size: var(--font-caption); }
+.long-message summary::after { content: ""; flex-shrink: 0; width: 6px; height: 6px; margin: 0 2px 2px 0; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); transition: transform .15s ease; }
+.long-message[open] summary::after { transform: rotate(-135deg); margin-bottom: -2px; }
+.long-message[open] .user-message { margin-top: 8px; max-height: 50vh; overflow-y: auto; }
 .composer-dock.is-floating .composer-caption { justify-content: center; padding-top: 6px; color: var(--muted); }
 .composer-members { display: flex; align-items: center; flex-shrink: 0; padding: 4px 0; }
 .composer-members button { width: 28px; height: 28px; min-height: 0; margin-left: -6px; padding: 0; border: 2px solid var(--surface); border-radius: 50%; color: #fff; font-size: 12px; font-weight: 600; transition: transform .15s ease; }

@@ -84,4 +84,11 @@ class GroupPromptsTest {
                 .contains("（没有产出内容）")
                 .containsOnlyOnce("<task_result title=\"用例\"");
     }
+
+    @Test
+    void taskPromptsKeepWholeUpstreamResults() {
+        String result = "结论".repeat(5000) + "结尾";
+        String prompt = GroupPrompts.taskPrompt("测试", "回归", List.of(new GroupPrompts.Upstream("实现", "后端开发", result)));
+        assertThat(prompt).contains(result).hasSizeGreaterThan(10_000);
+    }
 }

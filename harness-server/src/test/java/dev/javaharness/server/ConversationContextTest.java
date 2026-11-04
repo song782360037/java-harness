@@ -269,6 +269,16 @@ class ConversationContextTest {
     }
 
     @Test
+    void anInputBeyondTheContextWindowFailsWithAClearReason() {
+        String session = store.createSession("超长").id();
+        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5), 4000)) {
+            Run run = submit(engine, session, "长".repeat(20_000));
+            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(run.detail()).contains("超出模型上下文窗口").contains("tokens");
+        }
+    }
+
+    @Test
     void anOutdatedSummaryIsFoldedIntoTheNextOne() {
         String session = longHistory(6);
         compaction = request -> "摘要v" + compactions.size();

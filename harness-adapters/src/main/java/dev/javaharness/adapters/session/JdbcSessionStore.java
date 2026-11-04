@@ -812,9 +812,8 @@ public final class JdbcSessionStore implements SessionStore {
         } catch (Exception error) {
             throw new HarnessException("INVALID", "requestId 必须是标准 UUID");
         }
-        if (prompt == null || prompt.isBlank() || prompt.length() > 4000) {
-            throw new HarnessException("INVALID", "输入需为 1–4000 个字符");
-        }
+        // 长度不设固定上限，由模型上下文预算兜底。
+        if (prompt == null || prompt.isBlank()) throw new HarnessException("INVALID", "输入不能为空");
         if (scenario == null || !List.of("NORMAL", "FAIL", "SLOW").contains(scenario)) {
             throw new HarnessException("INVALID", "未知模拟场景");
         }

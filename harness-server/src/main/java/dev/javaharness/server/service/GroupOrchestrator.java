@@ -147,7 +147,7 @@ public final class GroupOrchestrator implements AutoCloseable {
             throw new HarnessException("INVALID", "requestId 必须是标准 UUID");
         }
         String text = content == null ? "" : content.strip();
-        if (text.isEmpty() || text.length() > 4000) throw new HarnessException("INVALID", "消息需为 1–4000 个字符");
+        if (text.isEmpty()) throw new HarnessException("INVALID", "消息不能为空");
         Message existing = groups.messageByRequest(groupId, requestId);
         if (existing != null) return existing;
         boolean taskMode = "TASKS".equals(groups.get(groupId).mode());

@@ -21,7 +21,6 @@ final class Subagents {
     static final String DELEGATE = "delegate_task";
     static final String EXPLORE = "explore";
     static final String GENERAL = "general";
-    static final int MAX_PROMPT = 4000;
     static final int MAX_DESCRIPTION = 60;
     // A batch launches at most this many subagents at once; extra calls are skipped for a later response.
     static final int MAX_PARALLEL = 4;
@@ -51,7 +50,7 @@ final class Subagents {
                             "description",
                             Map.of("type", "string", "maxLength", MAX_DESCRIPTION, "description", "3–10 个字的任务标签"),
                             "prompt",
-                            Map.of("type", "string", "maxLength", MAX_PROMPT, "description", "交给子智能体的完整任务说明")),
+                            Map.of("type", "string", "description", "交给子智能体的完整任务说明")),
                     "required",
                     List.of("agent", "description", "prompt"),
                     "additionalProperties",
@@ -72,8 +71,7 @@ final class Subagents {
             throw new IllegalArgumentException("agent 需为 " + EXPLORE + " 或 " + GENERAL);
         if (description.isEmpty() || description.length() > MAX_DESCRIPTION)
             throw new IllegalArgumentException("description 需为 1–" + MAX_DESCRIPTION + " 个字符");
-        if (prompt.isEmpty() || prompt.length() > MAX_PROMPT)
-            throw new IllegalArgumentException("prompt 需为 1–" + MAX_PROMPT + " 个字符");
+        if (prompt.isEmpty()) throw new IllegalArgumentException("prompt 不能为空");
         return new Request(agent, description, prompt);
     }
 

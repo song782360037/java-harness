@@ -35,11 +35,10 @@ public final class ComposerInputService {
 
     static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
     static final long MAX_IMAGE_TOTAL_BYTES = 10L * 1024 * 1024;
-    static final int MAX_TEXT_BYTES = 256 * 1024;
-    static final int MAX_TEXT_CHARS = 60_000;
+    // 文本附件只受上传大小限制（与 multipart 上限一致），能否放进模型上下文由引擎判断。
+    static final int MAX_TEXT_BYTES = 16 * 1024 * 1024;
     static final int MAX_ATTACHMENTS = 8;
     static final int MAX_MENTIONS = 10;
-    static final int MAX_CONTEXT = 120_000;
     static final int SEARCH_LIMIT = 50;
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(10);
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -77,7 +76,7 @@ public final class ComposerInputService {
             if (content.length > MAX_IMAGE_BYTES) throw new HarnessException("INVALID", "图片不能超过 5 MB");
             return attachments.save(name, image, content);
         }
-        if (content.length > MAX_TEXT_BYTES) throw new HarnessException("INVALID", "文本文件不能超过 256 KB");
+        if (content.length > MAX_TEXT_BYTES) throw new HarnessException("INVALID", "文本文件不能超过 16 MB");
         if (text(content) == null)
             throw new HarnessException("INVALID", "仅支持 PNG、JPEG、WebP、GIF 图片和 UTF-8 文本文件");
         return attachments.save(name, "text/plain", content);
@@ -114,20 +113,13 @@ public final class ComposerInputService {
             }
             String content = text(stored.content());
             if (content == null) throw new HarnessException("INVALID", "附件 " + attachment.name() + " 不是 UTF-8 文本");
-            // Redact before clipping so a cut never leaves a credential prefix too short to match.
-            String redacted = redact(content);
-            String clipped = redacted.length() > MAX_TEXT_CHARS
-                    ? redacted.substring(0, MAX_TEXT_CHARS) + "\n[附件过长，已截断到前 " + MAX_TEXT_CHARS + " 个字符]"
-                    : redacted;
             block.append("<attachment name=\"")
                     .append(attribute(attachment.name()))
                     .append("\">\n")
-                    .append(body(clipped))
+                    .append(body(redact(content)))
                     .append("\n</attachment>\n");
         }
         block.append("</attached_context>\n\n");
-        if (block.length() > MAX_CONTEXT)
-            throw new HarnessException("INVALID", "引用和附件内容过多（约 " + block.length() + " 个字符），请减少引用或附件");
         return new RunInput(block.toString(), images);
     }
 
