@@ -39,6 +39,10 @@ npm --prefix harness-desktop run dist
 
 安装包未做代码签名，首次运行时 Windows SmartScreen 会提示风险，需要选择“仍要运行”。
 
+### GitHub 发布
+
+`.github/workflows/release.yml` 在 Windows runner 上执行同样的 `dist` 流程。推送 `v<版本>` 标签（例如 `v0.1.0`）时，先校验标签与 `pom.xml`、`harness-desktop/package.json` 的版本一致，再把安装程序和 `harness-server-<版本>.jar` 发布到 GitHub Release；在 Actions 页面手动触发时只构建，产物在运行记录的 Artifacts 中下载。发新版本前需同步修改上述两处版本号。
+
 ## 开发调试
 
 先准备好后端资源，再直接用 Electron 启动：

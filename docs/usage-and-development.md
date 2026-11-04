@@ -40,7 +40,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 
 ```powershell
 .\mvnw.cmd -B -ntp clean verify
-java -jar harness-server\target\harness-server-0.1.0-SNAPSHOT.jar
+java -jar harness-server\target\harness-server-0.1.0.jar
 ```
 
 默认监听 `127.0.0.1:8080`。检查 [应用存活状态](http://127.0.0.1:8080/actuator/health)，预期返回 `{"status":"UP"}`。
@@ -75,7 +75,7 @@ npm --prefix harness-web run dev
 npm --prefix harness-web ci
 npm --prefix harness-web run build
 .\mvnw.cmd -B -ntp -Pweb clean verify
-java -jar harness-server\target\harness-server-0.1.0-SNAPSHOT.jar
+java -jar harness-server\target\harness-server-0.1.0.jar
 ```
 
 此时访问 [Java Harness](http://127.0.0.1:8080/) 使用工作台。前端资源位于 JAR 的 `BOOT-INF/classes/static`，最终运行只需要 JDK，不需要 Node.js。
