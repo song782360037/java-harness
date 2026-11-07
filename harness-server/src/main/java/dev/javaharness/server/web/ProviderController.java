@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 模型提供商的查询、新建、修改与删除。API Key 只写不读，接口从不返回。 */
+/** 模型提供商的查询、新建、修改与删除；密钥仅在单个提供商详情中返回。 */
 @RestController
 @RequestMapping("/api/model-providers")
 public class ProviderController {
@@ -31,6 +31,13 @@ public class ProviderController {
             boolean apiKeyConfigured,
             boolean apiKeyRequired,
             int connectTimeoutSeconds) {}
+
+    public record Detail(View provider, String apiKey) {
+        @Override
+        public String toString() {
+            return "ProviderDetail[credentials=redacted]";
+        }
+    }
 
     public record Save(
             long revision,
@@ -67,6 +74,13 @@ public class ProviderController {
     @GetMapping
     public List<View> list() {
         return settings.providers().stream().map(ProviderController::view).toList();
+    }
+
+    /** 读取同一版本的连接信息与密钥，供设置页直接编辑。 */
+    @GetMapping("/{id}")
+    public Detail detail(@PathVariable String id) {
+        var provider = settings.provider(id);
+        return new Detail(view(provider), provider.apiKey());
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)

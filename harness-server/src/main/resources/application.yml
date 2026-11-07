@@ -55,4 +55,4 @@ harness:
     api-key: ${HARNESS_MODEL_API_KEY:}
     api-key-required: ${HARNESS_MODEL_API_KEY_REQUIRED:true}
     name: ${HARNESS_MODEL_NAME:}
-    connect-timeout: 10s
+    connect-timeout: 30s

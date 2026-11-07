@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { api, reasoningOptions, effortLabel, type ModelProfile, type ProviderView, type Session, type Workspace } from './api'
+import { api, reasoningOptions, effortShortLabel, type ModelProfile, type ProviderView, type Session, type Workspace } from './api'
 import { workspaceSummary } from './workspaces'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import AppearanceSettings from './AppearanceSettings.vue'
@@ -33,7 +33,6 @@ const editingId = ref(props.initialProfileId)
 const provider = ref<ProviderView | null>(null)
 const form = ref<ModelProfile | null>(null)
 const apiKey = ref('')
-const clearApiKey = ref(false)
 const showApiKey = ref(false)
 const renaming = ref(false)
 const editingModel = ref(false)
@@ -47,7 +46,7 @@ const error = ref('')
 const notice = ref('')
 const confirmDelete = ref<'provider' | 'model' | null>(null)
 const providerModels = computed(() => profiles.value.filter(model => model.providerId === providerId.value))
-const connectionFilled = computed(() => !!provider.value?.baseUrl && (!provider.value.apiKeyRequired || !clearApiKey.value && (provider.value.apiKeyConfigured || !!apiKey.value)))
+const connectionFilled = computed(() => !!provider.value?.baseUrl.trim() && (!provider.value.apiKeyRequired || !!apiKey.value.trim()))
 // 保存结束并更新按钮状态后恢复焦点；移动模型时原按钮可能已从列表移除。
 watch(editingModel, opened => {
   if (opened) return
@@ -92,17 +91,34 @@ async function createModel() {
   editingModel.value = true
   await focusModelEditor()
 }
-function selectProvider() {
-  const selected = providers.value.find(value => value.id === providerId.value)
-  provider.value = selected ? { ...selected } : null
-  apiKey.value = ''; clearApiKey.value = false; showApiKey.value = false
+/** 切换提供商时读取已保存的密钥，并恢复默认隐藏状态。 */
+async function selectProvider() {
+  provider.value = null
+  apiKey.value = ''; showApiKey.value = false
   editingId.value = ''; form.value = null; editingModel.value = false; renaming.value = false
   resetFeedback()
+  if (!providerId.value) return
+  const selected = await api<{ provider: ProviderView; apiKey: string }>(`/model-providers/${encodeURIComponent(providerId.value)}`)
+  provider.value = { ...selected.provider }
+  apiKey.value = selected.apiKey
+}
+/** 锁定切换过程，避免旧提供商的密钥与新连接混用。 */
+async function chooseProvider(id: string) {
+  if (busy.value) return
+  busy.value = true; providerId.value = id
+  try { await selectProvider() }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : '配置读取失败' }
+  finally { busy.value = false }
+}
+/** 收起操作菜单并确认删除当前提供商。 */
+function requestDeleteProvider(event: Event) {
+  (event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open')
+  resetFeedback(); confirmDelete.value = 'provider'
 }
 function createProvider() {
   providerId.value = ''; editingId.value = ''; form.value = null
-  provider.value = { id: '', revision: 0, displayName: '', baseUrl: '', apiKeyConfigured: false, apiKeyRequired: true, connectTimeoutSeconds: 10 }
-  apiKey.value = ''; clearApiKey.value = false; resetFeedback()
+  provider.value = { id: '', revision: 0, displayName: '', baseUrl: '', apiKeyConfigured: false, apiKeyRequired: true, connectTimeoutSeconds: 30 }
+  apiKey.value = ''; resetFeedback()
   showApiKey.value = false; editingModel.value = false
   void renameProvider()
 }
@@ -116,7 +132,7 @@ async function load() {
     await fetchAll()
     providerId.value = profiles.value.find(model => model.id === editingId.value)?.providerId || providerId.value || providers.value[0]?.id || ''
     if (!providers.value.some(value => value.id === providerId.value)) providerId.value = providers.value[0]?.id || ''
-    selectProvider()
+    await selectProvider()
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '配置读取失败' }
   finally { busy.value = false }
 }
@@ -124,10 +140,11 @@ async function saveProvider() {
   if (!provider.value || busy.value || editingModel.value) return
   busy.value = true; resetFeedback()
   try {
+    // 不再单独设置鉴权开关：空密钥表示无需鉴权，并清除旧密钥。
     const saved = await api<ProviderView>(provider.value.id ? `/model-providers/${provider.value.id}` : '/model-providers',
-      { ...provider.value, apiKey: apiKey.value, clearApiKey: clearApiKey.value })
+      { ...provider.value, apiKey: apiKey.value, apiKeyRequired: !!apiKey.value.trim(), clearApiKey: !apiKey.value.trim() })
     apiKey.value = ''; providerId.value = saved.id
-    await fetchAll(); selectProvider(); notice.value = '提供商已保存，该提供商下的模型将共享这些连接信息。'
+    await fetchAll(); await selectProvider(); notice.value = '连接已保存。'
     emit('changed')
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '提供商保存失败' }
   finally { busy.value = false }
@@ -143,7 +160,7 @@ async function saveModel() {
     if (connectionDraft?.id === saved.providerId) {
       // Keep unsaved connection fields while independently saving a model.
       provider.value = connectionDraft; editingModel.value = false; form.value = null
-    } else selectProvider()
+    } else await selectProvider()
     notice.value = '模型已保存。'
     emit('saved', saved)
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '模型保存失败' }
@@ -163,7 +180,7 @@ async function remove() {
     }
     await fetchAll()
     if (!providerId.value) providerId.value = providers.value[0]?.id || ''
-    selectProvider(); notice.value = '已删除。'
+    await selectProvider(); notice.value = '已删除。'
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '删除失败' }
   finally { busy.value = false }
 }
@@ -191,10 +208,10 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
           <MemorySettings v-if="section === 'memory'" @busy="pluginBusy = $event" />
           <section v-show="section === 'models'" class="provider-console" aria-label="自定义提供商与模型">
             <aside class="provider-rail" aria-label="自定义提供商">
-              <div class="provider-rail-heading"><h2>提供商</h2><span>{{ providers.length.toString().padStart(2, '0') }}</span></div>
+              <div class="provider-rail-heading"><h2>提供商</h2><span>{{ providers.length }}</span></div>
               <div class="provider-items">
-                <button v-for="item in providers" :key="item.id" class="provider-item" :class="{ selected: providerId === item.id }" :disabled="busy" :aria-pressed="providerId === item.id" @click="providerId = item.id; selectProvider()">
-                  <span class="provider-monogram" aria-hidden="true">{{ item.displayName.slice(0, 1).toUpperCase() }}</span><span class="provider-item-copy"><span class="provider-item-name">{{ item.displayName }}</span></span><span class="provider-count">{{ profiles.filter(model => model.providerId === item.id).length }}</span>
+                <button v-for="item in providers" :key="item.id" class="provider-item" :class="{ selected: providerId === item.id }" :disabled="busy" :aria-pressed="providerId === item.id" @click="chooseProvider(item.id)">
+                  <span class="provider-monogram" aria-hidden="true">{{ item.displayName.slice(0, 1).toUpperCase() }}</span><span class="provider-item-copy"><span class="provider-item-name">{{ item.displayName }}</span><span class="provider-count">{{ profiles.filter(model => model.providerId === item.id).length }} 个模型</span></span><UiIcon name="chevron" :size="14" />
                 </button>
               </div>
               <button class="add-provider" :disabled="busy" @click="createProvider"><UiIcon name="plus" :size="16" /> 添加提供商</button>
@@ -204,45 +221,34 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                 <div class="provider-heading">
                   <span class="provider-heading-icon"><UiIcon name="cube" :size="22" /></span>
                   <div class="provider-heading-copy"><div><h2>{{ provider.id ? provider.displayName : '新增提供商' }}</h2><button v-if="provider.id" type="button" class="icon-button" :disabled="busy || editingModel" aria-label="编辑提供商名称" title="编辑名称" @click="renameProvider"><UiIcon name="edit" :size="15" /></button></div></div>
-                  <div class="provider-status"><span class="connection-badge" :class="{ ready: connectionFilled }">{{ connectionFilled ? '连接已填写' : '待配置' }}</span></div>
+                  <div class="provider-status"><span class="connection-badge" :class="{ ready: connectionFilled }">{{ connectionFilled ? '已配置' : '待配置' }}</span></div>
+                  <details v-if="provider.id" class="provider-menu"><summary class="icon-button" aria-label="提供商操作"><UiIcon name="more" :size="18" /></summary><div class="provider-menu-actions"><button type="button" :disabled="busy || editingModel || !!providerModels.length" :title="providerModels.length ? '先删除或移动该提供商下的模型' : '删除提供商'" @click="requestDeleteProvider"><UiIcon name="trash" :size="14" />删除提供商</button></div></details>
                 </div>
                 <form class="provider-form" @submit.prevent="saveProvider">
-                  <div class="connection-card-heading"><h3><UiIcon name="code" :size="17" />连接设置</h3></div>
+                  <div class="connection-card-heading"><h3>连接设置</h3><div class="connection-format"><span>API 格式</span><span>Chat Completions</span></div></div>
                   <fieldset :disabled="busy || editingModel">
                     <div v-if="renaming || !provider.id" class="connection-field"><label for="provider-name">提供商名称</label><input id="provider-name" ref="providerNameInput" v-model="provider.displayName" required maxlength="100" placeholder="例如 公司网关" /></div>
-                    <div class="connection-fields">
-                      <div class="connection-field"><label for="model-base-url">Base URL</label><input id="model-base-url" v-model="provider.baseUrl" required maxlength="2048" placeholder="https://your-provider.example/v1" /></div>
-                      <div class="connection-field"><label for="api-format">API 格式</label><input id="api-format" class="readonly-field" value="Chat Completions (/chat/completions)" readonly /></div>
-                    </div>
+                    <div class="connection-field"><label for="model-base-url">Base URL</label><input id="model-base-url" v-model="provider.baseUrl" required maxlength="2048" placeholder="https://your-provider.example/v1" spellcheck="false" /></div>
                     <div class="connection-field">
-                      <label for="model-key">API Key <span class="key-status" :class="{ configured: provider.apiKeyConfigured }">{{ provider.apiKeyConfigured ? '已保存' : '未设置' }}</span></label>
-                      <div class="key-input"><input id="model-key" v-model="apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="new-password" maxlength="8192" :disabled="clearApiKey" :placeholder="provider.apiKeyConfigured ? '留空保留已保存的密钥' : '填写 API Key'" /><button type="button" class="icon-button" :disabled="clearApiKey" :aria-pressed="showApiKey" :aria-label="showApiKey ? '隐藏本次输入的 Key' : '显示本次输入的 Key'" @click="showApiKey = !showApiKey"><UiIcon name="eye" :size="16" /></button></div>
+                      <label for="model-key">API Key</label>
+                      <div class="key-input"><input id="model-key" v-model="apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="new-password" maxlength="8192" placeholder="填写 API Key" spellcheck="false" /><button type="button" class="icon-button" :aria-pressed="showApiKey" :aria-label="showApiKey ? '隐藏 API Key' : '显示 API Key'" :title="showApiKey ? '隐藏 API Key' : '显示 API Key'" @click="showApiKey = !showApiKey"><UiIcon :name="showApiKey ? 'eye' : 'eye-off'" :size="16" /></button></div>
                     </div>
-                    <details class="connection-options"><summary><span>连接选项</span><small>{{ provider.apiKeyRequired ? '需要 API Key · ' : '' }}连接超时 {{ provider.connectTimeoutSeconds }} 秒</small></summary>
-                      <div class="connection-options-fields">
-                        <label class="check-label"><input v-model="provider.apiKeyRequired" type="checkbox" /> 此提供商需要 API Key</label>
-                        <div class="connection-field"><label for="provider-timeout">连接超时（秒）</label><input id="provider-timeout" v-model.number="provider.connectTimeoutSeconds" type="number" required min="1" max="300" step="1" /></div>
-                        <label v-if="provider.apiKeyConfigured" class="check-label clear-key"><input v-model="clearApiKey" type="checkbox" @change="apiKey = ''" /> 清除已保存的 API Key</label>
-                      </div>
-                    </details>
                   </fieldset>
-                  <div class="provider-save"><button type="submit" class="primary" :disabled="busy || editingModel">{{ busy ? '处理中…' : '保存提供商' }}</button></div>
+                  <div class="provider-save"><button type="submit" class="primary" :disabled="busy || editingModel">{{ busy ? '处理中…' : '保存连接' }}</button></div>
                 </form>
                 <section class="provider-model-list" aria-labelledby="model-list-title">
                   <div class="model-list-heading"><div><h3 id="model-list-title">模型</h3><span>{{ providerModels.length }}</span></div><button type="button" class="add-model" :disabled="busy || !provider.id" @click="createModel"><UiIcon name="plus" :size="14" /> 添加模型</button></div>
                   <div v-if="providerModels.length" class="model-rows">
-                    <div class="model-table-heading" aria-hidden="true"><span>显示名称 / 模型 ID</span><span>默认思考强度</span><span>操作</span></div>
+                    <div class="model-table-heading" aria-hidden="true"><span>名称 / 模型 ID</span><span>默认思考强度</span><span>操作</span></div>
                     <div v-for="item in providerModels" :key="item.id" class="model-row" :class="{ editing: editingModel && form?.id === item.id }">
-                      <span class="model-row-icon"><UiIcon name="cube" :size="16" /></span>
                       <div class="model-row-info"><div><strong>{{ item.displayName }}</strong><span v-if="item.id === 'default'" class="default-model-badge">默认配置</span></div><small>{{ item.modelName }}</small></div>
-                      <span class="model-effort" :title="'默认思考强度：' + effortLabel(item.reasoningEffort)">{{ effortLabel(item.reasoningEffort) }}</span>
-                      <div class="model-row-actions"><button type="button" class="icon-button" :disabled="busy" :aria-label="'编辑模型 ' + item.displayName" title="编辑模型" @click="editModel(item.id)"><UiIcon name="edit" :size="15" /></button>
+                      <span class="model-effort" :title="'默认思考强度：' + effortShortLabel(item.reasoningEffort)">{{ effortShortLabel(item.reasoningEffort) }}</span>
+                      <div class="model-row-actions"><button type="button" class="edit-model" :disabled="busy" :aria-label="'编辑模型 ' + item.displayName" @click="editModel(item.id)">编辑</button>
                       <button type="button" class="icon-button" :disabled="busy || item.id === 'default'" :aria-label="'删除模型 ' + item.displayName" :title="item.id === 'default' ? '默认模型可以编辑和移动，不能删除' : '删除模型'" @click="requestDeleteModel(item)"><svg v-if="item.id === 'default'" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></svg><UiIcon v-else name="trash" :size="15" /></button></div>
                     </div>
                   </div>
                   <p v-else class="models-empty">{{ provider.id ? '尚未添加模型，添加后即可在聊天中选择。' : '先保存提供商，再添加它支持的模型。' }}</p>
                 </section>
-                <div v-if="provider.id" class="provider-delete"><button type="button" :disabled="busy || !!providerModels.length" :title="providerModels.length ? '先删除或移动该提供商下的模型' : '删除提供商'" @click="confirmDelete = 'provider'"><UiIcon name="trash" :size="14" />删除提供商</button></div>
                 <p v-if="confirmDelete" role="alert" class="dialog-error">确认删除{{ confirmDelete === 'provider' ? provider.displayName : deletingModel?.displayName }}？<button type="button" :disabled="busy" @click="remove">确认删除</button><button type="button" :disabled="busy" @click="resetFeedback()">取消</button></p>
               </template>
               <p v-else class="models-empty">{{ busy ? '正在读取配置…' : '添加一个自定义提供商，开始配置模型。' }}</p>

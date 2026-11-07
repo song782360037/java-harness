@@ -369,6 +369,47 @@ class SettingsApiIntegrationTest {
     }
 
     @Test
+    void providerDetailsReturnEditableCredentialsWithoutExposingThemInListings() throws Exception {
+        String id = provider("https://editable.example/v1", "editable-provider-key");
+        var details = get("/model-providers/" + id);
+        assertThat(details.statusCode()).isEqualTo(200);
+        assertThat(details.headers().firstValue("Cache-Control")).contains("no-store");
+        var value = json.readTree(details.body());
+        assertThat(value.path("apiKey").asText()).isEqualTo("editable-provider-key");
+        assertThat(value.path("provider").path("revision").asLong()).isEqualTo(1);
+        assertThat(value.path("provider").path("connectTimeoutSeconds").asInt()).isEqualTo(3);
+        assertThat(get("/model-providers").body()).doesNotContain("editable-provider-key", "\"apiKey\":");
+
+        var update = ((ObjectNode) value.path("provider")).deepCopy().put("apiKey", "replacement-provider-key");
+        assertThat(post("/model-providers/" + id, update).statusCode()).isEqualTo(200);
+        value = json.readTree(get("/model-providers/" + id).body());
+        assertThat(value.path("apiKey").asText()).isEqualTo("replacement-provider-key");
+        update = ((ObjectNode) value.path("provider"))
+                .deepCopy()
+                .put("apiKey", "")
+                .put("apiKeyRequired", false)
+                .put("clearApiKey", true);
+        assertThat(post("/model-providers/" + id, update).statusCode()).isEqualTo(200);
+        value = json.readTree(get("/model-providers/" + id).body());
+        assertThat(value.path("apiKey").asText()).isEmpty();
+        assertThat(value.path("provider").path("apiKeyConfigured").asBoolean()).isFalse();
+        var model = post("/model-profiles", modelBody(id, "no-auth-model", ""));
+        assertThat(model.statusCode()).isEqualTo(201);
+        assertThat(json.readTree(model.body()).path("model").path("configured").asBoolean())
+                .isTrue();
+        assertThat(get("/model-providers/missing-provider").statusCode()).isEqualTo(404);
+
+        var blocked = client.send(
+                HttpRequest.newBuilder(uri("/model-providers/" + id))
+                        .header("Origin", "https://foreign.example")
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(blocked.statusCode()).isEqualTo(403);
+        assertThat(blocked.body()).doesNotContain("replacement-provider-key", "editable-provider-key");
+    }
+
+    @Test
     void providerCrudSharesConnectionAndAllowsMovingModelsBeforeDeletion() throws Exception {
         String providerId = provider("https://provider-one.example/v1", "shared-provider-key");
         var first = post("/model-profiles", modelBody(providerId, "one", "low"));
