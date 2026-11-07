@@ -1,5 +1,6 @@
 package dev.javaharness.server.web;
 
+import dev.javaharness.server.service.DesktopUpdateGate;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,11 +15,18 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class LocalApiFilter extends OncePerRequestFilter {
     private static final Set<String> LOCAL = Set.of("localhost", "127.0.0.1", "[::1]");
+    private final DesktopUpdateGate updates;
+
+    public LocalApiFilter(DesktopUpdateGate updates) {
+        this.updates = updates;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (request.getRequestURI().startsWith("/api/")) {
+        // 使用容器解析后的路径，避免编码或路径参数绕过更新门禁。
+        String path = request.getServletPath();
+        if (path.startsWith("/api/")) {
             boolean allowed = LOCAL.contains(request.getServerName());
             String origin = request.getHeader("Origin");
             if (origin != null) {
@@ -39,6 +47,24 @@ public class LocalApiFilter extends OncePerRequestFilter {
             }
             response.setHeader("Cache-Control", "no-store");
         }
-        chain.doFilter(request, response);
+        boolean mutation = path.startsWith("/api/")
+                && !Set.of("GET", "HEAD", "OPTIONS").contains(request.getMethod())
+                && !Set.of("/api/desktop/update/prepare", "/api/desktop/update/release")
+                        .contains(path);
+        if (!mutation) {
+            chain.doFilter(request, response);
+            return;
+        }
+        if (!updates.enter()) {
+            response.setStatus(503);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":\"UNAVAILABLE\",\"message\":\"正在准备更新，请稍后重试\"}");
+            return;
+        }
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            updates.leave();
+        }
     }
 }

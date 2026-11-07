@@ -32,6 +32,10 @@ jobs:
         run: npm --prefix harness-web run build
       - name: Check frontend behavior
         run: npm --prefix harness-web test
+      - name: Install desktop dependencies
+        run: npm --prefix harness-desktop ci --ignore-scripts
+      - name: Check desktop update behavior
+        run: npm --prefix harness-desktop test
       - name: Build JAR with frontend (Linux)
         if: runner.os != 'Windows'
         run: sh ./mvnw -B -ntp -Pweb clean verify

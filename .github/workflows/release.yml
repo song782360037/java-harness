@@ -34,6 +34,7 @@ jobs:
           $version = ([xml](Get-Content pom.xml -Raw -Encoding utf8)).project.version
           $desktop = (Get-Content harness-desktop/package.json -Raw -Encoding utf8 | ConvertFrom-Json).version
           $tag = '${{ github.ref_name }}'.TrimStart('v')
+          if ($tag -notmatch '^\d+\.\d+\.\d+$') { throw '首期自动更新只发布正式版本，例如 v1.2.3' }
           if ($tag -ne $version -or $tag -ne $desktop) {
             throw "标签版本 $tag 与 pom.xml ($version) 或 harness-desktop/package.json ($desktop) 不一致"
           }
@@ -43,15 +44,35 @@ jobs:
         run: |
           npm --prefix harness-web ci
           npm --prefix harness-desktop ci
+      - name: Verify frontend and backend
+        shell: pwsh
+        run: |
+          npm --prefix harness-web test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\mvnw.cmd -B -ntp verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build desktop installer
         # 发布统一由下方 gh 完成，禁止 electron-builder 在 CI 检测到标签时自行发布
         shell: bash
-        run: npm --prefix harness-desktop run dist -- --publish never
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: |
+          npm --prefix harness-desktop test
+          if [[ -n "$CSC_LINK" ]]; then
+            npm --prefix harness-desktop run dist -- --publish never --config.forceCodeSigning=true
+            node harness-desktop/scripts/verify-update.mjs --require-signature
+          else
+            npm --prefix harness-desktop run dist -- --publish never
+            node harness-desktop/scripts/verify-update.mjs
+          fi
       - name: Collect artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item 'harness-desktop/dist/*-Setup-*.exe' release/
+          Copy-Item 'harness-desktop/dist/*-Setup-*.exe.blockmap' release/
+          Copy-Item harness-desktop/dist/latest.yml release/
           Copy-Item harness-desktop/build/backend/harness-server.jar "release/harness-server-$((Get-Content harness-desktop/package.json -Raw -Encoding utf8 | ConvertFrom-Json).version).jar"
           Get-ChildItem release
       - uses: actions/upload-artifact@v4
@@ -64,4 +85,17 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create '${{ github.ref_name }}' (Get-ChildItem release).FullName --title '${{ github.ref_name }}' --generate-notes
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create $env:RELEASE_TAG --draft --title $env:RELEASE_TAG --generate-notes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release upload $env:RELEASE_TAG (Get-ChildItem release).FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $published = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($file in Get-ChildItem release) {
+            $asset = @($published.assets | Where-Object name -eq $file.Name)
+            if ($asset.Count -ne 1 -or $asset[0].size -ne $file.Length) { throw "Release 附件缺失或大小不一致：$($file.Name)" }
+          }
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

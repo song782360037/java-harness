@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DesktopUpdateNotice from './DesktopUpdateNotice.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import RunTimeline from './RunTimeline.vue'
 import FileChanges from './FileChanges.vue'
@@ -43,7 +44,7 @@ const showSettings = ref(false)
 const showAutomations = ref(false)
 const showMemories = ref(false)
 const showGroups = ref(false)
-const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory'>('general')
+const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
 // 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
 watch(fontSize, value => {
@@ -387,7 +388,7 @@ async function copyAnswer(run: Run) {
   try { await navigator.clipboard.writeText(answerOf(run)); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
   catch { copyError.value = '复制失败，请选择回答内容手动复制。' }
 }
-function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' = 'general', creating = false) {
+function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' = 'general', creating = false) {
   if (workspaceChanging.value) return
   settingsSection.value = section
   creatingWorkspace.value = creating
@@ -963,6 +964,7 @@ onUnmounted(() => {
     <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
     <MemoriesPage v-if="showMemories" v-show="!showSettings" :workspaces="workspaces" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" @open-settings="openSettings('memory')" />
     <GroupChatsPage v-if="showGroups" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" @studio="setGroupStudio" />
+    <DesktopUpdateNotice @details="openSettings('updates')" />
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
       <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="17" /></button></header>
       <WorkspaceSettings v-if="browsingWorkspace" :session-id="snapshot?.session.id" initial-path="" :initial-workspace="editingWorkspace" :disabled="workspaceSyncing || !!current || submitting || !!pending || loading" @busy="workspaceSaving = $event" @saved="workspacePicked" @cancel="closeWorkspaceDialog" />

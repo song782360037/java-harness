@@ -5,15 +5,17 @@ import { workspaceSummary } from './workspaces'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import AppearanceSettings from './AppearanceSettings.vue'
 import GeneralSettings from './GeneralSettings.vue'
+import AboutUpdates from './AboutUpdates.vue'
+import { desktopAvailable } from './desktopUpdates'
 import ExtensionCenter from './ExtensionCenter.vue'
 import UsageSettings from './UsageSettings.vue'
 import ApprovalSettings from './ApprovalSettings.vue'
 import MemorySettings from './MemorySettings.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace' | 'approval' | 'memory'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
 const currentWorkspace = computed(() => props.workspaces.find(workspace => workspace.id === props.session?.workspaceId))
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
-const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory'>(props.initialSection)
+const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory' | 'updates'>(props.initialSection)
 const pageTitle = ref<HTMLElement>()
 const sections = [{ id: 'general', label: '常规', icon: 'settings' },
   { id: 'appearance', label: '外观', icon: 'palette' },
@@ -22,7 +24,9 @@ const sections = [{ id: 'general', label: '常规', icon: 'settings' },
   { id: 'approval', label: '审批', icon: 'shield' },
   { id: 'memory', label: '记忆', icon: 'branch' },
   { id: 'plugins', label: '扩展', icon: 'puzzle' },
-  { id: 'usage', label: '使用统计', icon: 'chart' }] as const
+  { id: 'usage', label: '使用统计', icon: 'chart' },
+  { id: 'updates', label: '关于与更新', icon: 'refresh' }] as const
+const visibleSections = computed(() => sections.filter(item => item.id !== 'updates' || desktopAvailable))
 const sectionInfo = computed(() => sections.find(item => item.id === section.value)!)
 const workspaceBusy = ref(false)
 const pluginBusy = ref(false)
@@ -193,7 +197,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
         <div class="settings-brand"><img class="brand-icon" src="/harness-icon.svg" width="34" height="34" alt="" /><span class="brand-copy"><strong>Harness</strong></span></div>
         <button class="back-button" aria-label="返回工作区" title="返回工作区" :disabled="busy || workspaceBusy || pluginBusy" @click="emit('close')"><UiIcon name="back" :size="16" /><span>返回工作区</span></button>
         <p class="nav-group-label">基础设置</p>
-        <button v-for="item in sections" :key="item.id" :class="{ selected: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" :disabled="busy || workspaceBusy || pluginBusy" @click="section = item.id"><UiIcon :name="item.icon" :size="17" />{{ item.label }}</button>
+        <button v-for="item in visibleSections" :key="item.id" :class="{ selected: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" :disabled="busy || workspaceBusy || pluginBusy" @click="section = item.id"><UiIcon :name="item.icon" :size="17" />{{ item.label }}</button>
       </nav>
       <div class="settings-content" :class="{ 'extensions-content': section === 'plugins', 'model-settings-content': section === 'models' }">
         <div class="settings-content-inner">
@@ -201,6 +205,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
           <p v-if="error && section === 'models' && !editingModel" role="alert" class="dialog-error">{{ error }}</p>
           <p v-if="notice && section === 'models'" role="status" class="saved-note">{{ notice }}</p>
           <GeneralSettings v-show="section === 'general'" />
+          <AboutUpdates v-if="section === 'updates' && desktopAvailable" />
           <ExtensionCenter v-if="section === 'plugins'" @busy="pluginBusy = $event" />
           <AppearanceSettings v-show="section === 'appearance'" />
           <UsageSettings v-if="section === 'usage'" />

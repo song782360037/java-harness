@@ -11,6 +11,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "start": "electron .",
     "prepare:backend": "node scripts/prepare-backend.mjs",
     "dist": "node scripts/prepare-backend.mjs && electron-builder --win nsis --x64",
@@ -40,7 +41,12 @@
     ],
     "win": {
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "Java-Harness-Setup-${version}-${arch}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "song782360037",
+      "repo": "java-harness"
     },
     "nsis": {
       "oneClick": false,
@@ -49,5 +55,9 @@
       "deleteAppDataOnUninstall": false,
       "shortcutName": "Java Harness"
     }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10",
+    "js-yaml": "4.3.2"
   }
 }

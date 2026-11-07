@@ -21,6 +21,7 @@ import dev.javaharness.adapters.workspace.RunArtifacts;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.ComposerInputService;
+import dev.javaharness.server.service.DesktopUpdateGate;
 import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.GroupOrchestrator;
 import dev.javaharness.server.service.LlmApprovalJudge;
@@ -141,8 +142,9 @@ public class RuntimeConfiguration {
             SessionStore sessions,
             AgentEngine engine,
             SettingsService settings,
-            UnattendedSubmissions unattended) {
-        return new AutomationService(
+            UnattendedSubmissions unattended,
+            DesktopUpdateGate updates) {
+        var service = new AutomationService(
                 new AutomationStore(jdbc),
                 sessions,
                 engine,
@@ -150,6 +152,8 @@ public class RuntimeConfiguration {
                 unattended,
                 Clock.systemUTC(),
                 ZoneId.systemDefault());
+        service.useUpdateGate(updates);
+        return service;
     }
 
     /** Start the schedule only after startup succeeds, so a failed boot does not consume a catch-up run. */

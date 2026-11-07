@@ -65,6 +65,7 @@ public final class AutomationService implements AutoCloseable {
     private final ZoneId zone;
     private ScheduledExecutorService scheduler;
     private volatile boolean closed;
+    private DesktopUpdateGate updateGate;
 
     public AutomationService(
             AutomationStore store,
@@ -81,6 +82,11 @@ public final class AutomationService implements AutoCloseable {
         this.unattended = unattended;
         this.clock = clock;
         this.zone = zone;
+    }
+
+    /** 桌面模式下让定时提交与更新准备共享同一个入口锁。 */
+    public void useUpdateGate(DesktopUpdateGate gate) {
+        updateGate = gate;
     }
 
     /** Start checking due automations; the first check also handles runs missed while stopped. */
@@ -171,6 +177,15 @@ public final class AutomationService implements AutoCloseable {
 
     /** Check due automations once; exposed for tests. */
     public synchronized void tick() {
+        if (updateGate != null && !updateGate.enter()) return;
+        try {
+            tickDue();
+        } finally {
+            if (updateGate != null) updateGate.leave();
+        }
+    }
+
+    private void tickDue() {
         Instant now = clock.instant();
         for (Automation automation : store.due(now)) {
             if (closed) return;
