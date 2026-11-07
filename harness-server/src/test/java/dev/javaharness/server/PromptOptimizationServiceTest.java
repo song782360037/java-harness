@@ -26,7 +26,9 @@ import dev.javaharness.spi.workspace.WorkspaceTools;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -48,6 +50,7 @@ class PromptOptimizationServiceTest {
     Path root;
 
     JdbcSessionStore sessions;
+    JdbcTemplate jdbc;
     JdbcMemoryStore memoryStore;
     MemoryService memories;
     PromptOptimizationService optimizer;
@@ -64,12 +67,13 @@ class PromptOptimizationServiceTest {
     boolean block;
     boolean fail;
     boolean switchWorkspace;
+    int historySequence;
 
     @BeforeEach
     void setup() {
         var ds = new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
         Flyway.configure().dataSource(ds).load().migrate();
-        var jdbc = new JdbcTemplate(ds);
+        jdbc = new JdbcTemplate(ds);
         var tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
         sessions = new JdbcSessionStore(jdbc, tx);
         memoryStore = new JdbcMemoryStore(jdbc, tx);
@@ -139,6 +143,11 @@ class PromptOptimizationServiceTest {
                         "NORMAL",
                         new ModelInfo("test", "test", true))
                 .run();
+        // Windows 时钟精度可能让多轮同一时刻创建，显式安排测试历史的先后顺序。
+        jdbc.update(
+                "UPDATE harness_run SET created_at=? WHERE id=?",
+                Timestamp.from(Instant.EPOCH.plusSeconds(++historySequence)),
+                run.id());
         sessions.transition(run.id(), RunStatus.RUNNING, "");
         for (int i = 0; i < response.length(); i += 1000)
             sessions.appendText(run.id(), response.substring(i, Math.min(i + 1000, response.length())));
