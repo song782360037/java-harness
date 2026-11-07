@@ -10,6 +10,7 @@ import PluginCommandPicker from './PluginCommandPicker.vue'
 import MentionPicker from './MentionPicker.vue'
 import ComposerAddMenu from './ComposerAddMenu.vue'
 import ComposerAttachments from './ComposerAttachments.vue'
+import PromptOptimizer from './PromptOptimizer.vue'
 import SettingsPage from './SettingsPage.vue'
 import AutomationsPage from './AutomationsPage.vue'
 import MemoriesPage from './MemoriesPage.vue'
@@ -191,6 +192,8 @@ function closeSidebarOnEscape(event: KeyboardEvent) {
 }
 const sessionSearch = ref('')
 const promptInput = ref<HTMLTextAreaElement>()
+const optimizingPrompt = ref(false)
+const optimizationError = ref('')
 const pluginCommandPicker = ref<InstanceType<typeof PluginCommandPicker>>()
 const mentionPicker = ref<InstanceType<typeof MentionPicker>>()
 const draftAttachments = ref<DraftAttachment[]>([])
@@ -250,7 +253,7 @@ function onComposerDragover(event: DragEvent) { if (event.dataTransfer?.types.in
 function onComposerDrop(event: DragEvent) {
   if (!event.dataTransfer?.types.includes('Files')) return
   event.preventDefault()
-  if (submitting.value || pending.value || loading.value || workspaceChanging.value) return
+  if (optimizingPrompt.value || submitting.value || pending.value || loading.value || workspaceChanging.value) return
   addFiles(droppedFiles(event.dataTransfer.items))
 }
 // 选中的文件以卡片显示在输入框上方，并从正文中删掉正在输入的 @ 文本。
@@ -691,7 +694,7 @@ async function createSession() {
   finally { loading.value = false }
 }
 async function send() {
-  if (workspaceChanging.value) return
+  if (optimizingPrompt.value || workspaceChanging.value) return
   if (snapshot.value) { await submit(); return }
   if (attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
   if (loading.value || submitting.value || selectedId.value || !model.value?.configured || !prompt.value.trim()) return
@@ -932,21 +935,26 @@ onUnmounted(() => {
         <button v-if="awayFromLatest && snapshot?.runs.length" type="button" class="latest-message" @click="goToLatest"><UiIcon name="down" :size="14" />回到最新</button>
         <form class="composer" @submit.prevent="send" @dragover="onComposerDragover" @drop="onComposerDrop">
           <label class="sr-only" for="prompt">输入问题</label>
-          <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="!!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
-          <MentionPicker ref="mentionPicker" :session-id="snapshot?.session.id" :workspace="!!snapshot?.session.workspace" :multi-root="multiRoot" :disabled="submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="pickMention" />
-          <ComposerAttachments :items="draftAttachments" :mentions="draftMentions" :multi-root="multiRoot" :disabled="submitting || !!pending" @remove="removeAttachment" @remove-mention="removeMention" />
-          <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，@ 引用文件，/ 选择插件命令…' : '描述你的问题，可粘贴图片，/ 选择插件命令…'" :disabled="!!pending || submitting || loading || workspaceChanging" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />
+          <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="optimizingPrompt || !!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
+          <MentionPicker ref="mentionPicker" :session-id="snapshot?.session.id" :workspace="!!snapshot?.session.workspace" :multi-root="multiRoot" :disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="pickMention" />
+          <ComposerAttachments :items="draftAttachments" :mentions="draftMentions" :multi-root="multiRoot" :disabled="optimizingPrompt || submitting || !!pending" @remove="removeAttachment" @remove-mention="removeMention" />
+          <div class="composer-input">
+            <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，@ 引用文件，/ 选择插件命令…' : '描述你的问题，可粘贴图片，/ 选择插件命令…'" :disabled="optimizingPrompt || !!pending || submitting || loading || workspaceChanging" :aria-describedby="optimizationError ? 'prompt-optimization-error' : undefined" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />
+            <div v-if="optimizingPrompt" class="prompt-optimization-status" role="status"><span class="loading-indicator" aria-hidden="true"></span>正在优化提示词…</div>
+          </div>
+          <p v-if="optimizationError" id="prompt-optimization-error" class="prompt-optimization-error" role="alert">{{ optimizationError }}</p>
           <div v-if="pending" v-show="!submitting" class="pending-note">上次提交结果待确认，重试不会重复创建任务。<template v-if="pending.attachmentIds?.length || pending.mentions?.length">重试将带上 {{ pending.attachmentIds?.length || 0 }} 个附件、{{ pending.mentions?.length || 0 }} 个引用。</template></div>
           <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
-            <ComposerAddMenu :disabled="submitting || !!pending || loading || workspaceChanging" :workspace="!!snapshot?.session.workspace" @files="addFiles" @mention="startMention" @command="startCommand" />
+            <ComposerAddMenu :disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging" :workspace="!!snapshot?.session.workspace" @files="addFiles" @mention="startMention" @command="startCommand" />
             <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" :approval-mode="approvalMode" @model="chooseProfile" @effort="reasoningEffort = $event" @approval="approvalMode = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
             <TokenUsageRing :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
+            <PromptOptimizer :text="prompt" :session-id="snapshot?.session.id || ''" :workspace="snapshot?.session.workspace || ''" :workspace-id="snapshot?.session.workspaceId || ''" :model-profile-id="selectedProfileId" :reasoning-effort="reasoningEffort" :mentions="draftMentions" :attachment-ids="draftAttachments.map(item => item.id)" :disabled="!model?.configured || !!current || submitting || !!pending || loading || workspaceChanging || attachmentsBlocked || showSettings || showAutomations || showMemories || showGroups" @busy="optimizingPrompt = $event" @error="optimizationError = $event" @apply="prompt = $event; nextTick(() => promptInput?.focus())" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
-            <button v-else type="submit" class="send-button" :disabled="loading || submitting || workspaceChanging || (!pending && (!model?.configured || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
+            <button v-else type="submit" class="send-button" :disabled="optimizingPrompt || loading || submitting || workspaceChanging || (!pending && (!model?.configured || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
         </form>
-        <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>
+        <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="optimizingPrompt || submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>
         <div class="composer-caption"><span>{{ sendShortcutHint }}</span></div>
       </div>
       </div>

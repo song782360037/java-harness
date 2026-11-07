@@ -93,9 +93,9 @@ export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includ
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message) }
 }
-export async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api${path}`, body === undefined ? {} : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+export async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`/api${path}`, body === undefined ? { signal } : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({})) as { message?: string }

@@ -4,6 +4,7 @@ import dev.javaharness.adapters.attachment.AttachmentStore.Attachment;
 import dev.javaharness.adapters.workspace.WorkspaceFileSearch;
 import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.GroupChatService;
+import dev.javaharness.server.service.PromptOptimizationService;
 import dev.javaharness.spi.HarnessException;
 import java.io.IOException;
 import java.util.List;
@@ -12,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,10 +25,20 @@ import org.springframework.web.multipart.MultipartFile;
 public class ComposerController {
     private final ComposerInputService inputs;
     private final GroupChatService groups;
+    private final PromptOptimizationService optimization;
 
-    public ComposerController(ComposerInputService inputs, GroupChatService groups) {
+    public ComposerController(
+            ComposerInputService inputs, GroupChatService groups, PromptOptimizationService optimization) {
         this.inputs = inputs;
         this.groups = groups;
+        this.optimization = optimization;
+    }
+
+    /** 优化草稿只返回预览，不创建对话任务；无会话时只使用全局记忆。 */
+    @PostMapping("/composer/optimize")
+    public PromptOptimizationService.Result optimize(@RequestBody PromptOptimizationService.Draft draft) {
+        if (draft.sessionId() != null && !draft.sessionId().isBlank()) groups.requireOrdinary(draft.sessionId());
+        return optimization.optimize(draft);
     }
 
     @GetMapping("/sessions/{id}/files")

@@ -116,12 +116,19 @@ public final class MemoryService implements LongTermMemory, AutoCloseable {
             if (error.code().equals("NOT_FOUND") || error.code().equals("CONFLICT")) return Context.EMPTY;
             throw error;
         }
+        return recallInWorkspace(scope, run.prompt(), counter, maxTokens);
+    }
+
+    /** 为尚未提交的草稿召回记忆，沿用开关、范围和预算，不创建任务或引用记录。 */
+    public Context recallInWorkspace(String workspaceId, String prompt, TokenCounter counter, int maxTokens) {
+        if (!memories.settings().enabled()) return Context.EMPTY;
+        validateScope(workspaceId);
         var selected = new ArrayList<Entry>();
         var encoded = new ArrayList<String>();
         String text = "";
-        var matches = new ArrayList<>(memories.search(scope, terms(run.prompt()), 30));
+        var matches = new ArrayList<>(memories.search(workspaceId, terms(prompt), 30));
         var seen = new java.util.HashSet<>(matches.stream().map(Entry::id).toList());
-        for (Entry neighbor : memories.neighbors(scope, List.copyOf(seen), 30)) {
+        for (Entry neighbor : memories.neighbors(workspaceId, List.copyOf(seen), 30)) {
             if (seen.add(neighbor.id())) matches.add(neighbor);
         }
         for (Entry entry : matches) {

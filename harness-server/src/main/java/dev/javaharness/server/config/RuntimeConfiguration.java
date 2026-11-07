@@ -25,6 +25,7 @@ import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.GroupOrchestrator;
 import dev.javaharness.server.service.LlmApprovalJudge;
 import dev.javaharness.server.service.MemoryService;
+import dev.javaharness.server.service.PromptOptimizationService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.SettingsService;
 import dev.javaharness.server.service.UnattendedSubmissions;
@@ -251,6 +252,16 @@ public class RuntimeConfiguration {
             RunConfigurationSource configurations,
             ObjectMapper json) {
         return new MemoryService(memories, sessions, configurations, json);
+    }
+
+    @Bean(destroyMethod = "close")
+    PromptOptimizationService promptOptimizationService(
+            SessionStore sessions,
+            RunConfigurationSource configurations,
+            ComposerInputService inputs,
+            MemoryService memories,
+            ObjectMapper json) {
+        return new PromptOptimizationService(sessions, configurations, inputs, memories, json);
     }
 
     /** 自动回填在应用完成启动后才运行。 */

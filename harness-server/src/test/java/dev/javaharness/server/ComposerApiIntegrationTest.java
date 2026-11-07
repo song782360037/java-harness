@@ -156,6 +156,23 @@ class ComposerApiIntegrationTest {
     }
 
     @Test
+    void optimizesDraftsThroughHttpWithoutAddingMessages() throws Exception {
+        String session = session(root);
+        var response = post("/composer/optimize", Map.of("sessionId", session, "prompt", "说明当前项目的入口"));
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(json.readTree(response.body()).get("prompt").asText()).isEqualTo("已阅读");
+        assertThat(store.snapshot(session).runs()).isEmpty();
+        assertThat(REQUESTS.getLast().tools()).isEmpty();
+        assertThat(post("/composer/optimize", Map.of("prompt", "欢迎页草稿")).statusCode())
+                .isEqualTo(200);
+        assertThat(post("/composer/optimize", Map.of("prompt", " ")).statusCode())
+                .isEqualTo(400);
+        assertThat(post("/composer/optimize", Map.of("sessionId", "missing", "prompt", "优化"))
+                        .statusCode())
+                .isEqualTo(404);
+    }
+
+    @Test
     void mentionsAndAttachmentsReachTheModelAndStayInHistory() throws Exception {
         Files.createDirectories(root.resolve("src"));
         Files.writeString(root.resolve("src/App.java"), "class App {}\n");
