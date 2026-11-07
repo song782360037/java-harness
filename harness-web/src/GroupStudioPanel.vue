@@ -24,7 +24,7 @@ watch(() => run.value ? `${run.value.id}:${run.value.status}` : '', async key =>
     if (current === seq) process.value = value.runs.find(entry => entry.id === id) ?? null
   } catch (cause) { if (current === seq) error.value = cause instanceof Error ? cause.message : '读取过程失败' }
 }, { immediate: true })
-// 窄屏下面板覆盖桌位，打开或换人时把焦点移入面板。
+// 窄屏下面板位于房间下方，打开或换人时把焦点移入面板。
 const closeButton = ref<HTMLButtonElement>()
 watch(() => props.member.id, async () => { await nextTick(); closeButton.value?.focus() }, { immediate: true })
 </script>
@@ -42,7 +42,7 @@ watch(() => props.member.id, async () => { await nextTick(); closeButton.value?.
       <section v-if="task" class="studio-panel-task">
         <h3>{{ task.title }}<span class="group-task-status">{{ taskLabel(task.status) }}</span></h3>
         <p>{{ task.instruction }}</p>
-        <small v-if="task.attempts > 1 || task.detail"><template v-if="task.attempts > 1">第 {{ task.attempts }} 次尝试</template><template v-if="task.attempts > 1 && task.detail"> · </template>{{ task.detail }}</small>
+        <small v-if="task.attempts > 1 || task.detail"><span v-if="task.attempts > 1">第 {{ task.attempts }} 次尝试</span>{{ task.detail }}</small>
       </section>
       <template v-if="run">
         <template v-if="run.workspace">

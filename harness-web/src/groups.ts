@@ -214,6 +214,15 @@ export function studioSummary(snapshot: GroupSnapshot, states: MemberState[]): {
   return { text, attention: count('approval', 'review') > 0 }
 }
 
+/** Active member count shared by the studio overview and its activity markers. */
+export function isActiveMemberState(state: Pick<MemberState, 'kind'>): boolean {
+  return ['working', 'reviewing', 'finishing', 'queued', 'stopping', 'approval'].includes(state.kind)
+}
+
+export function activeMemberCount(states: MemberState[]): number {
+  return states.filter(isActiveMemberState).length
+}
+
 /** What the hidden host is doing, shown at its own desk. */
 export function hostLabel(snapshot: GroupSnapshot): string {
   if (!snapshot.busy) return '空闲'

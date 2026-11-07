@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>工作室交互验收</title><style>
+body{margin:0}#app{height:100dvh;display:flex;flex-direction:column}#app>header{display:flex;flex-wrap:wrap;gap:12px;padding:12px;background:var(--surface)}#app>header label{display:flex;gap:6px;align-items:center}#app>header select{min-height:30px;padding:3px 8px} .test-status{padding:6px 12px;color:var(--muted);font-size:12px}
+</style></head>
+<body><div id="app"></div>
+<script type="module">
+import {createApp,ref,computed,h} from 'vue'
+import GroupStudio from '/src/GroupStudio.vue'
+import '/src/styles/theme.css'
+import '/src/styles/base.css'
+import '/src/styles/groups.css'
+const roles=['project-manager','ui-designer','frontend','backend','tech-lead','qa','devops']
+const names=['项目经理','UI设计师','前端开发','后端开发','技术经理','测试工程师','运维工程师']
+const colors=['#3b6ea5','#b5568c','#2f8f83','#5b6bbf','#8a6d3b','#c0563b','#4f7d3a']
+createApp({
+components:{GroupStudio},
+setup(){
+const scenario=ref('working'),mode=ref('TASKS'),theme=ref('light'),count=ref(7),mention=ref('')
+const snapshot=computed(()=>{
+ const members=Array.from({length:Number(count.value)},(_,i)=>({id:'m'+i,groupId:'preview',sessionId:'preview-'+i,name:scenario.value==='long'?'负责复杂登录流程与异常恢复的超长名称成员'+i:names[i%7],template:roles[i%7],color:colors[i%7],focus:'仅用于前端交互验收，不调用模型。',enabled:scenario.value!=='disabled'||i!==2,ordinal:i,approvalMode:'MANUAL',modelProfileId:'',reasoningEffort:null}))
+ const completed=['idle','done','failed','disabled','empty'].includes(scenario.value)
+ const busy=!completed
+ const tasks=scenario.value==='empty'?[]:[
+ {id:'t1',key:'plan',title:'梳理登录方案',memberId:'m0',memberName:members[0]?.name||'项目经理',status:'DONE',dependsOn:[],ordinal:0,runId:null,attempts:1,instruction:'确认接口与异常分支'},
+ {id:'t2',key:'code',title:'实现登录接口',memberId:'m2',memberName:members[2]?.name||'前端开发',status:scenario.value==='done'?'DONE':scenario.value==='failed'?'FAILED':busy?'RUNNING':'PENDING',dependsOn:['plan'],ordinal:1,runId:null,attempts:1,instruction:'保留现有认证校验，补充登录错误提示'},
+ {id:'t3',key:'review',title:'执行代码审查',memberId:'m4',memberName:members[4]?.name||'技术经理',status:scenario.value==='done'?'DONE':'PENDING',dependsOn:['code'],ordinal:2,runId:null,attempts:1,instruction:'检查边界和回归风险'}
+ ].map(t=>({...t,roundId:'round',detail:'',createdAt:'2026-11-07T06:00:00Z'}))
+ const runs=busy?members.filter((m,i)=>i<4).map((m,i)=>({id:'preview-run-'+i,sessionId:m.sessionId,status:scenario.value==='queued'?'QUEUED':scenario.value==='stopping'?'CANCELLING':'RUNNING',workspace:'',activity:0})):[]
+ for(const task of tasks)if(task.status==='RUNNING')task.runId=runs.find(r=>r.sessionId==='preview-2')?.id||null
+ const messages=scenario.value==='empty'?[]:members.slice(0,4).map((m,i)=>({id:'message-'+i,seq:i,roundId:'round',author:'MEMBER',memberId:m.id,authorName:m.name,content:i===2?'开始实现登录接口，并检查认证失败时的边界情况。':'已更新本轮任务进展。',runId:null,createdAt:'2026-11-07T06:0'+i+':00Z'}))
+ return{group:{id:'preview',name:'登录功能优化',mode:mode.value,color:colors[0],workspaceId:'',hostProfileId:'',hostReasoningEffort:null,maxTurns:12,createdAt:'2026-11-07T06:00:00Z',revision:0},members,tasks,messages,runs,busy,round:{id:'round',groupId:'preview',status:scenario.value==='failed'?'FAILED':busy?'RUNNING':'COMPLETED',turns:3,detail:scenario.value==='failed'?'验收用的失败状态':'',createdAt:'2026-11-07T06:00:00Z'},version:scenario.value}
+})
+const approvals=computed(()=>scenario.value==='approval'?{'preview-run-2':{commands:['PENDING'],changes:[]}}:{})
+function selector(label,aria,value,options){
+ return h('label',[label,h('select',{'aria-label':aria,value:value.value,onChange:event=>{value.value=event.target.value;if(value===theme)document.documentElement.dataset.theme=theme.value}},options.map(([key,text])=>h('option',{value:key},text)))])
+}
+return ()=>[
+ h('header',[h('strong','工作室前端验收'),
+ selector('场景','验收场景',scenario,[['working','执行中'],['approval','等待批准'],['queued','排队中'],['stopping','停止中'],['idle','空闲'],['done','已完成'],['failed','失败'],['disabled','成员停用'],['empty','空任务'],['long','长名称']]),
+ selector('模式','协作模式',mode,[['TASKS','任务协作'],['DISCUSS','讨论']]),
+ selector('成员','成员数量',count,[['0','0'],['4','4'],['7','7'],['12','12']]),
+ selector('主题','主题',theme,[['light','浅色'],['dark','深色']])]),
+ h(GroupStudio,{snapshot:snapshot.value,approvals:approvals.value,onMention:member=>mention.value=member.name}),
+ h('div',{class:'test-status'},'仅使用模拟快照，未发送任务。'+(mention.value?'已点名：'+mention.value:''))
+]
+}
+}).mount('#app')
+</script></body></html>

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { approvalTargets, hostLabel, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, roundSpeakers, speakingMembers, studioSummary, taskRelations, taskSteps } from '../src/groups.ts'
+import { activeMemberCount, approvalTargets, hostLabel, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, roundSpeakers, speakingMembers, studioSummary, taskRelations, taskSteps } from '../src/groups.ts'
+import { studioPose, studioSeats, studioSprite } from '../src/studioOffice.ts'
 
 const member = (id, name, enabled = true) => ({ id, name, enabled, sessionId: `s-${id}` })
 
@@ -130,4 +131,40 @@ test('studio summary counts working members and what waits on the user', () => {
   assert.deepEqual(studioSummary(snapshot, states), { text: '1 人工作中 · 1 个命令待批准', attention: true })
   assert.deepEqual(studioSummary(studio({ busy: false }), memberStates(studio({ busy: false }), {})), { text: '团队空闲', attention: false })
   assert.equal(studioSummary(studio(), memberStates(studio(), {})).text, '主持人正在拆分任务')
+})
+
+test('studio overview counts every active state, including approvals and queued work', () => {
+  const states = ['working', 'reviewing', 'finishing', 'queued', 'stopping', 'approval'].map(kind => ({ kind }))
+  assert.equal(activeMemberCount(states), 6)
+  assert.equal(activeMemberCount([{ kind: 'review' }, { kind: 'done' }, { kind: 'idle' }]), 0)
+})
+
+test('pixel poses follow real work and stop working while waiting for approval', () => {
+  const members = [{ ...member('1', '后端开发'), template: 'backend' }]
+  const snapshot = studio({ members, runs: [run('r1', 's-1', 'RUNNING')], tasks: [task('a', '1', 'RUNNING', [], 'r1')] })
+  assert.equal(studioPose(memberStates(snapshot, {})[0]), 'code')
+  assert.equal(studioPose(memberStates(snapshot, { r1: { commands: ['PENDING'], changes: [] } })[0]), 'review')
+  for (const kind of ['idle', 'done', 'failed', 'queued', 'blocked', 'ready', 'stopping', 'disabled']) {
+    assert.equal(studioPose({ kind, member: members[0] }), 'idle', kind)
+  }
+  assert.equal(studioPose({ kind: 'working', member: { template: 'project-manager' } }), 'plan')
+  assert.equal(studioPose({ kind: 'working', member: { template: 'qa' } }), 'review')
+})
+
+test('sprite poses select distinct cells and keep custom members stable', () => {
+  const cells = ['frontend', 'qa', 'project-manager', 'ui-designer'].flatMap(template =>
+    ['idle', 'code', 'review', 'plan'].map(pose => studioSprite(template, '成员', pose)))
+  assert.equal(new Set(cells.map(cell => `${cell.x},${cell.y}`)).size, 16)
+  assert.ok(cells.every(cell => cell.x >= 0 && cell.x <= 100 && cell.y >= 0 && cell.y <= 100))
+  assert.deepEqual(studioSprite('', '自定义成员', 'idle'), studioSprite('', '自定义成员', 'idle'))
+})
+
+test('pixel office assigns unique bounded seats for duplicate roles and overflow members', () => {
+  const states = Array.from({ length: 12 }, (_, index) => ({ member: { id: String(index), template: index < 4 ? 'backend' : '' }, kind: 'idle' }))
+  const seated = studioSeats(states)
+  assert.equal(seated.length, 8)
+  assert.equal(new Set(seated.map(seat => `${seat.x},${seat.y}`)).size, 8)
+  assert.ok(seated.every(seat => seat.x >= 10 && seat.x <= 90 && seat.y >= 40 && seat.y <= 95))
+  assert.equal(states.length, 12)
+  assert.deepEqual(studioSeats([]), [])
 })

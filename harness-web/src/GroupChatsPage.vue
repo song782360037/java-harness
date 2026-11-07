@@ -12,7 +12,7 @@ import GroupSettingsDialog from './GroupSettingsDialog.vue'
 import UiIcon from './UiIcon.vue'
 import ComposerAttachments from './ComposerAttachments.vue'
 import { isLongPaste, nextPastedName, type DraftAttachment } from './composer'
-// 3D 工作室依赖 three，按需加载，不拖慢聊天视图。
+// 工作室按需加载，不拖慢聊天视图。
 const GroupStudio = defineAsyncComponent(() => import('./GroupStudio.vue'))
 const props = defineProps<{ workspaces: Workspace[]; profiles: ModelProfile[]; sidebarCollapsed: boolean; defaultProfileId: string }>()
 const emit = defineEmits<{ expandSidebar: []; studio: [active: boolean] }>()
