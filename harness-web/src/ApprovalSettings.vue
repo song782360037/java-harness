@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, type ApprovalReviewerSettings, type ApprovalRules, type ModelProfile } from './api'
 import UiIcon from './UiIcon.vue'
 const emit = defineEmits<{ busy: [value: boolean] }>()
@@ -9,6 +9,8 @@ const kinds = [
   { key: 'allow', label: '允许', icon: 'check', help: '智能审批下自动批准，仅匹配不含 ; | & > $ ( ) 的单条命令。', placeholder: 'mvn test\nnpm test' },
 ] as const
 const texts = ref<Record<'deny' | 'ask' | 'allow', string>>({ deny: '', ask: '', allow: '' })
+const baseline = ref({ ...texts.value })
+const dirty = computed(() => kinds.some(kind => texts.value[kind.key] !== baseline.value[kind.key]))
 // 与保存时一致：忽略空行。
 const ruleCount = (key: 'deny' | 'ask' | 'allow') => texts.value[key].split('\n').filter(line => line.trim()).length
 const revision = ref(0), loaded = ref(false), busy = ref(false), error = ref(''), notice = ref('')
@@ -16,6 +18,7 @@ const revision = ref(0), loaded = ref(false), busy = ref(false), error = ref('')
 function apply(rules: ApprovalRules) {
   revision.value = rules.revision
   texts.value = { deny: rules.deny.join('\n'), ask: rules.ask.join('\n'), allow: rules.allow.join('\n') }
+  baseline.value = { ...texts.value }
 }
 async function load() {
   error.value = ''
@@ -77,10 +80,11 @@ onMounted(() => { void load(); void loadReviewer() })
         <div v-for="kind in kinds" :key="kind.key" class="approval-rule" :class="`is-${kind.key}`">
           <div class="approval-rule-heading"><span class="approval-rule-icon" aria-hidden="true"><UiIcon :name="kind.icon" :size="14" /></span><label :for="`approval-${kind.key}`">{{ kind.label }}</label><span class="approval-rule-count">{{ ruleCount(kind.key) }} 条</span></div>
           <p :id="`approval-${kind.key}-help`">{{ kind.help }}</p>
-          <textarea :id="`approval-${kind.key}`" v-model="texts[kind.key]" rows="6" spellcheck="false" :placeholder="kind.placeholder" :aria-describedby="`approval-${kind.key}-help`" :disabled="busy" />
+          <textarea :id="`approval-${kind.key}`" v-model="texts[kind.key]" rows="6" spellcheck="false" placeholder="暂无规则，每行输入一条命令前缀" :aria-describedby="`approval-${kind.key}-help approval-${kind.key}-example`" :disabled="busy" />
+          <small :id="`approval-${kind.key}-example`" class="approval-rule-example">示例：{{ kind.placeholder.split('\n').join('、') }}</small>
         </div>
       </div>
-      <footer class="approval-card-footer"><span v-if="notice" role="status" class="saved-note">{{ notice }}</span><button type="submit" class="primary" :disabled="busy">保存规则</button></footer>
+      <footer class="approval-card-footer"><span v-if="dirty" class="settings-save-hint">有未保存的更改</span><span v-else-if="notice" role="status" class="saved-note">{{ notice }}</span><span v-else class="settings-save-hint">修改后保存，对之后提出的命令生效</span><button type="submit" class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存规则' }}</button></footer>
     </form>
     <p v-if="reviewerError" role="alert" class="dialog-error">{{ reviewerError }} <button type="button" :disabled="reviewerBusy" @click="loadReviewer">重新加载</button></p>
     <form v-if="reviewer" class="approval-card" @submit.prevent="saveReviewer">

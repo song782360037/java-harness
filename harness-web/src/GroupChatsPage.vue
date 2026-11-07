@@ -50,6 +50,7 @@ const time = (value: string) => new Date(value).toLocaleTimeString('zh-CN', { ho
 const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
 // 每次进入群聊默认显示聊天；工作室期间由 App 收起并锁定全局侧栏。
 const view = ref<'chat' | 'studio'>('chat')
+const groupListOpen = ref(true)
 // 工作室视图需要的命令与文件审核状态，按运行的 status:activity 缓存，变化时才重新读取。
 const approvals = ref<Record<string, RunApprovals>>({})
 let approvalKeys: Record<string, string> = {}
@@ -325,6 +326,7 @@ onUnmounted(() => {
     <header class="workspace-header">
       <div class="workspace-title"><button v-if="view === 'studio'" type="button" class="icon-button" aria-label="返回聊天" title="返回聊天" @click="setView('chat')"><UiIcon name="back" /></button><button v-else-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="emit('expandSidebar')"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1 id="groups-title">{{ snapshot?.group.name || '群聊' }}</h1></div>
       <div class="header-meta">
+        <button v-if="view === 'chat'" type="button" class="icon-button" :aria-label="groupListOpen ? '收起群聊列表' : '展开群聊列表'" :title="groupListOpen ? '收起群聊列表' : '展开群聊列表'" :aria-expanded="groupListOpen" aria-controls="group-list" @click="groupListOpen = !groupListOpen"><UiIcon name="panel" :size="16" /></button>
         <div v-if="snapshot" class="group-view-switch" role="group" aria-label="群聊视图">
           <button type="button" :aria-pressed="view === 'chat'" @click="setView('chat')"><UiIcon name="chat" :size="14" />聊天</button>
           <button type="button" :aria-pressed="view === 'studio'" @click="setView('studio')"><UiIcon name="users" :size="14" />工作室</button>
@@ -334,8 +336,8 @@ onUnmounted(() => {
       </div>
     </header>
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
-    <div class="groups-body" :class="{ 'is-studio': view === 'studio' }" :aria-busy="loading">
-      <nav v-if="view === 'chat'" class="group-list" aria-label="群聊列表">
+    <div class="groups-body" :class="{ 'is-studio': view === 'studio', 'is-list-collapsed': !groupListOpen }" :aria-busy="loading">
+      <nav v-if="view === 'chat' && groupListOpen" id="group-list" class="group-list" aria-label="群聊列表">
         <button type="button" class="primary group-create" :disabled="loading" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
         <button v-for="item in groups" :key="item.group.id" type="button" class="group-item" :aria-current="item.group.id === selectedId ? 'true' : undefined" @click="select(item.group.id)">
           <span class="group-avatar" :style="{ background: item.group.color }" aria-hidden="true"><UiIcon name="users" :size="15" /></span>
@@ -356,7 +358,7 @@ onUnmounted(() => {
           <div class="group-roster" aria-label="群成员">
             <button v-for="member in snapshot.members" :key="member.id" type="button" class="group-chip" :class="{ disabled: !member.enabled }" :disabled="!member.enabled" :title="`${member.focus}\n点击 @ ${member.name}`" @click="mentionMember(member)"><span class="group-avatar small" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>{{ member.name }}</button>
           </div>
-          <details v-if="snapshot.tasks.length" class="group-tasks" open>
+          <details v-if="snapshot.tasks.length" :key="`${selectedId}:${snapshot.round?.id}:${finishedTasks === snapshot.tasks.length}`" class="group-tasks" :open="finishedTasks !== snapshot.tasks.length">
             <summary>任务计划<span>{{ finishedTasks }} / {{ snapshot.tasks.length }} 已完成</span></summary>
             <ol>
               <li v-for="(step, index) in steps" :key="index">

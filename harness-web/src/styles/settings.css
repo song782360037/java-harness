@@ -49,7 +49,24 @@
 .preference-row input[type=checkbox]::before { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: transform .16s; }
 .preference-row input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
 .preference-row input[type=checkbox]:checked::before { transform: translateX(18px); background: var(--on-accent); }
-.preferences-status { margin: 20px 0 0; font-size: var(--font-caption); line-height: 1.7; color: var(--muted); }
+.preferences-status { margin: 0; padding: 14px 0; font-size: var(--font-caption); line-height: 1.7; color: var(--muted); }
+.settings-save-hint { margin-right: auto; color: var(--muted); font-size: var(--font-caption); line-height: 1.6; }
+/* 工作区长表单独立滚动，保存区始终位于可见内容底部。 */
+.reference-settings .workspace-settings-content { overflow: hidden; padding-bottom: 24px; }
+.workspace-settings-content .settings-content-inner { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.workspace-settings-content .settings-title-row { flex-shrink: 0; }
+.workspace-settings-section { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding-top: 18px; }
+.workspace-settings-section .workspace-context { margin: 0; padding: 12px 16px; flex-shrink: 0; }
+.workspace-settings-section > .workspace-settings { flex: 1; min-height: 0; overflow: hidden; }
+.workspace-settings-section .workspace-settings form { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.workspace-settings-section .workspace-settings fieldset { flex: 1; min-height: 0; overflow: auto; }
+.workspace-settings-section .workspace-settings .dialog-actions { flex-shrink: 0; margin: 0; padding: 14px 20px; background: var(--surface); }
+.workspace-settings-section .workspace-settings form > p { margin: 12px 20px; }
+@media (max-height: 500px) {
+  .reference-settings .workspace-settings-content { padding-top: 12px; padding-bottom: 12px; }
+  .workspace-settings-section { padding-top: 8px; gap: 8px; }
+  .workspace-settings-section .workspace-context { display: none; }
+}
 .workspace-context { display: flex; gap: 12px; align-items: center; margin: 28px 0 16px; padding: 16px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .workspace-context > div { flex: 1; min-width: 0; }
 .workspace-context strong { font-size: var(--font-body); }
@@ -73,7 +90,15 @@
 .workspace-presets button { display: grid; place-items: center; aspect-ratio: 1; min-height: 34px; padding: 5px; background: var(--subtle); border: 0.5px solid transparent; border-radius: var(--radius-md); color: var(--muted); }
 .workspace-presets button[aria-pressed=true] { border-color: var(--workspace-color); background: var(--hover); color: var(--workspace-color); box-shadow: 0 0 0 1px var(--workspace-color); }
 .workspace-color-dot { width: 20px; height: 20px; border-radius: 50%; }
-.workspace-dialog .dialog-actions { padding: 16px 0 0; margin-top: 0; }
+.workspace-appearance { margin-top: 22px; border-top: 0.5px solid var(--border); padding-top: 16px; }
+.workspace-appearance > summary { display: flex; align-items: center; gap: 12px; cursor: pointer; font-weight: 550; font-size: var(--font-body); list-style: none; }
+.workspace-appearance > summary::-webkit-details-marker { display: none; }
+.workspace-appearance > summary::after { content: '+'; margin-left: auto; color: var(--muted); font-size: 20px; font-weight: 400; }
+.workspace-appearance[open] > summary::after { content: '−'; }
+.workspace-appearance-preview { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--subtle); flex-shrink: 0; }
+.workspace-appearance summary small { display: block; margin-top: 3px; color: var(--muted); font-size: var(--font-caption); font-weight: 400; }
+.workspace-appearance > label { display: block; margin: 18px 0 8px; color: var(--text); font-weight: 550; }
+.workspace-dialog .dialog-actions { position: sticky; bottom: -16px; padding: 16px 14px; margin-top: 0; border-top: 0.5px solid var(--border); background: var(--page); }
 .workspace-dialog .inspector-header { padding: 20px 24px 16px; background: var(--surface); }
 .composer-selectors { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
 .selector-anchor { position: relative; min-width: 0; }
@@ -154,6 +179,9 @@
 .usage-sources small { color: var(--muted); font-size: var(--font-caption); }
 .usage-sources strong { font-variant-numeric: tabular-nums; }
 .usage-chart { display: flex; align-items: flex-end; gap: 3px; height: 160px; padding: 12px; border: 0.5px solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 0; background: var(--surface); }
+.usage-chart-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 10px; color: var(--muted); font-size: var(--font-caption); }
+.usage-chart-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.usage-chart-legend i { width: 10px; height: 10px; border-radius: 3px; }
 .usage-bar { flex: 1; min-width: 2px; height: 100%; display: flex; align-items: flex-end; border-radius: 3px; }
 .usage-bar:hover { background: var(--subtle); }
 .usage-stack { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; border-radius: 3px 3px 0 0; }
@@ -212,7 +240,8 @@
 .approval-card-heading { padding: 18px 20px 0; }
 .approval-card-heading h2 { margin: 0; font-size: var(--font-heading); font-weight: 600; }
 .approval-card-heading p { margin: 4px 0 0; color: var(--muted); font-size: var(--font-caption); }
-.approval-card-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 20px; border-top: 0.5px solid var(--border); }
+.approval-card-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 20px; border-top: 0.5px solid var(--border); }
+.approval-rule-example { display: block; margin-top: 8px; color: var(--muted); font-size: var(--font-caption); line-height: 1.6; overflow-wrap: anywhere; }
 .approval-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; padding: 16px 20px 20px; }
 .approval-rule { display: flex; flex-direction: column; min-width: 0; }
 .approval-rule-heading { display: flex; align-items: center; gap: 8px; }

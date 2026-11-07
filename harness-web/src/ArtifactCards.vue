@@ -127,6 +127,7 @@ onUnmounted(() => {
         <button type="button" class="icon-button artifact-more" :aria-label="`更多操作：${artifact.path}`" title="更多操作" aria-haspopup="menu" :aria-expanded="menu?.changeId === artifact.changeId" @click.stop="openMenu(artifact, $event)"><UiIcon name="more" :size="16" /></button>
       </li>
     </ul>
+    <p v-if="artifacts.some(artifact => !available(artifact))" class="artifact-notice">产物读取的是当前磁盘文件。文件不存在或无法访问时，可从下方文件修改记录查看本次差异，或在更多操作中复制路径检查。</p>
     <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
     <p v-else-if="notice" class="artifact-notice" role="status">{{ notice }}</p>
     <div v-if="menu && menuArtifact" ref="menuElement" class="session-menu artifact-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" role="menu" :aria-label="`${menuArtifact.path} 的操作`" @keydown="navigateMenu">

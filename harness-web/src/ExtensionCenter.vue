@@ -22,12 +22,14 @@ const configurationBusy = ref(false)
 const locked = computed(() => busy.value || configurationBusy.value)
 const categories = computed(() => ['全部', '官方精选', '自定义', ...new Set(items.value.filter(item => item.kind === kind.value).map(item => item.category))])
 const visible = computed(() => filterExtensions(items.value, kind.value, query.value, category.value, installedOnly.value, sort.value))
-// 全部条目都是推荐时，推荐区与下方列表完全重复，此时不显示。
+// 推荐只占一行，已展示条目从下方列表中移除，筛选时仍展示完整结果。
 const recommended = computed(() => {
   const ofKind = items.value.filter(item => item.kind === kind.value)
   const featured = ofKind.filter(item => item.featured)
-  return featured.length < ofKind.length ? featured.slice(0, 6) : []
+  return featured.length < ofKind.length ? featured.slice(0, 3) : []
 })
+const showRecommended = computed(() => !installedOnly.value && !query.value && category.value === '全部' && sort.value === 'featured' && recommended.value.length > 0)
+const listed = computed(() => showRecommended.value ? visible.value.filter(item => !recommended.value.some(featured => featured.id === item.id)) : visible.value)
 const dialog = ref<'preview' | 'add' | null>(null), selected = ref<ExtensionItem | null>(null), content = ref(''), dialogError = ref('')
 const previewLoading = ref(false)
 let previewRequest = 0
@@ -190,25 +192,24 @@ onMounted(refresh)
     </header>
     <div class="extension-discovery">
       <div class="extension-hero"><div><h1>{{ installedOnly ? '管理' : '发现' }}{{ current.label }} <span>{{ current.english }}</span></h1><p>{{ installedOnly ? '查看启停状态，统一管理已安装的扩展。' : current.tagline }}</p></div>
-        <div class="extension-hero-art" aria-hidden="true"><span><UiIcon name="branch" :size="27" /></span><span><UiIcon :name="current.icon" :size="32" /></span><span><UiIcon name="flask" :size="28" /></span><span><UiIcon name="code" :size="25" /></span></div>
       </div>
       <p v-if="error" role="alert" class="extension-feedback">{{ error }} <button :disabled="locked" @click="refresh">重试</button></p>
       <p v-if="busy && !dialog" role="status" class="extension-loading">正在读取扩展…</p>
-      <section v-if="!installedOnly && !query && category === '全部' && recommended.length" class="extension-recommendations" aria-label="官方推荐">
+      <section v-if="showRecommended" class="extension-recommendations" aria-label="官方推荐">
         <h2>官方推荐</h2>
         <div class="extension-grid"><ExtensionRow v-for="item in recommended" :key="item.id" :item="item" :locked="locked" :pending="toggling.has(item.installationId)" @preview="preview" @toggle="toggle" @edit="edit" @remove="remove" /></div>
       </section>
       <section class="extension-list" :aria-label="`${installedOnly ? '已安装' : '全部'}${current.label}`">
-        <h2>{{ installedOnly ? '已安装' : '全部' }}{{ current.label }}<small>{{ visible.length }}</small></h2>
+        <h2>{{ installedOnly ? '已安装' : showRecommended ? '更多' : '全部' }}{{ current.label }}<small>{{ listed.length }}</small></h2>
         <div class="extension-filterbar"><nav class="extension-categories" aria-label="分类"><button v-for="value in categories" :key="value" :class="{ active: category === value }" :aria-pressed="category === value" @click="category = value">{{ value }}</button></nav><div class="extension-sort" aria-label="排序"><button :class="{ active: sort === 'featured' }" :aria-pressed="sort === 'featured'" @click="sort = 'featured'">推荐</button><button :class="{ active: sort === 'name' }" :aria-pressed="sort === 'name'" @click="sort = 'name'">名称</button></div></div>
-        <div class="extension-grid"><ExtensionRow v-for="item in visible" :key="item.id" :item="item" :locked="locked" :pending="toggling.has(item.installationId)" @preview="preview" @toggle="toggle" @edit="edit" @remove="remove" /></div>
+        <div class="extension-grid"><ExtensionRow v-for="item in listed" :key="item.id" :item="item" :locked="locked" :pending="toggling.has(item.installationId)" @preview="preview" @toggle="toggle" @edit="edit" @remove="remove" /></div>
         <div v-if="!visible.length && !busy" class="extension-empty"><UiIcon :name="current.icon" :size="32" /><h3>{{ query ? '没有找到匹配的扩展' : installedOnly ? '还没有安装' + current.label : '这个分类还没有扩展' }}</h3><p>{{ query ? '试试其他关键词，或切换分类。' : '从官方目录选择，或添加自己的' + current.label + '。' }}</p><button :disabled="locked" @click="add">添加{{ current.label }}</button></div>
       </section>
     </div>
     <Teleport to="body"><dialog v-if="dialog" ref="modal" class="extension-modal" :class="{ 'extension-modal-preview': dialog === 'preview' }" aria-labelledby="extension-dialog-title" @keydown.esc.stop @cancel.prevent="close" @close="closed" @mousedown="pressStart" @click="outsideModal">
       <header class="extension-modal-heading"><div><span class="extension-modal-eyebrow">{{ dialog === 'add' ? '自定义扩展' : selected?.official ? 'JAVA HARNESS · 官方扩展' : selected?.parentName ? '插件内组件' : '自定义扩展' }}</span><h2 id="extension-dialog-title">{{ dialog === 'add' ? (editing ? '编辑' : '添加') + current.label : selected?.title }}</h2></div><button class="icon-button" :disabled="locked" aria-label="关闭扩展详情" @click="close"><UiIcon name="close" :size="20" /></button></header>
       <div class="extension-modal-body"><p v-if="dialogError" role="alert" class="extension-feedback">{{ dialogError }}</p>
-        <template v-if="dialog === 'preview' && selected"><p class="extension-preview-description">{{ selected.description }}</p><div class="extension-meta"><span>{{ selected.category }}</span><span>v{{ selected.version }}</span><span v-if="selected.installationId">{{ selected.enabled ? '已启用' : selected.issue ? '待配置 / 已停用' : '已停用' }}</span></div><p v-if="selected.parentName" class="extension-callout">由「{{ selected.parentName }}」提供。启停与卸载将作用于整个插件。</p><p v-if="selected.issue" role="alert" class="extension-feedback">{{ selected.issue }}</p><p v-if="previewLoading" role="status" class="extension-loading">正在读取详情…</p><pre v-else class="extension-preview-content">{{ content }}</pre>
+        <template v-if="dialog === 'preview' && selected"><p v-if="selected.description && !content.includes(selected.description)" class="extension-preview-description">{{ selected.description }}</p><div class="extension-meta"><span>{{ selected.category }}</span><span>v{{ selected.version }}</span><span v-if="selected.installationId">{{ selected.enabled ? '已启用' : selected.issue ? '待配置 / 已停用' : '已停用' }}</span></div><p v-if="selected.parentName" class="extension-callout">由「{{ selected.parentName }}」提供。启停与卸载将作用于整个插件。</p><p v-if="selected.issue" role="alert" class="extension-feedback">{{ selected.issue }}</p><p v-if="previewLoading" role="status" class="extension-loading">正在读取详情…</p><pre v-else class="extension-preview-content">{{ content }}</pre>
           <ExtensionConfiguration v-if="selected.installationId && !previewLoading" :key="selected.installationId" :installation-id="selected.installationId" :editable="selected.editable" @busy="configurationBusy = $event" @saved="configurationSaved" @edit="edit(selected!)" />
         </template>
         <form v-if="dialog === 'add'" id="extension-add-form" class="extension-add-form" @submit.prevent="create"><fieldset :disabled="locked">

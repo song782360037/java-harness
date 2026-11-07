@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api, reasoningOptions, effortShortLabel, type ModelProfile, type ProviderView, type Session, type Workspace } from './api'
-import { workspaceSummary } from './workspaces'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import AppearanceSettings from './AppearanceSettings.vue'
 import GeneralSettings from './GeneralSettings.vue'
@@ -199,7 +198,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
         <p class="nav-group-label">基础设置</p>
         <button v-for="item in visibleSections" :key="item.id" :class="{ selected: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" :disabled="busy || workspaceBusy || pluginBusy" @click="section = item.id"><UiIcon :name="item.icon" :size="17" />{{ item.label }}</button>
       </nav>
-      <div class="settings-content" :class="{ 'extensions-content': section === 'plugins', 'model-settings-content': section === 'models' }">
+      <div class="settings-content" :class="{ 'extensions-content': section === 'plugins', 'model-settings-content': section === 'models', 'workspace-settings-content': section === 'workspace' }">
         <div class="settings-content-inner">
           <div class="settings-title-row"><h1 id="settings-title" ref="pageTitle" class="reference-title" tabindex="-1">{{ sectionInfo.label }}</h1><button v-if="section === 'models'" class="reload-models" :disabled="busy" aria-label="重新加载配置" @click="load"><UiIcon name="refresh" :size="15" /><span>重新加载</span></button></div>
           <p v-if="error && section === 'models' && !editingModel" role="alert" class="dialog-error">{{ error }}</p>
@@ -214,12 +213,12 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
           <section v-show="section === 'models'" class="provider-console" aria-label="自定义提供商与模型">
             <aside class="provider-rail" aria-label="自定义提供商">
               <div class="provider-rail-heading"><h2>提供商</h2><span>{{ providers.length }}</span></div>
+              <button class="add-provider" :disabled="busy" @click="createProvider"><UiIcon name="plus" :size="16" /> 添加提供商</button>
               <div class="provider-items">
                 <button v-for="item in providers" :key="item.id" class="provider-item" :class="{ selected: providerId === item.id }" :disabled="busy" :aria-pressed="providerId === item.id" @click="chooseProvider(item.id)">
                   <span class="provider-monogram" aria-hidden="true">{{ item.displayName.slice(0, 1).toUpperCase() }}</span><span class="provider-item-copy"><span class="provider-item-name">{{ item.displayName }}</span><span class="provider-count">{{ profiles.filter(model => model.providerId === item.id).length }} 个模型</span></span><UiIcon name="chevron" :size="14" />
                 </button>
               </div>
-              <button class="add-provider" :disabled="busy" @click="createProvider"><UiIcon name="plus" :size="16" /> 添加提供商</button>
             </aside>
             <div class="provider-detail">
               <template v-if="provider">
@@ -259,8 +258,8 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
               <p v-else class="models-empty">{{ busy ? '正在读取配置…' : '添加一个自定义提供商，开始配置模型。' }}</p>
             </div>
           </section>
-          <section v-show="section === 'workspace'" aria-label="工作区配置">
-            <div v-if="session && !creatingWorkspace" class="workspace-context"><span class="configuration-icon"><UiIcon :name="currentWorkspace?.icon || 'folder'" :style="{ color: currentWorkspace?.color }" :size="19" /></span><div><strong>{{ currentWorkspace?.name || session.title }}</strong><p>{{ workspaceSummary(session.workspace) || '仅聊天，尚未选择目录' }}</p></div><span class="subtle-badge">当前工作区</span></div>
+          <section v-show="section === 'workspace'" class="workspace-settings-section" aria-label="工作区配置">
+            <div v-if="session && !creatingWorkspace" class="workspace-context"><span class="configuration-icon"><UiIcon :name="currentWorkspace?.icon || 'folder'" :style="{ color: currentWorkspace?.color }" :size="19" /></span><div><strong>{{ currentWorkspace?.name || session.title }}</strong></div><span class="subtle-badge">当前工作区</span></div>
             <WorkspaceSettings :key="creatingWorkspace ? 'new' : session?.workspaceId || session?.id" class="settings-card" :session-id="creatingWorkspace ? undefined : session?.id" :initial-path="creatingWorkspace ? '' : session?.workspace || ''" :initial-workspace="creatingWorkspace ? undefined : currentWorkspace" :disabled="!creatingWorkspace && workspaceDisabled" @busy="workspaceBusy = $event" @saved="emit('workspaceSaved', $event)" @cancel="emit('close')" />
           </section>
         </div>
@@ -276,7 +275,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
             <label for="model-name">模型 ID</label><input id="model-name" v-model="form.modelName" required maxlength="128" placeholder="填写服务提供方的模型 ID" />
             <label for="profile-name">显示名称</label><input id="profile-name" v-model="form.displayName" required maxlength="100" placeholder="例如 日常开发 / 深度分析" />
             <label for="profile-effort">默认思考强度</label><select id="profile-effort" v-model="form.reasoningEffort"><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-            <details class="advanced-settings" open><summary>运行参数与所属提供商</summary>
+            <details class="advanced-settings"><summary>运行参数与所属提供商</summary>
               <template v-if="form.id"><label for="model-provider">所属提供商</label><select id="model-provider" v-model="form.providerId"><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></template>
               <div class="settings-grid">
                 <label>任务总超时（秒）<input v-model.number="form.runTimeoutSeconds" type="number" required min="1" max="86400" step="1" /></label>

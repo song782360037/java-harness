@@ -6,6 +6,7 @@ import UiIcon from './UiIcon.vue'
 const ranges = [{ days: 1, label: '今天' }, { days: 7, label: '7 天' }, { days: 30, label: '30 天' }, { days: 0, label: '全部' }] as const
 const colors: Record<string, string> = { harness: 'var(--accent)', 'claude-code': 'var(--warning)', codex: 'var(--info)', workbuddy: 'var(--source-rose)', qoder: 'var(--source-violet)' }
 const days = ref<number>(7)
+const rangeLabel = computed(() => ({ 1: '今天', 7: '近 7 天', 30: '近 30 天', 0: '全部时间' }[days.value]))
 const stats = ref<UsageStatistics | null>(null)
 const loading = ref(false)
 // 请求超过 300ms 才显示等待动效，避免缓存命中时闪烁。
@@ -20,7 +21,7 @@ const bars = computed(() => chart.value.bars)
 const axisLabels = computed(() => chart.value.unit === 'hour'
   ? [0, 6, 12, 18, 23].map(hour => ({ text: bars.value[hour].date, column: hour + 1 }))
   : [...new Set([bars.value[0]?.date, bars.value[bars.value.length - 1]?.date].filter(Boolean))].map(text => ({ text, column: 0 })))
-const peak = computed(() => Math.max(1, ...bars.value.map(dayTotal)))
+const peak = computed(() => Math.max(0, ...bars.value.map(dayTotal)))
 // 只标注日、三、六，其余行留空以保持 7 行网格对齐。
 const weekdays = ['日', '', '', '三', '', '', '六']
 const weeks = computed(() => stats.value ? heatmapWeeks(stats.value.heatmap) : [])
@@ -69,6 +70,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
       <div class="usage-skeleton tall" aria-hidden="true" />
     </div>
     <div v-if="stats" class="usage-body" :class="{ stale: slow }">
+      <div class="usage-heading-row"><h2 class="usage-heading">{{ rangeLabel }}统计</h2><span>输入含缓存命中</span></div>
       <div class="usage-cards">
         <div><span>总 tokens</span><strong :title="number(total)">{{ compactTokens(total) }}</strong></div>
         <div><span>输入</span><strong :title="number(stats.totals.inputTokens)">{{ compactTokens(stats.totals.inputTokens) }}</strong></div>
@@ -76,7 +78,17 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
         <div><span>缓存命中</span><strong>{{ percent(cacheRate(stats.totals)) }}</strong><small>{{ compactTokens(stats.totals.cachedTokens) }}</small></div>
         <div><span>模型调用</span><strong>{{ number(stats.totals.calls) }}</strong></div>
       </div>
-      <div class="usage-heading-row"><h2 class="usage-heading">热力图</h2><span>{{ stats.heatmap.zone }}</span></div>
+      <div class="usage-heading-row"><h2 class="usage-heading">{{ rangeLabel }} · {{ { hour: '每小时用量', day: '每日用量', month: '每月用量' }[chart.unit] }}</h2><span>峰值 {{ compactTokens(peak) }} tokens</span></div>
+      <div class="usage-chart-legend" aria-label="用量来源"><span v-for="source in stats.sources" :key="source.id"><i :style="{ background: color(source.id) }" aria-hidden="true" />{{ source.label }}</span></div>
+      <div class="usage-chart" role="list" aria-label="所选周期用量趋势">
+        <div v-for="bar in bars" :key="bar.date" class="usage-bar" role="listitem" :title="barLabel(bar.date, bar.tokens)" :aria-label="barLabel(bar.date, bar.tokens)">
+          <div class="usage-stack" :style="{ height: `${dayTotal(bar) / Math.max(1, peak) * 100}%` }">
+            <span v-for="source in stats.sources" v-show="bar.tokens[source.id]" :key="source.id" :style="{ flexGrow: bar.tokens[source.id] ?? 0, background: color(source.id) }" />
+          </div>
+        </div>
+      </div>
+      <div class="usage-axis" :class="{ hourly: chart.unit === 'hour' }" aria-hidden="true"><span v-for="label in axisLabels" :key="label.text" :style="label.column ? { gridColumn: label.column } : undefined">{{ label.text }}</span></div>
+      <div class="usage-heading-row"><h2 class="usage-heading">近一年每日用量</h2><span>{{ stats.heatmap.zone }}</span></div>
       <div class="usage-heatmap">
         <div ref="heatScroll" class="heat-scroll">
           <div class="heat-grid" role="img" :aria-label="heatLabel" :style="{ '--weeks': weeks.length }">
@@ -90,15 +102,6 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
         </div>
         <div class="heat-legend" aria-hidden="true"><span>少</span><i v-for="level in 5" :key="level" :class="`level-${level - 1}`" /><span>多</span></div>
       </div>
-      <h2 class="usage-heading">{{ { hour: '每小时用量', day: '每日用量', month: '每月用量' }[chart.unit] }}</h2>
-      <div class="usage-chart" role="list" aria-label="用量趋势">
-        <div v-for="bar in bars" :key="bar.date" class="usage-bar" role="listitem" :title="barLabel(bar.date, bar.tokens)" :aria-label="barLabel(bar.date, bar.tokens)">
-          <div class="usage-stack" :style="{ height: `${dayTotal(bar) / peak * 100}%` }">
-            <span v-for="source in stats.sources" v-show="bar.tokens[source.id]" :key="source.id" :style="{ flexGrow: bar.tokens[source.id] ?? 0, background: color(source.id) }" />
-          </div>
-        </div>
-      </div>
-      <div class="usage-axis" :class="{ hourly: chart.unit === 'hour' }" aria-hidden="true"><span v-for="label in axisLabels" :key="label.text" :style="label.column ? { gridColumn: label.column } : undefined">{{ label.text }}</span></div>
       <h2 class="usage-heading">来源</h2>
       <ul class="usage-sources">
         <li v-for="source in stats.sources" :key="source.id">

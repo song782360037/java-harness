@@ -7,6 +7,7 @@ const emit = defineEmits<{ busy: [value: boolean] }>()
 const state = ref<MemoryState>()
 const form = ref<MemorySettings>()
 const baseline = ref<MemorySettings>()
+const dirty = computed(() => !!form.value && (form.value.enabled !== baseline.value?.enabled || form.value.modelProfileId !== baseline.value?.modelProfileId))
 const profiles = ref<ModelProfile[]>([])
 const busy = ref(false), error = ref(''), notice = ref('')
 const loadingError = ref('')
@@ -69,7 +70,7 @@ onUnmounted(() => { disposed = true; version++; clearTimeout(timer) })
         <div class="preference-row"><div class="preference-copy"><label for="automatic-memory">启用自动记忆</label><p>从对话中生成记忆并用于后续交流；关闭后已有记忆保留</p></div><input id="automatic-memory" v-model="form.enabled" type="checkbox" :disabled="busy" /></div>
         <div class="preference-row"><div class="preference-copy"><label id="memory-model-label" for="memory-model">生成模型</label><p id="memory-model-help">会产生额外的模型调用</p></div><PreferenceSelect id="memory-model" v-model="form.modelProfileId" :options="modelOptions" :disabled="busy" /></div>
       </div>
-      <div class="memory-settings-actions"><span v-if="notice" role="status" class="saved-note">{{ notice }}</span><button class="primary" :disabled="busy">保存设置</button></div>
+      <div class="memory-settings-actions"><span v-if="dirty" class="settings-save-hint">有未保存的更改</span><span v-else-if="notice" role="status" class="saved-note">{{ notice }}</span><span v-else class="settings-save-hint">更改后需保存才会生效</span><button class="primary" :disabled="busy">{{ busy ? '处理中…' : '保存设置' }}</button></div>
     </form>
     <section v-if="state" class="memory-processing" aria-label="自动记忆处理进度">
       <div class="memory-processing-heading"><h2>对话处理进度</h2><span class="memory-processing-state" :class="{ active: state.settings.enabled && (state.progress.running || state.progress.pending), enabled: state.settings.enabled }">{{ !state.settings.enabled ? '已关闭' : state.progress.running ? '正在生成' : state.progress.pending ? '等待处理' : '已开启' }}</span></div>

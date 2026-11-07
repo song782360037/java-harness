@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { memoryLayout, type MemoryEntry, type MemoryRelation } from './memory'
+import { memoryCamera, memoryLayout, type MemoryEntry, type MemoryRelation } from './memory'
 
 const props = defineProps<{ entries: MemoryEntry[]; relations: MemoryRelation[]; selectedId: string; group: string }>()
 const emit = defineEmits<{ select: [id: string] }>()
@@ -8,10 +8,17 @@ const svg = ref<SVGSVGElement>()
 const camera = ref({ x: 0, y: 0, zoom: 1 })
 const size = ref({ width: 800, height: 600 })
 const positions = ref<Record<string, { x: number; y: number }>>({})
+const highlightedId = ref('')
 const layout = computed(() => memoryLayout(props.entries, size.value.width, size.value.height))
+const topicCharacters = computed(() => {
+  const columns = Math.max(1, Math.ceil(Math.sqrt(layout.value.centers.length * size.value.width / Math.max(1, size.value.height))))
+  return Math.max(2, Math.floor((size.value.width - 48) / columns / 14) - 1)
+})
 const nodes = computed(() => layout.value.nodes.map(node => ({ ...node, ...positions.value[node.id] })))
 const nodeMap = computed(() => new Map(nodes.value.map(node => [node.id, node])))
 const selected = computed(() => nodeMap.value.get(props.selectedId))
+const topicLabels = computed(() => layout.value.centers.filter(center => topicCharacters.value > 3 || center.name === props.group
+  || center.name === selected.value?.group || center.name === nodeMap.value.get(highlightedId.value)?.group))
 const related = computed(() => {
   const ids = new Set<string>([props.selectedId])
   props.relations.forEach(edge => {
@@ -63,13 +70,15 @@ function stop(event: PointerEvent) {
 }
 function activate(event: MouseEvent, id: string) { if (event.detail === 0 && !suppressClick) emit('select', id) }
 function zoom(factor: number) {
-  const value = Math.max(0.3, Math.min(3.5, camera.value.zoom * factor))
+  const minimum = Math.min(.3, memoryCamera(layout.value, size.value.width, size.value.height).zoom)
+  const value = Math.max(minimum, Math.min(3.5, camera.value.zoom * factor))
   const ratio = value / camera.value.zoom
   camera.value.x = size.value.width / 2 - (size.value.width / 2 - camera.value.x) * ratio
   camera.value.y = size.value.height / 2 - (size.value.height / 2 - camera.value.y) * ratio
   camera.value.zoom = value
 }
-function reset() { camera.value = { x: 0, y: 0, zoom: 1 }; positions.value = {} }
+function reset() { camera.value = memoryCamera(layout.value, size.value.width, size.value.height); positions.value = {} }
+watch(() => `${size.value.width}:${size.value.height}:${props.entries.map(item => `${item.id}:${item.tags[0] || item.kind}`).join('|')}`, reset, { immediate: true })
 watch(() => props.entries.map(item => item.id).join(), () => { suppressClick = false })
 const observer = new ResizeObserver(records => {
   const bounds = records[0]?.contentRect
@@ -96,24 +105,26 @@ onUnmounted(() => observer.disconnect())
           <line v-for="node in tagEdges" :key="`tag:${node.id}`" :x1="selected!.x" :y1="selected!.y" :x2="node.x" :y2="node.y"
             :style="{ stroke: node.color }" stroke-dasharray="4 6" opacity="0.55"><title>相同标签</title></line>
         </g>
-        <text v-for="center in layout.centers" :key="center.name" :x="center.x" :y="center.y - 52 - Math.sqrt(nodes.filter(node => node.group === center.name).length - 1) * 23"
-          class="memory-cluster-label" :style="{ fill: center.color, fontSize: `${16 / camera.zoom}px` }" :opacity="group && group !== center.name ? 0.25 : 0.9">{{ center.name }}</text>
+        <text v-for="center in topicLabels" :key="center.name" :x="center.x" :y="center.labelY"
+          class="memory-cluster-label" :style="{ fill: center.color, fontSize: `${14 / camera.zoom}px` }" :opacity="group && group !== center.name ? 0.25 : 0.9"><title>{{ center.name }}</title>{{ center.name.length > topicCharacters ? center.name.slice(0, topicCharacters) + '…' : center.name }}</text>
         <g v-for="node in nodes" :key="node.id" :transform="`translate(${node.x} ${node.y})`" class="memory-node"
           :class="{ 'is-selected': node.id === selectedId }" :style="{ color: node.color }"
           :opacity="(selectedId && !related.has(node.id)) || (group && node.group !== group) ? 0.15 : 1"
           role="button" tabindex="0" :aria-label="node.title" :aria-pressed="node.id === selectedId"
           @pointerdown.stop="start($event, node.id)" @click.stop="activate($event, node.id)"
+          @mouseenter="highlightedId = node.id" @mouseleave="highlightedId = ''" @focus="highlightedId = node.id" @blur="highlightedId = ''"
           @keydown.enter.prevent="emit('select', node.id)" @keydown.space.prevent="emit('select', node.id)">
           <title>{{ node.title }}</title>
           <circle r="19" fill="transparent" />
           <circle :r="node.id === selectedId ? 17 : 10" fill="currentColor" :opacity="node.id === selectedId ? 0.16 : 0.08" />
           <circle class="memory-node-core" :r="node.id === selectedId ? 9 : 5" stroke="currentColor" :stroke-dasharray="node.status !== 'ACTIVE' ? '2 2' : undefined" />
           <circle r="2" fill="currentColor" />
-          <text v-if="node.id === selectedId || nodes.length < 45 || camera.zoom > 1.5" x="13" y="5" fill="currentColor" :style="{ fontSize: `${12 / camera.zoom}px` }">{{ node.title.length > 16 ? node.title.slice(0, 16) + '…' : node.title }}</text>
+          <text v-if="node.id === selectedId || node.id === highlightedId" :x="node.x * camera.zoom + camera.x > size.width / 2 ? -13 : 13" :text-anchor="node.x * camera.zoom + camera.x > size.width / 2 ? 'end' : 'start'" y="5" fill="currentColor" :style="{ fontSize: `${12 / camera.zoom}px` }">{{ node.title.length > 16 ? node.title.slice(0, 16) + '…' : node.title }}</text>
         </g>
       </g>
     </svg>
     <div class="memory-graph-controls"><button aria-label="缩小图谱" @click="zoom(1 / 1.2)">−</button><span>{{ Math.round(camera.zoom * 100) }}%</span><button aria-label="放大图谱" @click="zoom(1.2)">＋</button><button @click="reset">复位</button></div>
+    <div class="memory-graph-hint">悬停查看标题，点击查看详情</div>
     <div class="memory-graph-legend"><span><i></i>已生效</span><span><i class="candidate"></i>未生效</span><span><b></b>显式关系</span><span><b class="dashed"></b>相同标签</span></div>
   </div>
 </template>

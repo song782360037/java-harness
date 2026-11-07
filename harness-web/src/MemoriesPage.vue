@@ -23,7 +23,9 @@ const loading = ref(false)
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
-const mode = ref<'graph' | 'list'>('graph')
+const mode = ref<'graph' | 'list'>('list')
+const detailClose = ref<HTMLButtonElement>()
+let detailTrigger: HTMLElement | SVGElement | null = null
 const confirmingDelete = ref(false)
 const editor = ref<HTMLDialogElement>()
 const editingId = ref('')
@@ -69,6 +71,7 @@ async function load(append = false) {
 function message(cause: unknown) { return cause instanceof Error ? cause.message : '记忆操作失败' }
 /** 关联目标可能位于分页或过滤范围外，按标识单独读取详情。 */
 async function select(id: string) {
+  if (id && !selectedId.value) detailTrigger = document.activeElement instanceof HTMLElement || document.activeElement instanceof SVGElement ? document.activeElement : null
   const version = ++detailVersion
   selectedId.value = id; detail.value = undefined; confirmingDelete.value = false; relationTarget.value = ''
   if (!id || entries.value.some(item => item.id === id)) return
@@ -82,6 +85,17 @@ async function select(id: string) {
     }
   }
 }
+/** 收起详情后回到原来的记忆，便于继续浏览列表或图谱。 */
+async function closeDetail() {
+  await select('')
+  await nextTick()
+  if (detailTrigger?.isConnected) detailTrigger.focus({ preventScroll: true })
+}
+watch(selectedId, async id => {
+  if (!id || window.innerWidth > 1000) return
+  await nextTick()
+  detailClose.value?.focus({ preventScroll: true })
+})
 function titleOf(id: string) { return entries.value.find(item => item.id === id)?.title || '未在当前列表中显示的记忆' }
 
 /** 使用原生对话框保留键盘焦点和 Esc 语义。 */
@@ -182,7 +196,7 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
     <p v-if="automaticError" class="memory-banner memory-error" role="alert">{{ automaticError }}</p>
     <p v-if="error" class="memory-banner memory-error" role="alert">{{ error }} <button :disabled="busy || loading" @click="load()">刷新重试</button></p>
     <p v-if="notice" class="memory-banner" role="status">{{ notice }}<button class="icon-button" aria-label="关闭提示" @click="notice = ''"><UiIcon name="close" :size="14" /></button></p>
-    <div class="memory-workbench" :aria-busy="loading">
+    <div class="memory-workbench" :class="{ 'has-detail': selectedId }" :aria-busy="loading">
       <aside class="memory-categories" aria-label="主题分类">
         <p class="memory-section-label">{{ workspaceName }}</p>
         <button :class="{ active: !group }" @click="group = ''"><span>全部主题</span><small>{{ entries.length }}</small></button>
@@ -200,7 +214,8 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
         </div>
         <div v-else class="memory-empty"><UiIcon name="branch" :size="44" /><h2>{{ loading ? '正在读取记忆…' : query || status ? '没有匹配的记忆' : !automatic ? '正在读取设置…' : !automatic.settings.enabled ? '自动记忆尚未开启' : automatic.progress.pending || automatic.progress.running ? '正在从对话生成记忆' : '暂时没有可保留的记忆' }}</h2><button v-if="!loading && !query && !status && automatic && !automatic.settings.enabled" class="memory-primary" @click="emit('open-settings')">前往设置开启</button></div>
       </section>
-      <aside class="memory-inspector" aria-label="记忆详情">
+      <aside v-if="selectedId" class="memory-inspector" aria-label="记忆详情" @keydown.esc.stop="closeDetail">
+        <div class="memory-inspector-heading"><strong>记忆详情</strong><button ref="detailClose" class="icon-button" aria-label="关闭记忆详情" @click="closeDetail"><UiIcon name="close" :size="17" /></button></div>
         <template v-if="selected">
           <div class="memory-detail-meta"><span>{{ memoryKinds[selected.kind] }}</span><span class="memory-status-badge" :class="selected.status.toLowerCase()">{{ memoryStatuses[selected.status] }}</span></div>
           <h2>{{ selected.title }}</h2><p class="memory-content">{{ selected.content }}</p>
@@ -214,7 +229,7 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
           <div class="memory-detail-section memory-timestamps"><span>创建于 {{ new Date(selected.createdAt).toLocaleString('zh-CN') }}</span><span>更新于 {{ new Date(selected.updatedAt).toLocaleString('zh-CN') }}</span><span>版本 {{ selected.revision }}</span></div>
           <div class="memory-delete"><template v-if="confirmingDelete"><p>删除后不再召回这条记忆。</p><button class="danger" :disabled="busy" @click="remove">确认删除</button><button :disabled="busy" @click="confirmingDelete = false">取消</button></template><button v-else :disabled="busy" @click="confirmingDelete = true">删除记忆</button></div>
         </template>
-        <div v-else class="memory-inspector-empty"><UiIcon name="scan" :size="26" /><p>选择一条记忆</p></div>
+        <p v-else role="status">正在读取记忆详情…</p>
       </aside>
     </div>
     <dialog ref="editor" class="memory-editor" aria-labelledby="memory-editor-title" @cancel="busy && $event.preventDefault()" @close="editorClosed">

@@ -117,15 +117,15 @@ button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-
 .response-footer .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .response-footer time { margin-left: auto; font-variant-numeric: tabular-nums; }
 .composer-dock { position: relative; flex-shrink: 0; width: min(836px, 100%); padding: 0 28px 20px; margin: auto auto 0; }
-.composer { position: relative; padding: 16px 16px 12px; border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: var(--composer-shadow); background: var(--surface); transition: border-color .16s, box-shadow .16s; }
+.composer { position: relative; padding: 12px 14px 10px; border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: var(--composer-shadow); background: var(--surface); transition: border-color .16s, box-shadow .16s; }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring), var(--composer-shadow); }
-.composer textarea { display: block; font-size: 1rem; line-height: 1.75; width: 100%; max-height: 200px; min-height: 58px; padding: 2px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.composer textarea { display: block; font-size: 1rem; line-height: 1.75; width: 100%; max-height: 200px; min-height: 36px; padding: 2px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .composer-input { position: relative; }
 .prompt-optimization-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--muted); font-size: var(--font-body); cursor: wait; }
 .prompt-optimization-error { margin: 8px 0 0; color: var(--danger); font-size: var(--font-caption); overflow-wrap: anywhere; }
 /* 悬浮在输入框上方，出现或消失时不改变对话区高度。 */
 .latest-message { position: absolute; z-index: 2; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 12px; border-radius: 20px; font-size: var(--font-caption); white-space: nowrap; background: var(--surface); box-shadow: var(--popover-shadow); }
-.composer-actions { display: flex; align-items: flex-end; gap: 10px; justify-content: space-between; padding-top: 10px; margin-top: 8px; border-top: 0.5px solid var(--border); }
+.composer-actions { display: flex; align-items: flex-end; gap: 10px; justify-content: space-between; padding-top: 8px; margin-top: 4px; border-top: 0.5px solid var(--border); }
 .workspace-chip { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 0; padding: 5px 4px; min-width: 0; color: var(--muted); font-size: var(--font-caption); max-width: 200px; }
 .workspace-chip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .send-button { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); border: 0; padding: 0; }

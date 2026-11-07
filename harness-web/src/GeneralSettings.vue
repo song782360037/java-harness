@@ -22,6 +22,6 @@ const autoScroll = computed({ get: () => preferences.value.autoScroll, set: valu
       <div class="preference-copy"><label for="auto-scroll">自动跟随最新消息</label><p id="auto-scroll-help">向上阅读时暂停跟随</p></div>
       <input id="auto-scroll" v-model="autoScroll" type="checkbox" aria-describedby="auto-scroll-help" />
     </div>
-    <p v-if="!preferencesPersistent" class="preferences-status" role="status">浏览器无法保存偏好，更改仅在当前页面生效。</p>
+    <p class="preferences-status" role="status">{{ preferencesPersistent ? '更改会自动保存，并立即生效。' : '浏览器无法保存偏好，更改仅在当前页面生效。' }}</p>
   </section>
 </template>

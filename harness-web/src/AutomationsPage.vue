@@ -109,7 +109,7 @@ onUnmounted(() => window.clearInterval(pollTimer))
   <main class="main-panel automations-page" aria-labelledby="automations-title">
     <header class="workspace-header">
       <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="emit('expandSidebar')"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1 id="automations-title">自动化</h1></div>
-      <button type="button" class="primary automation-create" :disabled="busy || loading" @click="openEditor()"><UiIcon name="plus" :size="15" />新建自动化</button>
+      <button v-if="automations.length" type="button" class="primary automation-create" :disabled="busy || loading" @click="openEditor()"><UiIcon name="plus" :size="15" />新建自动化</button>
     </header>
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
     <div class="automations-body" :aria-busy="loading">
@@ -117,8 +117,8 @@ onUnmounted(() => window.clearInterval(pollTimer))
       <div v-else-if="!automations.length" class="automations-empty">
         <UiIcon name="clock" :size="26" />
         <h2>按计划自动推进工作</h2>
-        <p>设定提示词、工作区和时间，Harness 会按时新建会话并执行，例如每日巡检、依赖检查或晨间汇总。</p>
-        <button type="button" class="primary" @click="openEditor()"><UiIcon name="plus" :size="15" />新建自动化</button>
+        <p>设定提示词、工作区和时间，让每日巡检或晨间汇总按计划运行。每次运行都会新建会话，结果可在这里追踪。</p>
+        <button type="button" class="primary automation-create" @click="openEditor()"><UiIcon name="plus" :size="15" />新建自动化</button>
       </div>
       <template v-else>
         <nav class="automation-list" aria-label="自动化列表">
@@ -173,12 +173,13 @@ onUnmounted(() => window.clearInterval(pollTimer))
               <div><label for="automation-effort">思考强度</label><select id="automation-effort" v-model="form.reasoningEffort"><option :value="null">模型默认</option><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
             </div>
             <div class="automation-grid">
-              <div><label for="automation-kind">频率</label><select id="automation-kind" v-model="form.scheduleKind"><option v-for="option in scheduleOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
+              <div><label for="automation-kind">频率</label><select id="automation-kind" v-model="form.scheduleKind" aria-describedby="automation-schedule-summary"><option v-for="option in scheduleOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
               <div v-if="form.scheduleKind === 'WEEKLY'"><label for="automation-weekday">星期</label><select id="automation-weekday" v-model.number="form.scheduleWeekday"><option v-for="(day, index) in weekdays" :key="day" :value="index">{{ day }}</option></select></div>
               <div v-if="['DAILY', 'WEEKDAYS', 'WEEKLY'].includes(form.scheduleKind)"><label for="automation-time">时间</label><input id="automation-time" v-model="form.scheduleTime" type="time" required /></div>
               <div v-if="form.scheduleKind === 'HOURLY'"><label for="automation-minute">第几分钟</label><input id="automation-minute" :value="Number(form.scheduleTime.slice(3)) || 0" type="number" min="0" max="59" step="1" required @input="form.scheduleTime = `00:${String(Math.min(59, Math.max(0, Number(($event.target as HTMLInputElement).value) || 0))).padStart(2, '0')}`" /></div>
             </div>
-            <template v-if="form.scheduleKind === 'CUSTOM'"><label for="automation-cron">cron 表达式</label><input id="automation-cron" v-model="form.cron" required maxlength="100" placeholder="0 9 * * 1-5" spellcheck="false" aria-describedby="automation-cron-note" /><p id="automation-cron-note" class="field-note">5 段：分 时 日 月 周，按本机时区；分钟需为单个数字，即最多每小时一次；“日”和“周”只能指定一个。周日为 0。</p></template>
+            <template v-if="form.scheduleKind === 'CUSTOM'"><label for="automation-cron">cron 表达式</label><input id="automation-cron" v-model="form.cron" required maxlength="100" placeholder="0 9 * * 1-5" spellcheck="false" aria-describedby="automation-cron-note" /><p id="automation-cron-note" class="field-note">5 段：分 时 日 月 周；分钟需为单个数字，即最多每小时一次；“日”和“周”只能指定一个。周日为 0。</p></template>
+            <div id="automation-schedule-summary" class="automation-schedule-summary"><UiIcon name="clock" :size="16" /><div><strong>{{ scheduleLabel(form) }}</strong><p v-if="form.scheduleKind !== 'MANUAL'">按运行服务的系统时区执行{{ form.enabled ? '' : ' · 定时触发已暂停' }}</p><p v-else>保存后可随时从详情中立即运行</p></div></div>
             <label class="check-label"><input v-model="form.allowCommands" type="checkbox" :disabled="!form.workspaceId" /> 允许提议执行命令</label>
             <label for="automation-approval">审批模式</label><select id="automation-approval" v-model="form.approvalMode" aria-describedby="automation-approval-note"><option v-for="option in approvalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
             <p id="automation-approval-note" class="field-note" :role="form.approvalMode === 'FULL_ACCESS' ? 'alert' : undefined">{{ approvalModeOptions.find(option => option.value === form.approvalMode)?.description }}{{ form.approvalMode === 'FULL_ACCESS' ? `。无人值守时${form.allowCommands ? '命令和' : ''}外部工具调用会在无人确认的情况下自动执行，只建议在你信任的工作区使用。` : '' }}</p>

@@ -88,17 +88,20 @@ onUnmounted(() => { version++ })
             <div class="workspace-picker-actions"><button type="button" :disabled="browsing" @click="pickerOpen = false">收起</button><button type="button" :disabled="browsing || !path.trim() || directories.length >= 16" @click="addDirectory">添加此目录</button></div>
           </div>
           <label for="workspace-name">工作区名称</label><input id="workspace-name" v-model="name" maxlength="100" placeholder="输入名称…" required />
-          <label id="workspace-icon-label">工作区图标</label>
-          <div class="workspace-presets" role="group" aria-labelledby="workspace-icon-label">
-            <button v-for="item in workspaceIcons" :key="item.value" type="button" :aria-label="item.label" :title="item.label" :aria-pressed="icon === item.value" :style="{ '--workspace-color': color }" @click="icon = item.value"><UiIcon :name="item.value" :size="21" /></button>
-          </div>
-          <label id="workspace-color-label">工作区颜色</label>
-          <div class="workspace-presets" role="group" aria-labelledby="workspace-color-label">
-            <button v-for="item in workspaceColors" :key="item" type="button" :aria-label="`颜色 ${item}`" :title="item" :aria-pressed="color === item" :style="{ '--workspace-color': item }" @click="color = item"><span class="workspace-color-dot" :style="{ background: item }"></span></button>
-          </div>
+          <details class="workspace-appearance">
+            <summary><span class="workspace-appearance-preview" :style="{ color }"><UiIcon :name="icon" :size="21" /></span><span>图标与颜色<small>展开自定义工作区外观</small></span></summary>
+            <label id="workspace-icon-label">工作区图标</label>
+            <div class="workspace-presets" role="group" aria-labelledby="workspace-icon-label">
+              <button v-for="item in workspaceIcons" :key="item.value" type="button" :aria-label="item.label" :title="item.label" :aria-pressed="icon === item.value" :style="{ '--workspace-color': color }" @click="icon = item.value"><UiIcon :name="item.value" :size="21" /></button>
+            </div>
+            <label id="workspace-color-label">工作区颜色</label>
+            <div class="workspace-presets" role="group" aria-labelledby="workspace-color-label">
+              <button v-for="item in workspaceColors" :key="item" type="button" :aria-label="`颜色 ${item}`" :title="item" :aria-pressed="color === item" :style="{ '--workspace-color': item }" @click="color = item"><span class="workspace-color-dot" :style="{ background: item }"></span></button>
+            </div>
+          </details>
         </div>
       </fieldset>
-      <div class="dialog-actions"><button type="button" :disabled="saving" @click="emit('cancel')">取消</button><button class="primary" :disabled="saving || browsing || disabled || !name.trim() || !directories.length">{{ saving ? '保存中…' : savedWorkspace ? '保存' : '创建' }}</button></div>
+      <div class="dialog-actions"><span class="settings-save-hint">{{ savedWorkspace ? '保存后应用工作区更改' : '创建后可开始对话' }}</span><button type="button" :disabled="saving" @click="emit('cancel')">取消</button><button class="primary" :disabled="saving || browsing || disabled || !name.trim() || !directories.length">{{ saving ? '保存中…' : savedWorkspace ? '保存' : '创建' }}</button></div>
     </form>
   </section>
 </template>

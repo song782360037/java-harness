@@ -6,10 +6,12 @@ import GroupStudioPanel from './GroupStudioPanel.vue'
 import StudioMember from './StudioMember.vue'
 import { studioPose, studioSeats } from './studioOffice'
 import UiIcon from './UiIcon.vue'
+import MarkdownContent from './MarkdownContent.vue'
 const props = defineProps<{ snapshot: GroupSnapshot; approvals: Record<string, RunApprovals> }>()
 const emit = defineEmits<{ mention: [member: GroupMember] }>()
 // 选中成员时跟随其最新运行；选中任务时固定查看该任务的运行。
 const selection = ref<{ memberId: string; taskKey: string | null } | null>(null)
+const zoomed = ref(false)
 const states = computed(() => memberStates(props.snapshot, props.approvals))
 const activeCount = computed(() => activeMemberCount(states.value))
 const steps = computed(() => taskSteps(props.snapshot.tasks))
@@ -31,6 +33,7 @@ const upstreamTitles = (task: GroupTask) => task.dependsOn.map(key => props.snap
 const seats = computed(() => studioSeats(states.value))
 const activity = computed(() => props.snapshot.messages.filter(message => message.author !== 'USER').slice(-6).reverse())
 const latestMessage = computed(() => activity.value[0])
+const latestPreview = computed(() => latestMessage.value?.content.split('\n').find(line => line.trim())?.slice(0, 280) || '')
 const workingMotion = (state: MemberState) => ['working', 'finishing', 'reviewing'].includes(state.kind)
 const activityTime = (value: string) => new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 
@@ -85,7 +88,8 @@ watch(() => props.snapshot, value => {
       </header>
 
       <section class="studio-room-shell" aria-label="像素协作办公室">
-        <div class="studio-room-viewport">
+        <div class="studio-room-toolbar"><span>{{ zoomed ? '可滚动查看工位' : '团队全景 · 点击成员查看详情' }}</span><div role="group" aria-label="工作室缩放"><button type="button" :aria-pressed="!zoomed" @click="zoomed = false">全景</button><button type="button" :aria-pressed="zoomed" @click="zoomed = true">放大</button></div></div>
+        <div class="studio-room-viewport" :class="{ 'is-zoomed': zoomed }">
           <div class="studio-room">
             <img class="studio-room-background" src="/studio/pixel-office-wide.png" width="1983" height="793" alt="像素办公室，设有编码工位、规划白板、评审桌和休息区" draggable="false" />
             <button v-for="seat in seats" :key="seat.state.member.id" type="button" class="studio-member" :class="{ 'is-selected': selection?.memberId === seat.state.member.id, 'has-attention': seat.state.attention, 'is-disabled': !seat.state.member.enabled }" :style="{ left: `${seat.x}%`, top: `${seat.y}%`, zIndex: seat.y, '--member-color': seat.state.member.color }" :aria-label="deskLabel(seat.state)" :aria-pressed="selection?.memberId === seat.state.member.id && !selection.taskKey" :title="deskLabel(seat.state)" @click="pickMember(seat.state.member.id, $event)">
@@ -99,7 +103,7 @@ watch(() => props.snapshot, value => {
           <button v-for="state in states" :key="state.member.id" type="button" :class="{ 'is-selected': selection?.memberId === state.member.id, 'has-attention': state.attention, 'is-disabled': !state.member.enabled }" :aria-label="deskLabel(state)" :aria-pressed="selection?.memberId === state.member.id && !selection.taskKey" :title="deskLabel(state)" @click="pickMember(state.member.id, $event)"><i :style="{ background: state.member.color }"></i><span>{{ state.member.name }}</span><small>{{ state.label }}</small></button>
         </nav>
       </section>
-      <footer class="studio-activity-bar"><span><UiIcon name="chart" :size="15" />协作动态</span><p v-if="latestMessage"><strong>{{ latestMessage.authorName }}</strong>{{ latestMessage.content }}</p><p v-else>{{ snapshot.busy ? '等待成员更新进展' : '等待开始本轮协作' }}</p><span v-if="attentionStates.length" class="studio-activity-attention"><UiIcon name="warning" :size="14" />{{ attentionStates.length }} 项待处理</span></footer>
+      <footer class="studio-activity-bar"><span><UiIcon name="chart" :size="15" />协作动态</span><div v-if="latestMessage" class="studio-latest"><strong>{{ latestMessage.authorName }}</strong><MarkdownContent :content="latestPreview" /></div><p v-else>{{ snapshot.busy ? '等待成员更新进展' : '等待开始本轮协作' }}</p><span v-if="attentionStates.length" class="studio-activity-attention"><UiIcon name="warning" :size="14" />{{ attentionStates.length }} 项待处理</span></footer>
     </section>
 
     <div class="studio-sidebar">

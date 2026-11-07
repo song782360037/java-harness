@@ -16,6 +16,6 @@ const choices = [
         <span class="theme-choice-heading"><strong>{{ choice.label }}</strong><UiIcon v-if="themePreference === choice.value" name="check" :size="16" aria-hidden="true" /></span>
       </button>
     </div>
-    <p v-if="!themePersistent" class="appearance-status" role="status">浏览器无法保存偏好，本次切换仍然生效。</p>
+    <p class="appearance-status" role="status">{{ themePersistent ? '主题切换立即生效，选择会自动保存。' : '浏览器无法保存偏好，本次切换仍然生效。' }}</p>
   </section>
 </template>
