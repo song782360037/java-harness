@@ -29,7 +29,7 @@ import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, upl
   type Session, type Snapshot, type Submission, type ModelProfile, type Workspace, type ApprovalMode } from './api'
 import { addMention, attachmentProblem, attachmentsOnlyPrompt, droppedFiles, isImage, isLongPaste, mentionLabel, MAX_ATTACHMENTS, MAX_MENTIONS, nextPastedName, removeFileMentionQuery,
   type Attachment, type DraftAttachment, type FileEntry } from './composer'
-import { workspaceSummary } from './workspaces'
+import { draftSession, workspaceSummary } from './workspaces'
 
 const sessions = ref<Session[]>([])
 const workspaces = ref<Workspace[]>([])
@@ -364,9 +364,9 @@ async function chooseWorkspace(workspaceId: string) {
   workspaceSyncing.value = true
   error.value = ''
   try {
-    const session = snapshot.value
+    const session = selectedId.value
       ? await api<Session>(`/sessions/${selectedId.value}/workspace`, { workspaceId })
-      : await api<Session>('/sessions', { title: '新会话', workspaceId })
+      : draftSession(workspaces.value.find(value => value.id === workspaceId))
     await workspaceSaved(session)
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '切换工作区失败' }
   finally { workspaceSyncing.value = false }
@@ -656,6 +656,13 @@ async function selectSession(id: string) {
   } catch { storageSet(`harness.pending.${id}`, null) }
   if (pending.value) { prompt.value = pending.value.prompt; draftMentions.value = pending.value.mentions ?? [] }
   storageSet('harness.session', id)
+  if (!id) {
+    storageSet('harness.session', null)
+    snapshot.value = { session: draftSession(), runs: [], lastSeq: 0, usage: null }
+    approvalMode.value = 'MANUAL'
+    loading.value = false
+    return
+  }
   try {
     const loaded = await refresh(id, version)
     if (version === revision) {
@@ -670,11 +677,11 @@ async function selectSession(id: string) {
     else if (version === revision) error.value = cause instanceof Error ? cause.message : '加载失败'
   } finally { if (version === revision) loading.value = false }
 }
-// 首页直接发送时沿用已选审批模式；新建空白会话从手动审批开始，完全访问需重新确认。
-async function addSession(title: string, workspaceId: string, keepApproval = false) {
+// 首次发送时才保存会话，沿用草稿的模型和审批选择。
+async function addSession(title: string, workspaceId: string) {
   const profile = selectedProfileId.value
   const effort = reasoningEffort.value
-  const approval = keepApproval ? approvalMode.value : 'MANUAL'
+  const approval = approvalMode.value
   const session = await api<Session>('/sessions', { title, workspaceId })
   sessions.value = [session, ...sessions.value]
   showAutomations.value = false
@@ -688,21 +695,17 @@ async function addSession(title: string, workspaceId: string, keepApproval = fal
   return snapshot.value?.session.id === session.id
 }
 async function createSession() {
-  if (loading.value || submitting.value || workspaceChanging.value) return
-  loading.value = true; error.value = ''; clearComposerInputs()
-  try { await addSession('新会话', snapshot.value?.session.workspaceId || '') }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
-  finally { loading.value = false }
+  await createWorkspaceSession(snapshot.value?.session.workspaceId || '')
 }
 async function send() {
   if (optimizingPrompt.value || workspaceChanging.value) return
-  if (snapshot.value) { await submit(); return }
+  if (selectedId.value) { await submit(); return }
   if (attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
-  if (loading.value || submitting.value || selectedId.value || !model.value?.configured || !prompt.value.trim()) return
+  if (loading.value || submitting.value || !model.value?.configured || !hasDraftContent.value) return
   const draft = prompt.value
   let ready = false
   submitting.value = true; error.value = ''
-  try { ready = await addSession(draft.trim().slice(0, 40), '', true) }
+  try { ready = await addSession(draft.trim().slice(0, 40) || '新会话', snapshot.value?.session.workspaceId || '') }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { prompt.value = draft; submitting.value = false }
   if (ready) { saveDraft('', ''); await submit() }
@@ -729,6 +732,14 @@ async function workspaceSaved(session: Session) {
   closeSettings()
   // 引用按目录序号和路径记录，换了工作区就不再适用。
   draftMentions.value = []
+  if (!session.id) {
+    if (selectedId.value) { clearComposerInputs(); await selectSession('') }
+    snapshot.value = { session, runs: [], lastSeq: 0, usage: null }
+    prompt.value = draft; selectedProfileId.value = profile; reasoningEffort.value = effort; approvalMode.value = approval
+    try { await loadWorkspaces() }
+    catch (cause) { error.value = cause instanceof Error ? cause.message : '刷新工作区失败' }
+    return
+  }
   sessions.value = creating ? [session, ...sessions.value] : sessions.value.map(value => value.id === session.id ? session : value)
   try {
     await loadWorkspaces()
@@ -773,13 +784,19 @@ async function openAutomationSession(id: string) {
   await reloadSessions()
   navigateSession(id)
 }
-// 从侧栏工作区入口创建绑定该工作区的新会话。
+// 新建只切换到草稿；重复点击当前草稿入口时保留输入，不创建空会话。
 async function createWorkspaceSession(workspaceId: string) {
   if (loading.value || submitting.value || workspaceChanging.value) return
-  loading.value = true; error.value = ''; clearComposerInputs()
-  try { await addSession('新会话', workspaceId) }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
-  finally { loading.value = false }
+  showAutomations.value = false; showMemories.value = false; showGroups.value = false
+  closeSettings()
+  if (selectedId.value || !snapshot.value || snapshot.value.session.workspaceId !== workspaceId) {
+    clearComposerInputs()
+    await selectSession('')
+    snapshot.value = { session: draftSession(workspaces.value.find(value => value.id === workspaceId)), runs: [], lastSeq: 0, usage: null }
+  }
+  error.value = ''
+  if (isMobile.value) sidebarCollapsed.value = true
+  await nextTick(); promptInput.value?.focus()
 }
 async function initialize() {
   loading.value = true
@@ -937,7 +954,7 @@ onUnmounted(() => {
         <form class="composer" @submit.prevent="send" @dragover="onComposerDragover" @drop="onComposerDrop">
           <label class="sr-only" for="prompt">输入问题</label>
           <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="optimizingPrompt || !!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
-          <MentionPicker ref="mentionPicker" :session-id="snapshot?.session.id" :workspace="!!snapshot?.session.workspace" :multi-root="multiRoot" :disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="pickMention" />
+          <MentionPicker ref="mentionPicker" :session-id="snapshot?.session.id" :workspace-id="snapshot?.session.workspaceId" :workspace="!!snapshot?.session.workspace" :multi-root="multiRoot" :disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="pickMention" />
           <ComposerAttachments :items="draftAttachments" :mentions="draftMentions" :multi-root="multiRoot" :disabled="optimizingPrompt || submitting || !!pending" @remove="removeAttachment" @remove-mention="removeMention" />
           <div class="composer-input">
             <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，@ 引用文件，/ 选择插件命令…' : '描述你的问题，可粘贴图片，/ 选择插件命令…'" :disabled="optimizingPrompt || !!pending || submitting || loading || workspaceChanging" :aria-describedby="optimizationError ? 'prompt-optimization-error' : undefined" rows="2" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />

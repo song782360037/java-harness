@@ -3,13 +3,13 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
 import { fileMentionQuery, mentionLabel, type FileEntry } from './composer'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ sessionId?: string; workspace: boolean; multiRoot: boolean; disabled: boolean; text: string; input?: HTMLTextAreaElement }>()
+const props = defineProps<{ sessionId?: string; workspaceId?: string; workspace: boolean; multiRoot: boolean; disabled: boolean; text: string; input?: HTMLTextAreaElement }>()
 const emit = defineEmits<{ select: [entry: FileEntry] }>()
 const entries = ref<FileEntry[]>([]), query = ref<string | null>(null), error = ref(''), loading = ref(false), active = ref(0)
 const panel = ref<HTMLElement>(), dismissedText = ref<string | null>(null)
 const availableHeight = ref(300)
 const open = computed(() => query.value !== null)
-const ready = computed(() => !!props.sessionId && props.workspace)
+const ready = computed(() => !!(props.sessionId || props.workspaceId) && props.workspace)
 const activeId = computed(() => open.value && !loading.value && !error.value && entries.value[active.value] ? `file-mention-${active.value}` : undefined)
 let generation = 0, timer: ReturnType<typeof setTimeout> | undefined
 
@@ -26,7 +26,8 @@ function search() {
   loading.value = true; error.value = ''
   timer = setTimeout(async () => {
     try {
-      const values = await api<FileEntry[]>(`/sessions/${props.sessionId}/files?q=${encodeURIComponent(query.value || '')}`)
+      const scope = props.sessionId ? `/sessions/${props.sessionId}` : `/workspaces/${props.workspaceId}`
+      const values = await api<FileEntry[]>(`${scope}/files?q=${encodeURIComponent(query.value || '')}`)
       if (version === generation) entries.value = values
     } catch (cause) { if (version === generation) error.value = cause instanceof Error ? cause.message : '搜索失败，请重试。' }
     finally { if (version === generation) loading.value = false }
@@ -67,7 +68,7 @@ function keydown(event: KeyboardEvent): boolean {
 }
 function outside(event: PointerEvent) { if (event.target !== props.input && !panel.value?.contains(event.target as Node)) close(true) }
 watch(() => props.text, () => { void nextTick(sync) })
-watch(() => [props.sessionId, props.disabled, props.workspace], () => { dismissedText.value = null; close() })
+watch(() => [props.sessionId, props.workspaceId, props.disabled, props.workspace], () => { dismissedText.value = null; close() })
 watch([query, entries], () => { active.value = 0 })
 watch(activeId, () => { void nextTick(() => { if (activeId.value) panel.value?.querySelector(`#${activeId.value}`)?.scrollIntoView({ block: 'nearest' }) }) })
 watch(() => props.input, (input, previous) => {

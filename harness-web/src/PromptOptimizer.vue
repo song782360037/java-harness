@@ -12,7 +12,7 @@ const emit = defineEmits<{ apply: [text: string]; busy: [value: boolean]; error:
 interface Result { prompt: string; historyTurns: number; memories: { id: string; title: string }[] }
 const busy = ref(false)
 const request = computed(() => ({ sessionId: props.sessionId, prompt: props.text, modelProfileId: props.modelProfileId,
-  reasoningEffort: props.reasoningEffort, mentions: props.mentions, attachmentIds: props.attachmentIds }))
+  reasoningEffort: props.reasoningEffort, mentions: props.mentions, attachmentIds: props.attachmentIds, workspaceId: props.workspaceId }))
 const identity = computed(() => JSON.stringify([request.value, props.workspaceId, props.workspace]))
 let controller: AbortController | null = null
 

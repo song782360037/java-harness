@@ -156,6 +156,32 @@ class ComposerApiIntegrationTest {
     }
 
     @Test
+    void workspaceDraftsSearchAndOptimizeWithoutSavingSessions() throws Exception {
+        Files.writeString(root.resolve("Draft.java"), "class Draft {}\n");
+        var workspace = store.saveWorkspace("", "草稿项目", List.of(root.toString()), "folder", "#112233", 0);
+        var before = store.sessions();
+        var found = get("/workspaces/" + workspace.id() + "/files?q=draft");
+        assertThat(found.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(found.body()))
+                .extracting(entry -> entry.get("path").asText())
+                .contains("Draft.java");
+        var optimized = post(
+                "/composer/optimize",
+                Map.of(
+                        "workspaceId", workspace.id(),
+                        "prompt", "分析草稿代码",
+                        "mentions", List.of(Map.of("root", 1, "path", "Draft.java", "directory", false))));
+        assertThat(optimized.statusCode()).as(optimized.body()).isEqualTo(200);
+        assertThat(REQUESTS.getLast().messages().getLast().content()).contains("class Draft {}");
+        assertThat(store.sessions()).isEqualTo(before);
+        assertThat(get("/workspaces/missing/files?q=x").statusCode()).isEqualTo(404);
+        assertThat(post("/composer/optimize", Map.of("workspaceId", "missing", "prompt", "分析"))
+                        .statusCode())
+                .isEqualTo(404);
+        assertThat(store.sessions()).isEqualTo(before);
+    }
+
+    @Test
     void optimizesDraftsThroughHttpWithoutAddingMessages() throws Exception {
         String session = session(root);
         var response = post("/composer/optimize", Map.of("sessionId", session, "prompt", "说明当前项目的入口"));

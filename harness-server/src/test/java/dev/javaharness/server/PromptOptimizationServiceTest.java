@@ -166,6 +166,30 @@ class PromptOptimizationServiceTest {
     }
 
     @Test
+    void workspaceDraftsKeepScopedMemoriesAndMentionsWithoutCreatingSessions() throws Exception {
+        var local = memory(session.workspaceId(), "PostgreSQL 项目约定", "ACTIVE");
+        var global = memory("", "PostgreSQL 输出使用中文", "ACTIVE");
+        memory(otherWorkspace, "PostgreSQL 其他项目机密", "ACTIVE");
+        Files.writeString(root.resolve("config.txt"), "maximumPoolSize=12");
+        var before = sessions.sessions();
+        var result = optimizer.optimize(new Draft(
+                "",
+                "分析 PostgreSQL 配置",
+                "chosen-profile",
+                "high",
+                List.of(new ComposerInputService.Mention(1, "config.txt", false)),
+                List.of(),
+                session.workspaceId()));
+        assertThat(result.historyTurns()).isZero();
+        assertThat(result.memories())
+                .extracting(PromptOptimizationService.MemoryReference::id)
+                .containsExactlyInAnyOrder(local, global);
+        assertThat(requests.getLast().messages().getLast().content()).contains("maximumPoolSize=12");
+        assertThat(sessions.sessions()).isEqualTo(before);
+        assertThat(sessions.snapshot(session.id()).runs()).isEmpty();
+    }
+
+    @Test
     void includesScopedMemoryHistoryAndAttachmentsWithoutCreatingRunsOrBindingUploads() throws Exception {
         history("PostgreSQL 连接池异常", "已检查配置，连接池上限为12。");
         var local = memory(session.workspaceId(), "PostgreSQL 项目使用连接池", "ACTIVE");

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue'
 import { api, type DirectoryListing, type Session, type Workspace } from './api'
-import { directoryName, workspaceColors, workspaceDirectories, workspaceIcons } from './workspaces'
+import { directoryName, draftSession, workspaceColors, workspaceDirectories, workspaceIcons } from './workspaces'
 import UiIcon from './UiIcon.vue'
 const props = defineProps<{ sessionId?: string; initialPath: string; initialWorkspace?: Workspace; disabled?: boolean }>()
 const emit = defineEmits<{ saved: [session: Session]; busy: [value: boolean]; cancel: [] }>()
@@ -39,7 +39,7 @@ async function addDirectory() {
   if (!name.value.trim()) name.value = directoryName(listing.value.path).slice(0, 100)
   pickerOpen.value = false
 }
-// 保存共享工作区后绑定会话；绑定失败时保留 ID，重试不会重复创建。
+// 保存工作区；尚未发送消息时只更新草稿，绑定失败时保留工作区 ID 供重试。
 async function save() {
   if (saving.value || browsing.value || props.disabled || !name.value.trim() || !directories.value.length) return
   saving.value = true; error.value = ''
@@ -52,7 +52,7 @@ async function save() {
     savedWorkspace.value = workspace
     const session = props.sessionId
       ? await api<Session>(`/sessions/${props.sessionId}/workspace`, { workspaceId: workspace.id })
-      : await api<Session>('/sessions', { title: '新会话', workspaceId: workspace.id })
+      : draftSession(workspace)
     emit('saved', session)
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '保存工作区失败' }
   finally { saving.value = false; emit('busy', false) }

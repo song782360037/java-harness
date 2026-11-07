@@ -49,7 +49,19 @@ public final class PromptOptimizationService implements AutoCloseable {
             String modelProfileId,
             String reasoningEffort,
             List<ComposerInputService.Mention> mentions,
-            List<String> attachmentIds) {}
+            List<String> attachmentIds,
+            String workspaceId) {
+        /** 兼容仅传会话或全局草稿的调用。 */
+        public Draft(
+                String sessionId,
+                String prompt,
+                String modelProfileId,
+                String reasoningEffort,
+                List<ComposerInputService.Mention> mentions,
+                List<String> attachmentIds) {
+            this(sessionId, prompt, modelProfileId, reasoningEffort, mentions, attachmentIds, "");
+        }
+    }
 
     public record MemoryReference(String id, String title) {}
 
@@ -112,9 +124,10 @@ public final class PromptOptimizationService implements AutoCloseable {
         String sessionId = draft.sessionId() == null ? "" : draft.sessionId();
         var snapshot = sessionId.isBlank() ? null : sessions.snapshot(sessionId);
         Session session = snapshot == null ? null : snapshot.session();
-        if (session == null && draft.mentions() != null && !draft.mentions().isEmpty())
-            throw new HarnessException("INVALID", "请先选择会话工作区后引用文件");
-        var attached = inputs.resolve(sessionId, draft.mentions(), draft.attachmentIds());
+        String workspaceId =
+                session == null ? (draft.workspaceId() == null ? "" : draft.workspaceId()) : session.workspaceId();
+        String workspace = session == null ? inputs.workspace(workspaceId) : session.workspace();
+        var attached = inputs.resolve(sessionId, workspace, draft.mentions(), draft.attachmentIds());
         var eligible = snapshot == null
                 ? List.<Run>of()
                 : snapshot.runs().stream()
@@ -138,10 +151,7 @@ public final class PromptOptimizationService implements AutoCloseable {
         String query = draft.prompt();
         if (!eligible.isEmpty()) query += "\n" + eligible.getLast().prompt();
         var recalled = memories.recallInWorkspace(
-                session == null ? "" : session.workspaceId(),
-                query,
-                configuration.tokenCounter(),
-                Math.min(2048, Math.max(0, (limit - baseline) / 3)));
+                workspaceId, query, configuration.tokenCounter(), Math.min(2048, Math.max(0, (limit - baseline) / 3)));
         payload.put("retrievedMemory", recalled.text());
         // JSON 转义与协议开销也计入预算，不能只计算记忆正文长度。
         if (tokens(payload, budget) > limit) {
@@ -182,7 +192,7 @@ public final class PromptOptimizationService implements AutoCloseable {
                 INSTRUCTIONS,
                 true,
                 configuration.selection().reasoningEffort());
-        requireWorkspace(session);
+        requireWorkspace(session, workspaceId, workspace);
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         String optimized;
         try (var resources = configuration.resources().open("")) {
@@ -210,7 +220,7 @@ public final class PromptOptimizationService implements AutoCloseable {
             if (!turn.calls().isEmpty() || optimized.isEmpty() || optimized.length() > MAX_RESULT_CHARACTERS)
                 throw new HarnessException("UNAVAILABLE", "模型未返回有效的优化提示词，请重试");
         }
-        requireWorkspace(session);
+        requireWorkspace(session, workspaceId, workspace);
         return new Result(
                 optimized,
                 history.size(),
@@ -226,8 +236,12 @@ public final class PromptOptimizationService implements AutoCloseable {
     }
 
     /** 工作区在优化期间变化时丢弃结果，避免将旧工作区上下文应用到新范围。 */
-    private void requireWorkspace(Session captured) {
-        if (captured == null) return;
+    private void requireWorkspace(Session captured, String workspaceId, String workspace) {
+        if (captured == null) {
+            if (!inputs.workspace(workspaceId).equals(workspace))
+                throw new HarnessException("CONFLICT", "草稿工作区已变化，请重新优化");
+            return;
+        }
         Session current = sessions.snapshot(captured.id()).session();
         if (!current.workspaceId().equals(captured.workspaceId())
                 || !current.workspace().equals(captured.workspace()))

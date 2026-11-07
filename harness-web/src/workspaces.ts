@@ -1,3 +1,13 @@
+import type { Session, Workspace } from './api'
+
+// 空 ID 仅表示当前草稿，首次发送前不写入会话存储。
+export function draftSession(workspace?: Workspace): Session {
+  const directories = workspace?.directories || []
+  return { id: '', title: '新会话', createdAt: '', workspaceId: workspace?.id || '',
+    workspace: directories.length > 1 ? JSON.stringify(directories) : directories[0] || '',
+    modelProfileId: '', reasoningEffort: '', approvalMode: 'MANUAL' }
+}
+
 export const workspaceIcons = [
   { value: 'folder', label: '文件夹' }, { value: 'code', label: '代码' }, { value: 'branch', label: '分支' },
   { value: 'cube', label: '模块' }, { value: 'reasoning', label: '闪电' }, { value: 'coffee', label: '咖啡' },

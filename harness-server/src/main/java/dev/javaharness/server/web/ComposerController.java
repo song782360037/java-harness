@@ -34,7 +34,7 @@ public class ComposerController {
         this.optimization = optimization;
     }
 
-    /** 优化草稿只返回预览，不创建对话任务；无会话时只使用全局记忆。 */
+    /** 优化草稿只返回预览，不创建会话或任务；草稿可按所选工作区使用引用和记忆。 */
     @PostMapping("/composer/optimize")
     public PromptOptimizationService.Result optimize(@RequestBody PromptOptimizationService.Draft draft) {
         if (draft.sessionId() != null && !draft.sessionId().isBlank()) groups.requireOrdinary(draft.sessionId());
@@ -45,6 +45,13 @@ public class ComposerController {
     public List<WorkspaceFileSearch.Entry> files(@PathVariable String id, @RequestParam(defaultValue = "") String q) {
         groups.requireOrdinary(id);
         return inputs.search(id, q);
+    }
+
+    /** 首次发送前按工作区搜索文件，不持久化空会话。 */
+    @GetMapping("/workspaces/{id}/files")
+    public List<WorkspaceFileSearch.Entry> workspaceFiles(
+            @PathVariable String id, @RequestParam(defaultValue = "") String q) {
+        return inputs.searchInWorkspace(id, q);
     }
 
     @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
