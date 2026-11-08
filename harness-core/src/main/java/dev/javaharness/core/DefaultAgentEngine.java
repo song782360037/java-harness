@@ -229,7 +229,7 @@ public final class DefaultAgentEngine implements AgentEngine {
         Run run = store.run(runId);
         if (!run.status().active()) return run;
         Task task = tasks.get(runId);
-        if (task == null) throw new HarnessException("CONFLICT", "任务未由当前进程持有");
+        if (task == null) return store.transition(runId, RunStatus.INTERRUPTED, "执行任务已结束，已清理残留状态；不会自动重跑");
         requestStop(runId, task, RunStatus.CANCELLED);
         return store.run(runId);
     }
@@ -427,7 +427,8 @@ public final class DefaultAgentEngine implements AgentEngine {
             }
             if (outcome != null && failure == null && task.stopReason == null) {
                 try {
-                    memories.completed(store.run(run.id()));
+                    Run completed = store.run(run.id());
+                    if (completed.status() == RunStatus.COMPLETED) memories.completed(completed);
                 } catch (RuntimeException error) {
                     System.getLogger(getClass().getName())
                             .log(System.Logger.Level.INFO, "Memory extraction not scheduled for " + run.id());
@@ -465,6 +466,17 @@ public final class DefaultAgentEngine implements AgentEngine {
             };
             if (status == RunStatus.COMPLETED) store.completeRun(runId, outcome.completed(), outcome.detail());
             else store.transition(runId, status, detail);
+        } catch (RuntimeException error) {
+            System.getLogger(getClass().getName())
+                    .log(System.Logger.Level.WARNING, "Settlement failed for " + runId, error);
+            Run run = store.run(runId);
+            if (run.status().active()) {
+                // CANCELLING cannot transition to FAILED; INTERRUPTED also releases its session slot.
+                store.transition(
+                        runId,
+                        run.status() == RunStatus.CANCELLING ? RunStatus.INTERRUPTED : RunStatus.FAILED,
+                        "任务结算失败，执行已结束；请重新提交");
+            }
         } finally {
             tasks.remove(runId);
         }

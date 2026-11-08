@@ -7,6 +7,7 @@ import dev.javaharness.adapters.SimulatedModelProvider;
 import dev.javaharness.adapters.session.JdbcSessionStore;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.spi.HarnessException;
+import dev.javaharness.spi.memory.LongTermMemory;
 import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunConfiguration;
@@ -308,6 +309,112 @@ class RuntimeTest {
             settled(failed.id());
             assertThat(store.run(failed.id()).status()).isEqualTo(RunStatus.FAILED);
             assertThat(store.run(failed.id()).output()).contains("失败前输出");
+        }
+    }
+
+    @Test
+    void failedCompletionSettlesAsFailedAndReleasesTheSessionWithoutExtractingMemories() {
+        var extracted = new java.util.concurrent.atomic.AtomicInteger();
+        TestModelProvider model = (request, cancellation, text) -> text.accept("已生成的回答");
+        var config = new RunConfiguration(
+                model.info(),
+                Duration.ofSeconds(5),
+                32000,
+                32,
+                workspace -> new RunConfiguration.Resources(model, WorkspaceTools.disabled(), () -> {}));
+        var memory = new LongTermMemory() {
+            @Override
+            public void completed(Run run) {
+                extracted.incrementAndGet();
+            }
+        };
+        try (var engine = new DefaultAgentEngine(store, () -> config, memory)) {
+            Session session = store.createSession("结算失败");
+            jdbc.execute("ALTER TABLE harness_run ADD CONSTRAINT test_completion CHECK (status <> 'COMPLETED')");
+            Run run = engine.submit(session.id(), key(), "hello", "NORMAL").run();
+            settled(run.id());
+            synchronized (engine) {
+                assertThat(store.run(run.id()).status()).isEqualTo(RunStatus.FAILED);
+                assertThat(store.run(run.id()).output()).isEqualTo("已生成的回答");
+                assertThat(jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM harness_conversation WHERE run_id=?", Integer.class, run.id()))
+                        .isZero();
+            }
+            jdbc.execute("ALTER TABLE harness_run DROP CONSTRAINT test_completion");
+            Run next = engine.submit(session.id(), key(), "next", "NORMAL").run();
+            settled(next.id());
+            assertThat(store.run(next.id()).status()).isEqualTo(RunStatus.COMPLETED);
+        }
+        assertThat(extracted).hasValue(1);
+    }
+
+    @Test
+    void failedCancellationSettlementUsesAnAllowedTerminalState() throws Exception {
+        var entered = new CountDownLatch(1);
+        TestModelProvider model = (request, cancellation, text) -> {
+            if (entered.getCount() == 0) return;
+            entered.countDown();
+            new CountDownLatch(1).await();
+        };
+        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Session session = store.createSession("停止结算失败");
+            jdbc.execute("ALTER TABLE harness_run ADD CONSTRAINT test_cancellation CHECK (status <> 'CANCELLED')");
+            Run run = engine.submit(session.id(), key(), "hello", "NORMAL").run();
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            engine.cancel(run.id());
+            settled(run.id());
+            assertThat(store.run(run.id()).status()).isEqualTo(RunStatus.INTERRUPTED);
+            jdbc.execute("ALTER TABLE harness_run DROP CONSTRAINT test_cancellation");
+            Run next = engine.submit(session.id(), key(), "next", "NORMAL").run();
+            settled(next.id());
+            assertThat(store.run(next.id()).status()).isEqualTo(RunStatus.COMPLETED);
+        }
+    }
+
+    @Test
+    void cancelCleansUpEveryActiveStateWithoutAnOwnedTask() {
+        try (var engine = new DefaultAgentEngine(store, new SimulatedModelProvider(0), Duration.ofSeconds(5))) {
+            for (RunStatus status : List.of(RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.CANCELLING)) {
+                Session session = store.createSession("残留 " + status);
+                Run run = store.submit(session.id(), key(), "hello", "NORMAL", TestModelProvider.INFO)
+                        .run();
+                if (status != RunStatus.QUEUED) store.transition(run.id(), RunStatus.RUNNING, "");
+                if (status == RunStatus.CANCELLING) store.transition(run.id(), RunStatus.CANCELLING, "停止中");
+                assertThat(engine.cancel(run.id()).status()).isEqualTo(RunStatus.INTERRUPTED);
+                assertThat(engine.cancel(run.id()).status()).isEqualTo(RunStatus.INTERRUPTED);
+                Run next = engine.submit(session.id(), key(), "next", "NORMAL").run();
+                settled(next.id());
+                assertThat(store.run(next.id()).status()).isEqualTo(RunStatus.COMPLETED);
+            }
+        }
+    }
+
+    @Test
+    void cancelCanRecoverAfterBothSettlementWritesFailAndTheDatabaseBecomesWritable() throws Exception {
+        var worker = new java.util.concurrent.atomic.AtomicReference<Thread>();
+        var entered = new CountDownLatch(1);
+        TestModelProvider model = (request, cancellation, text) -> {
+            worker.set(Thread.currentThread());
+            entered.countDown();
+            text.accept("已生成的回答");
+        };
+        try (var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Session session = store.createSession("持续写入失败");
+            jdbc.execute("ALTER TABLE harness_run ADD CONSTRAINT test_settlement "
+                    + "CHECK (status NOT IN ('COMPLETED','FAILED','INTERRUPTED'))");
+            Run run = engine.submit(session.id(), key(), "hello", "NORMAL").run();
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            worker.get().join(5000);
+            assertThat(worker.get().isAlive()).isFalse();
+            assertThat(store.run(run.id()).status()).isEqualTo(RunStatus.RUNNING);
+            assertThatThrownBy(() -> engine.cancel(run.id())).isInstanceOf(RuntimeException.class);
+            assertThat(store.run(run.id()).status()).isEqualTo(RunStatus.RUNNING);
+            jdbc.execute("ALTER TABLE harness_run DROP CONSTRAINT test_settlement");
+            assertThat(engine.cancel(run.id()).status()).isEqualTo(RunStatus.INTERRUPTED);
+            assertThat(store.run(run.id()).output()).isEqualTo("已生成的回答");
+            Run next = engine.submit(session.id(), key(), "next", "NORMAL").run();
+            settled(next.id());
+            assertThat(store.run(next.id()).status()).isEqualTo(RunStatus.COMPLETED);
         }
     }
 
