@@ -69,9 +69,9 @@ class RunArtifactsTest {
         changes.apply(created.id());
 
         var list = artifacts.list(run.id());
-        assertThat(list).extracting(RunArtifacts.Artifact::path).containsExactly("App.java", "notes.md");
+        assertThat(list).extracting(RunArtifacts.Artifact::path).containsExactlyInAnyOrder("App.java", "notes.md");
         assertThat(list).noneMatch(value -> value.changeId().equals(pending.id()));
-        var notes = list.get(1);
+        var notes = list.stream().filter(value -> value.changeId().equals(created.id())).findFirst().orElseThrow();
         assertThat(notes.operation()).isEqualTo("create");
         assertThat(notes.state()).isEqualTo("FILE");
         assertThat(notes.size()).isEqualTo(8);
@@ -79,7 +79,10 @@ class RunArtifactsTest {
         assertThat(notes.openable()).isTrue();
 
         Files.delete(directory.resolve("notes.md"));
-        assertThat(artifacts.list(run.id()).get(1).state()).isEqualTo("MISSING");
+        assertThat(artifacts.list(run.id()))
+                .filteredOn(value -> value.changeId().equals(created.id()))
+                .extracting(RunArtifacts.Artifact::state)
+                .containsExactly("MISSING");
     }
 
     @Test
@@ -109,7 +112,10 @@ class RunArtifactsTest {
         assertThat(launched).containsExactly(List.of("explorer.exe", file), List.of("explorer.exe", "/select,", file));
 
         assertThatThrownBy(() -> artifacts.open(script.id(), "open")).isInstanceOf(HarnessException.class);
-        assertThat(artifacts.list(run.id()).get(1).openable()).isFalse();
+        assertThat(artifacts.list(run.id()))
+                .filteredOn(value -> value.changeId().equals(script.id()))
+                .singleElement()
+                .satisfies(value -> assertThat(value.openable()).isFalse());
         artifacts.open(script.id(), "reveal");
         assertThat(launched).hasSize(3);
         assertThatThrownBy(() -> artifacts.open(notes.id(), "delete")).isInstanceOf(HarnessException.class);

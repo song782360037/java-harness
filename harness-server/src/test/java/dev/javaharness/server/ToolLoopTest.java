@@ -128,7 +128,7 @@ class ToolLoopTest {
 
     @Test
     void orderedToolsSnapshotsAndWholeHistorySurviveDatabaseReopen() {
-        String url = "jdbc:h2:file:" + directory.resolve("history").toString().replace('\\', '/');
+        String url = "jdbc:h2:file:" + directory.resolve("history").toString().replace('\\', '/') + ";DB_CLOSE_DELAY=-1";
         open(url);
         ModelProvider model = model((request, cancel) -> request.step() == 1
                 ? new ModelTurn(

@@ -124,7 +124,7 @@ final class PluginMcpTransport implements McpClientTransport {
             });
             workers.execute(() -> {
                 try {
-                    while (!closed && process.isAlive()) {
+                    while (process.isAlive()) {
                         process.descendants().forEach(descendants::add);
                         Thread.sleep(100);
                     }
@@ -281,19 +281,36 @@ final class PluginMcpTransport implements McpClientTransport {
             interrupted = true;
         } finally {
             http.shutdownNow();
-            workers.shutdownNow();
         }
         try {
             if (owned == null) return;
             owned.descendants().forEach(descendants::add);
+            // MCP stdio shutdown starts with EOF so the server can release its resources normally.
+            var inputCloser = Thread.startVirtualThread(() -> {
+                try {
+                    owned.getOutputStream().close();
+                } catch (IOException ignored) {
+                    /* The server may already have closed stdin. */
+                }
+            });
+            try {
+                // Closing a buffered pipe can block behind a write to an unresponsive server.
+                inputCloser.join(1000);
+                owned.waitFor(1, TimeUnit.SECONDS);
+            } catch (InterruptedException error) {
+                interrupted = true;
+            }
+            owned.descendants().forEach(descendants::add);
             for (ProcessHandle child : descendants) if (child.isAlive()) child.destroyForcibly();
-            owned.destroyForcibly();
+            if (owned.isAlive()) owned.destroyForcibly();
             if (!owned.waitFor(3, TimeUnit.SECONDS)) throw new IllegalStateException("无法确认 MCP 进程退出");
             for (ProcessHandle child : descendants)
                 if (child.isAlive()) child.onExit().get(3, TimeUnit.SECONDS);
         } catch (Exception error) {
-            throw new IllegalStateException("无法确认 MCP 进程树退出");
+            if (error instanceof InterruptedException) interrupted = true;
+            throw new IllegalStateException("无法确认 MCP 进程树退出", error);
         } finally {
+            workers.shutdownNow();
             if (interrupted) Thread.currentThread().interrupt();
         }
     }
