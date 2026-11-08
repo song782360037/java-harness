@@ -51,7 +51,7 @@ public final class PluginMcpClient implements AutoCloseable {
         client = McpClient.async(transport)
                 .requestTimeout(Duration.ofSeconds(timeout))
                 .initializationTimeout(Duration.ofSeconds(15))
-                .clientInfo(new McpSchema.Implementation("java-harness", "0.2.0"))
+                .clientInfo(new McpSchema.Implementation("java-harness", "0.2.1"))
                 .capabilities(McpSchema.ClientCapabilities.builder().build())
                 .loggingConsumer(ignored -> Mono.empty())
                 .enableCallToolSchemaCaching(false)

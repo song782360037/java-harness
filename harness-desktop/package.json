@@ -1,7 +1,7 @@
 {
   "name": "java-harness-desktop",
   "productName": "Java Harness",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Java Harness 桌面客户端",
   "author": "Java Harness",

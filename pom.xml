@@ -13,7 +13,7 @@
 
     <groupId>dev.javaharness</groupId>
     <artifactId>java-harness</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
     <packaging>pom</packaging>
     <name>Java Harness</name>
     <description>Java Harness project scaffold</description>
