@@ -934,7 +934,12 @@ public final class JdbcSessionStore implements SessionStore {
                 default -> false;
             };
             if (!allowed) throw new HarnessException("CONFLICT", "非法执行状态转换");
-            jdbc.update("UPDATE harness_run SET status=?,detail=? WHERE id=?", next.name(), detail, runId);
+            jdbc.update(
+                    "UPDATE harness_run SET status=?,detail=?,state_updated_at=? WHERE id=?",
+                    next.name(),
+                    detail,
+                    now(),
+                    runId);
             if (!next.active()) {
                 // After a restart, the last recorded event is a better end time than the recovery moment.
                 OffsetDateTime finished = next != RunStatus.INTERRUPTED

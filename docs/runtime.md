@@ -199,3 +199,9 @@ V20 为 harness_automation 增加 approval_mode（默认 MANUAL，已有自动�
 | GET | `/api/automations/{id}/runs` | 最近 50 条触发记录，含关联 Run 的 runStatus |
 
 新建/编辑请求为 revision、name（1–100）、prompt（1–4000）、workspaceId（空为仅聊天）、modelProfileId、reasoningEffort（null 为模型默认）、scheduleKind（HOURLY/DAILY/WEEKDAYS/WEEKLY/CUSTOM/MANUAL）、scheduleTime（HH:mm，HOURLY 只取分钟）、scheduleWeekday（0 周日–6 周六）、cron（仅 CUSTOM）、allowCommands、enabled。
+
+## 跨会话任务中心
+
+`GET /api/runs/activity` 返回 `active`、最多 50 条 `recent` 和服务端 `observedAt`，响应禁止缓存。条目包含任务 ID、会话或群聊 ID、标题、来源、显示状态、待处理操作 ID 与时间，不携带回答、命令参数或附件内容。普通任务和自动化按顶层 Run 汇总，群聊按轮次汇总，包含主持人规划阶段；成员与子智能体不重复计数。待处理操作优先于运行状态展示：命令或外部工具的 `PENDING` 为 `WAITING_APPROVAL`，提问的 `PENDING` 为 `WAITING_ANSWER`；自动审查中的 `REVIEWING` 不算等待用户审批，取消中的任务继续显示 `CANCELLING`。
+
+浏览器每 2 秒读取一次快照，页面隐藏时降为每 10 秒，恢复可见时立即刷新。桌面端由主进程持续监测并通过固定 IPC 同步窗口，通知按任务终态或待处理操作 ID 去重；窗口重载不重置通知基线。V29 为 Run 与群聊轮次新增 `state_updated_at` 和查询索引，后续按真实状态变更时间排序；旧 Run 从状态事件回填，旧群聊无法还原准确结束时刻，使用最后一条消息或轮次创建时间回填。

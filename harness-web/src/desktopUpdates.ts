@@ -1,4 +1,5 @@
 import { computed, shallowRef } from 'vue'
+import type { TaskActivity, TaskActivitySnapshot } from './taskActivityModel'
 
 export type UpdateState = {
   revision: number; supported: boolean; disabledReason: string; version: string
@@ -6,6 +7,11 @@ export type UpdateState = {
   targetVersion: string; releaseNotes: string; percent: number; lastChecked: string; error: string; restartRequired: boolean
 }
 export type DesktopBridge = {
+  getTaskActivity?(): Promise<TaskActivitySnapshot>
+  setTaskNotifications?(enabled: boolean): Promise<TaskActivitySnapshot>
+  takePendingTask?(): Promise<TaskActivity | null>
+  onTaskActivity?(listener: (state: TaskActivitySnapshot) => void): () => void
+  onOpenTask?(listener: (task: TaskActivity) => void): () => void
   getUpdateState(): Promise<UpdateState>
   checkForUpdates(): Promise<UpdateState>
   installUpdate(): Promise<UpdateState>

@@ -1,4 +1,4 @@
-// 桌面壳主进程：拉起内置 JRE 运行的后端 JAR，就绪后在窗口中加载工作台；后端随窗口退出而关闭。
+// 桌面壳主进程：拉起后端并加载工作台；关窗收起托盘，明确退出时关闭后端。
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { spawn } from 'node:child_process'
@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { DesktopUpdates } from './updates.mjs'
 import { backupUpdateData, closeBackendForUpdate } from './update-backup.mjs'
 import { readUpdatePolicy } from './update-policy.mjs'
+import { createTaskActivity } from './task-activity.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const STARTUP_TIMEOUT_MS = 120_000
@@ -25,15 +26,17 @@ let failed = false
 let updates = null
 let updateShutdown = false
 let installReady = false
+let taskActivity = null
+let exitRequested = false
+let pendingTask = null
+let taskNavigationReady = false
 const updateToken = randomUUID()
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+    showWindow()
   })
   app.whenReady().then(start)
 }
@@ -41,16 +44,33 @@ if (!app.requestSingleInstanceLock()) {
 /** 启动顺序：先显示加载页，再启动（或连接开发用）后端，就绪后切到工作台。 */
 async function start() {
   Menu.setApplicationMenu(null)
+  if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'dev.javaharness.desktop' : process.execPath)
   mainWindow = createWindow()
   try {
     backendUrl = process.env.HARNESS_DESKTOP_BACKEND_URL || (await startBackend())
     await waitForHealth(backendUrl)
     backendReady = true
     initializeUpdates()
+    taskActivity = createTaskActivity({ app, ipcMain, url: backendUrl, getWindow: () => mainWindow, showWindow, openTask })
     await mainWindow.loadURL(backendUrl)
   } catch (error) {
     fatal('Java Harness 启动失败', error.message)
   }
+}
+
+/** 从托盘或通知恢复已有窗口，保留当前页面与草稿。 */
+function showWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+/** 页面重载中点击通知时，等当前工作台订阅后再交付跳转。 */
+function openTask(task) {
+  pendingTask = task
+  showWindow()
+  if (mainWindow && taskNavigationReady) { mainWindow.webContents.send('tasks:open', task); pendingTask = null }
 }
 
 /** 弹出一次错误提示并退出；退出过程中或已提示过时不再重复。 */
@@ -73,6 +93,7 @@ function createWindow() {
   })
   // 开发模式下后端可能立即就绪，loadURL 会中断加载页，忽略这次中断。
   window.loadFile(path.join(here, 'loading.html')).catch(() => {})
+  window.webContents.on('did-start-loading', () => { taskNavigationReady = false })
   // 只允许停留在本地后端页面，其他链接交给系统浏览器。
   window.webContents.setWindowOpenHandler(({ url }) => {
     openExternal(url)
@@ -89,7 +110,8 @@ function createWindow() {
     mainWindow = null
   })
   window.on('close', event => {
-    if (updates?.snapshot().phase === 'installing' && !installReady) event.preventDefault()
+    if (updates?.snapshot().phase === 'installing' && !installReady) { event.preventDefault(); return }
+    if (taskActivity && !exitRequested && !quitting && !installReady) { event.preventDefault(); window.hide() }
   })
   return window
 }
@@ -207,6 +229,14 @@ function initializeUpdates() {
     return operation()
   })
   updates.start()
+  ipcMain.handle('tasks:ready', event => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame ||
+      new URL(event.senderFrame.url).origin !== new URL(backendUrl).origin) throw new Error('无效的任务导航请求')
+    const task = pendingTask
+    taskNavigationReady = true
+    pendingTask = null
+    return task
+  })
 }
 
 /** 通过仅本次启动有效的令牌调用后端更新控制接口。 */
@@ -242,6 +272,7 @@ app.on('window-all-closed', () => app.quit())
 // 后端在就绪后才开始监听 stdin，启动中退出时要多等一个启动超时，避免打断数据库迁移。
 app.on('before-quit', (event) => {
   if (updates?.snapshot().phase === 'installing' && !installReady) { event.preventDefault(); return }
+  exitRequested = true
   if (!backend) return
   event.preventDefault()
   if (quitting) return
@@ -255,4 +286,4 @@ app.on('before-quit', (event) => {
   })
   child.stdin.end()
 })
-app.on('will-quit', () => updates?.stop())
+app.on('will-quit', () => { taskActivity?.stop(); updates?.stop() })

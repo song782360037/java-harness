@@ -7,6 +7,7 @@ import { preferences, shouldSendPrompt } from './preferences'
 import MarkdownContent from './MarkdownContent.vue'
 import FileChanges from './FileChanges.vue'
 import Commands from './Commands.vue'
+import PluginRunDetails from './PluginRunDetails.vue'
 import RunTimeline from './RunTimeline.vue'
 import GroupSettingsDialog from './GroupSettingsDialog.vue'
 import UiIcon from './UiIcon.vue'
@@ -14,6 +15,7 @@ import ComposerAttachments from './ComposerAttachments.vue'
 import { isLongPaste, nextPastedName, type DraftAttachment } from './composer'
 // 工作室按需加载，不拖慢聊天视图。
 const GroupStudio = defineAsyncComponent(() => import('./GroupStudio.vue'))
+let taskTarget = ''
 const props = defineProps<{ workspaces: Workspace[]; profiles: ModelProfile[]; sidebarCollapsed: boolean; defaultProfileId: string }>()
 const emit = defineEmits<{ expandSidebar: []; studio: [active: boolean] }>()
 const groups = ref<GroupSummary[]>([])
@@ -297,6 +299,15 @@ function onPaste(event: ClipboardEvent) {
   pasted.value = [...pasted.value, { item, text: value }]
 }
 const removePasted = (key: string) => { pasted.value = pasted.value.filter(value => value.item.key !== key) }
+/** 任务中心跳转优先于上次浏览位置；同一群不重复选择，保留输入。 */
+async function openTask(id: string) {
+  taskTarget = id
+  if (loading.value) return
+  await setView('chat')
+  if (id !== selectedId.value) await select(id)
+}
+const navigationBlocked = computed(() => sending.value || !!text.value.trim() || pasted.value.length > 0)
+defineExpose({ openTask, navigationBlocked })
 onMounted(async () => {
   document.addEventListener('visibilitychange', resumeStream)
   window.addEventListener('online', resumeStream)
@@ -305,9 +316,9 @@ onMounted(async () => {
     await loadGroups()
     let stored = ''
     try { stored = localStorage.getItem('harness.group') || '' } catch { /* 忽略 */ }
-    await select(groups.value.find(item => item.group.id === stored)?.group.id || groups.value[0]?.group.id || '')
+    await select(taskTarget || groups.value.find(item => item.group.id === stored)?.group.id || groups.value[0]?.group.id || '')
   } catch (cause) { error.value = message(cause, '读取群聊失败') }
-  finally { loading.value = false }
+  finally { loading.value = false; if (taskTarget && taskTarget !== selectedId.value) await openTask(taskTarget) }
   // SSE 可能在后端重启后静默断开；协作进行中定时补读快照。
   pollTimer = setInterval(() => { if (snapshot.value?.busy) scheduleRefresh(snapshot.value.group.id, revision) }, 4000)
 })
@@ -390,6 +401,7 @@ onUnmounted(() => {
                     <FileChanges :run-id="item.runId!" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :can-apply="runOf(item.runId)!.status === 'COMPLETED' && !snapshot.busy" :can-revert="!snapshot.busy" />
                     <Commands :run-id="item.runId!" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :active="false" />
                   </template>
+                  <PluginRunDetails v-if="item.runId && runOf(item.runId)" :run-id="item.runId" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :active="false" />
                 </div>
               </article>
             </template>
@@ -398,6 +410,7 @@ onUnmounted(() => {
               <div class="group-message-body">
                 <div class="group-message-heading"><strong>{{ member.name }}</strong><span class="working-label"><span class="activity-dot"></span>{{ run.status === 'CANCELLING' ? '正在停止' : '正在输入…' }}</span></div>
                 <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${run.activity}`" :active="run.status === 'RUNNING'" />
+                <PluginRunDetails :run-id="run.id" :revision="`${run.status}:${run.activity}`" :active="run.status === 'RUNNING'" />
               </div>
             </article>
             <p v-if="snapshot.busy && !speaking.length" class="group-system"><span class="activity-dot"></span>{{ waitingText }}</p>

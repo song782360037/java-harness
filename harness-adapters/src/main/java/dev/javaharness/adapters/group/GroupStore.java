@@ -346,7 +346,13 @@ public final class GroupStore {
 
     public void updateRound(String id, String status, int turns, String detail) {
         Round round = round(id);
-        jdbc.update("UPDATE harness_group_round SET status=?,turns=?,detail=? WHERE id=?", status, turns, detail, id);
+        jdbc.update(
+                "UPDATE harness_group_round SET status=?,turns=?,detail=?,state_updated_at=? WHERE id=?",
+                status,
+                turns,
+                detail,
+                now(),
+                id);
         touch(round.groupId());
     }
 
@@ -362,7 +368,8 @@ public final class GroupStore {
                 """,
                 String.class)) {
             jdbc.update(
-                    "UPDATE harness_group_round SET status='INTERRUPTED',detail='服务已重启，协作中断；不会自动继续' WHERE group_id=? AND status='RUNNING'",
+                    "UPDATE harness_group_round SET status='INTERRUPTED',detail='服务已重启，协作中断；不会自动继续',state_updated_at=? WHERE group_id=? AND status='RUNNING'",
+                    now(),
                     groupId);
             jdbc.update(
                     "UPDATE harness_group_task SET status='INTERRUPTED',detail='服务已重启' WHERE group_id=? AND status IN ('PENDING','RUNNING')",

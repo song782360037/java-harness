@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import PreferenceSelect from './PreferenceSelect.vue'
 import { preferences, preferencesPersistent, updatePreferences } from './preferences'
+import { taskActivity, taskActivityError, taskNotificationsBusy, setTaskNotifications } from './taskActivity'
+const desktopTasks = !!window.harnessDesktop?.setTaskNotifications
 const shortcuts = [{ value: 'modifier-enter', label: 'Ctrl / ⌘ + Enter' }, { value: 'enter', label: 'Enter' }] as const
 const fontSizes = [{ value: 'small', label: '小 · 13 px' }, { value: 'standard', label: '标准 · 14 px' }, { value: 'large', label: '大 · 16 px' }] as const
 const sendShortcut = computed(() => preferences.value.sendShortcut)
@@ -23,5 +25,10 @@ const autoScroll = computed({ get: () => preferences.value.autoScroll, set: valu
       <input id="auto-scroll" v-model="autoScroll" type="checkbox" aria-describedby="auto-scroll-help" />
     </div>
     <p class="preferences-status" role="status">{{ preferencesPersistent ? '更改会自动保存，并立即生效。' : '浏览器无法保存偏好，更改仅在当前页面生效。' }}</p>
+    <div v-if="desktopTasks" class="preference-row">
+      <div class="preference-copy"><label for="task-notifications">桌面任务通知</label><p id="task-notifications-help">完成、失败或需要处理时通知；关闭窗口后仍在托盘运行</p></div>
+      <input id="task-notifications" type="checkbox" :checked="taskActivity.notificationsEnabled !== false" :disabled="taskNotificationsBusy" aria-describedby="task-notifications-help" @change="setTaskNotifications(($event.target as HTMLInputElement).checked)" />
+    </div>
+    <p v-if="desktopTasks && taskActivityError" class="preferences-status" role="status">{{ taskActivityError }}</p>
   </section>
 </template>

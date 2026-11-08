@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import DesktopUpdateNotice from './DesktopUpdateNotice.vue'
+import TaskCenter from './TaskCenter.vue'
+import { connectTaskActivity } from './taskActivity'
+import type { TaskActivity } from './taskActivityModel'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import RunTimeline from './RunTimeline.vue'
 import FileChanges from './FileChanges.vue'
@@ -44,6 +47,10 @@ const showSettings = ref(false)
 const showAutomations = ref(false)
 const showMemories = ref(false)
 const showGroups = ref(false)
+const groupPage = ref<{ openTask(id: string): Promise<void>; navigationBlocked: boolean }>()
+const taskNavigationBlocked = computed(() => submitting.value || loading.value || settingsBusy.value || workspaceChanging.value || !!groupPage.value?.navigationBlocked)
+const queuedTask = ref<TaskActivity>()
+let disconnectTaskActivity = () => {}
 const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
 // 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
@@ -784,6 +791,21 @@ async function openAutomationSession(id: string) {
   await reloadSessions()
   navigateSession(id)
 }
+/** 通知在提交过程中到达时暂存跳转，避免中断提交或丢失群聊草稿。 */
+async function openTask(task: TaskActivity) {
+  queuedTask.value = task
+  if (taskNavigationBlocked.value) return
+  queuedTask.value = undefined
+  closeSettings()
+  if (task.groupId) {
+    openGroups()
+    await nextTick()
+    await groupPage.value?.openTask(task.groupId)
+  } else {
+    await openAutomationSession(task.sessionId)
+  }
+}
+watch(taskNavigationBlocked, blocked => { if (!blocked && queuedTask.value) void openTask(queuedTask.value) })
 // 新建只切换到草稿；重复点击当前草稿入口时保留输入，不创建空会话。
 async function createWorkspaceSession(workspaceId: string) {
   if (loading.value || submitting.value || workspaceChanging.value) return
@@ -860,7 +882,7 @@ async function cancel() {
   finally { cancelling.value = false }
 }
 onMounted(() => {
-  void initialize()
+  void initialize().finally(() => { disconnectTaskActivity = connectTaskActivity(task => { void openTask(task) }) })
   mobileLayout.addEventListener('change', onLayoutChange)
   window.addEventListener('focus', reloadSessions)
   document.addEventListener('keydown', closeSidebarOnEscape)
@@ -872,6 +894,7 @@ onMounted(() => {
   window.addEventListener('online', resumeStream)
 })
 onUnmounted(() => {
+  disconnectTaskActivity()
   revision++
   source?.close()
   clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer)
@@ -889,6 +912,7 @@ onUnmounted(() => {
 
 <template>
   <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
+    <TaskCenter :disabled="taskNavigationBlocked" @open-task="openTask" />
     <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
     <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
       <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="plus" :size="17" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" :size="16" /></button></div>
@@ -980,7 +1004,7 @@ onUnmounted(() => {
     </main>
     <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
     <MemoriesPage v-if="showMemories" v-show="!showSettings" :workspaces="workspaces" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" @open-settings="openSettings('memory')" />
-    <GroupChatsPage v-if="showGroups" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" @studio="setGroupStudio" />
+    <GroupChatsPage v-if="showGroups" ref="groupPage" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" @studio="setGroupStudio" />
     <DesktopUpdateNotice @details="openSettings('updates')" />
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
       <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="17" /></button></header>
