@@ -4,7 +4,7 @@ import { api } from './api'
 import { cacheRate, chartBars, compactTokens, dayTotal, heatmapWeeks, type UsageStatistics } from './usage'
 import UiIcon from './UiIcon.vue'
 const ranges = [{ days: 1, label: '今天' }, { days: 7, label: '7 天' }, { days: 30, label: '30 天' }, { days: 0, label: '全部' }] as const
-const colors: Record<string, string> = { harness: 'var(--accent)', 'claude-code': 'var(--warning)', codex: 'var(--info)', workbuddy: 'var(--source-rose)', qoder: 'var(--source-violet)' }
+const colors: Record<string, string> = { harness: 'var(--usage-harness)', 'claude-code': 'var(--usage-claude)', codex: 'var(--usage-codex)', workbuddy: 'var(--usage-workbuddy)', qoder: 'var(--usage-qoder)' }
 const days = ref<number>(7)
 const rangeLabel = computed(() => ({ 1: '今天', 7: '近 7 天', 30: '近 30 天', 0: '全部时间' }[days.value]))
 const stats = ref<UsageStatistics | null>(null)
@@ -48,6 +48,8 @@ async function load(range = days.value) {
   finally { window.clearTimeout(slowTimer); slow.value = false; loading.value = false }
 }
 const color = (source: string) => colors[source] ?? 'var(--muted)'
+/** 图例只列出当前周期有用量的来源。 */
+const activeSources = computed(() => stats.value?.sources.filter(source => bars.value.some(bar => bar.tokens[source.id])) ?? [])
 function barLabel(date: string, tokens: Record<string, number>) {
   const parts = Object.entries(tokens).map(([source, value]) => `${labels.value[source] ?? source} ${compactTokens(value)}`)
   return `${date}：${parts.length ? parts.join('，') : '无用量'}`
@@ -79,7 +81,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
         <div><span>模型调用</span><strong>{{ number(stats.totals.calls) }}</strong></div>
       </div>
       <div class="usage-heading-row"><h2 class="usage-heading">{{ rangeLabel }} · {{ { hour: '每小时用量', day: '每日用量', month: '每月用量' }[chart.unit] }}</h2><span>峰值 {{ compactTokens(peak) }} tokens</span></div>
-      <div class="usage-chart-legend" aria-label="用量来源"><span v-for="source in stats.sources" :key="source.id"><i :style="{ background: color(source.id) }" aria-hidden="true" />{{ source.label }}</span></div>
+      <div class="usage-chart-legend" aria-label="用量来源"><span v-for="source in activeSources" :key="source.id"><i :style="{ background: color(source.id) }" aria-hidden="true" />{{ source.label }}</span></div>
       <div class="usage-chart" role="list" aria-label="所选周期用量趋势">
         <div v-for="bar in bars" :key="bar.date" class="usage-bar" role="listitem" :title="barLabel(bar.date, bar.tokens)" :aria-label="barLabel(bar.date, bar.tokens)">
           <div class="usage-stack" :style="{ height: `${dayTotal(bar) / Math.max(1, peak) * 100}%` }">

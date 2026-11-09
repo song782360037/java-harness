@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { api, type ModelProfile } from './api'
 import type { MemorySettings, MemoryState } from './memory'
 import PreferenceSelect from './PreferenceSelect.vue'
+import SettingsLoading from './SettingsLoading.vue'
 const emit = defineEmits<{ busy: [value: boolean] }>()
 const state = ref<MemoryState>()
 const form = ref<MemorySettings>()
 const baseline = ref<MemorySettings>()
-const dirty = computed(() => !!form.value && (form.value.enabled !== baseline.value?.enabled || form.value.modelProfileId !== baseline.value?.modelProfileId))
 const profiles = ref<ModelProfile[]>([])
 const busy = ref(false), error = ref(''), notice = ref('')
 const loadingError = ref('')
@@ -38,17 +38,25 @@ async function load(reset = false) {
     if (!disposed) timer = setTimeout(() => { void load() }, 3000)
   }
 }
-/** 保存后以服务端响应为准，关闭开关会取消当前生成。 */
-async function save() {
+/** 修改后立即保存并以服务端响应为准，失败时还原控件；关闭开关会取消当前生成。 */
+async function save(controlId: string) {
   if (!form.value || busy.value) return
+  const toggled = form.value.enabled !== baseline.value?.enabled
+  // 重选当前模型不提交，否则后端会取消进行中的生成。
+  if (!toggled && form.value.modelProfileId === baseline.value?.modelProfileId) return
   version++; busy.value = true; emit('busy', true); error.value = ''; notice.value = ''
   try {
     state.value = await api<MemoryState>('/memory-settings', form.value)
     form.value = { ...state.value.settings }
     baseline.value = { ...state.value.settings }
-    notice.value = state.value.settings.enabled ? '已开启，将自动分析历史对话并持续更新记忆' : '已关闭，已有记忆保留'
-  } catch (cause) { error.value = message(cause) }
-  finally { busy.value = false; emit('busy', false) }
+    notice.value = !toggled ? '已保存' : state.value.settings.enabled ? '已开启，将自动分析历史对话并持续更新记忆' : '已关闭，已有记忆保留'
+  } catch (cause) { error.value = message(cause); form.value = baseline.value && { ...baseline.value } }
+  finally {
+    busy.value = false; emit('busy', false)
+    // 保存期间控件被禁用，结束后把键盘焦点还给它。
+    await nextTick()
+    if (document.activeElement === document.body) document.getElementById(controlId)?.focus()
+  }
 }
 /** 重试失败记录，不重新分析已完成来源。 */
 async function retry() {
@@ -65,12 +73,13 @@ onUnmounted(() => { disposed = true; version++; clearTimeout(timer) })
 <template>
   <section class="memory-settings" aria-label="自动记忆设置">
     <p v-if="error || loadingError" class="dialog-error" role="alert">{{ error || loadingError }} <button :disabled="busy" @click="load(true)">重新加载设置</button></p>
-    <form v-if="form" @submit.prevent="save">
+    <SettingsLoading v-if="!form && !loadingError" label="正在读取记忆设置" />
+    <form v-if="form" @submit.prevent>
       <div class="general-settings">
-        <div class="preference-row"><div class="preference-copy"><label for="automatic-memory">启用自动记忆</label><p>从对话中生成记忆并用于后续交流；关闭后已有记忆保留</p></div><input id="automatic-memory" v-model="form.enabled" type="checkbox" :disabled="busy" /></div>
-        <div class="preference-row"><div class="preference-copy"><label id="memory-model-label" for="memory-model">生成模型</label><p id="memory-model-help">会产生额外的模型调用</p></div><PreferenceSelect id="memory-model" v-model="form.modelProfileId" :options="modelOptions" :disabled="busy" /></div>
+        <div class="preference-row"><div class="preference-copy"><label for="automatic-memory">启用自动记忆</label><p>从对话中生成记忆并用于后续交流；关闭后已有记忆保留</p></div><input id="automatic-memory" v-model="form.enabled" type="checkbox" :disabled="busy" @change="save('automatic-memory')" /></div>
+        <div class="preference-row"><div class="preference-copy"><label id="memory-model-label" for="memory-model">生成模型</label><p id="memory-model-help">会产生额外的模型调用</p></div><PreferenceSelect id="memory-model" :model-value="form.modelProfileId" :options="modelOptions" :disabled="busy" @update:model-value="form!.modelProfileId = $event; save('memory-model')" /></div>
       </div>
-      <div class="memory-settings-actions"><span v-if="dirty" class="settings-save-hint">有未保存的更改</span><span v-else-if="notice" role="status" class="saved-note">{{ notice }}</span><span v-else class="settings-save-hint">更改后需保存才会生效</span><button class="primary" :disabled="busy">{{ busy ? '处理中…' : '保存设置' }}</button></div>
+      <div class="memory-settings-actions"><span v-if="busy" class="settings-save-hint">正在保存…</span><span v-else-if="notice" role="status" class="saved-note">{{ notice }}</span><span v-else class="settings-save-hint">更改会自动保存</span></div>
     </form>
     <section v-if="state" class="memory-processing" aria-label="自动记忆处理进度">
       <div class="memory-processing-heading"><h2>对话处理进度</h2><span class="memory-processing-state" :class="{ active: state.settings.enabled && (state.progress.running || state.progress.pending), enabled: state.settings.enabled }">{{ !state.settings.enabled ? '已关闭' : state.progress.running ? '正在生成' : state.progress.pending ? '等待处理' : '已开启' }}</span></div>

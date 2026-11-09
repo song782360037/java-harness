@@ -152,8 +152,11 @@
   .settings-page { min-height: 0; }
   .settings-content { padding: 24px 16px; }
   .composer-chip { max-width: 100%; font-size: var(--font-caption); }
-  /* 三个选择器保持一行：工作区和模型按需截断，思考强度保持完整。 */
-  .composer-selectors { flex-wrap: nowrap; gap: 4px; }
+  /* 选择器独占一行，工作区和模型按需截断，思考强度保持完整。 */
+  .composer-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .composer-actions > :first-child { margin-right: auto; }
+  .composer-selectors { order: -1; flex: 1 0 100%; flex-wrap: nowrap; gap: 4px; }
+  .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .selector-anchor { flex: 0 1 auto; max-width: 130px; }
   .effort-anchor { flex-shrink: 0; }
   .workspace-chip > span { max-width: 100px; }
@@ -184,7 +187,7 @@
 .usage-chart-legend i { width: 10px; height: 10px; border-radius: 3px; }
 .usage-bar { flex: 1; min-width: 2px; height: 100%; display: flex; align-items: flex-end; border-radius: 3px; }
 .usage-bar:hover { background: var(--subtle); }
-.usage-stack { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; border-radius: 3px 3px 0 0; }
+.usage-stack { width: 100%; display: flex; flex-direction: column-reverse; gap: 1px; overflow: hidden; border-radius: 3px 3px 0 0; }
 .usage-stack span { min-height: 1px; flex-basis: 0; }
 .usage-axis { display: flex; justify-content: space-between; padding: 6px 12px 8px; border: 0.5px solid var(--border); border-top: 0.5px solid var(--border-strong); border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--surface); color: var(--faint); font-size: var(--font-caption); }
 .usage-refresh .spinning { animation: spin .9s linear infinite; }
@@ -234,6 +237,7 @@
 /* 审批设置：规则与评审器各为一张卡片，规则三栏并排，窄屏堆叠。 */
 .approval-settings { display: flex; flex-direction: column; gap: 20px; margin-top: 24px; }
 .approval-settings .dialog-error { margin: 0; }
+.approval-form { display: flex; flex-direction: column; gap: 20px; }
 .approval-note { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 14px; border-radius: var(--radius-md); background: var(--accent-soft); color: var(--text); font-size: var(--font-caption); line-height: 1.7; }
 .approval-note .ui-icon { flex-shrink: 0; margin-top: 3px; color: var(--accent); }
 .approval-card { border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
@@ -241,6 +245,10 @@
 .approval-card-heading h2 { margin: 0; font-size: var(--font-heading); font-weight: 600; }
 .approval-card-heading p { margin: 4px 0 0; color: var(--muted); font-size: var(--font-caption); }
 .approval-card-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 20px; border-top: 0.5px solid var(--border); }
+/* 键盘聚焦时给吸底条留出高度，避免焦点落在条下。 */
+.reference-settings .settings-content:has(.approval-save-bar) { scroll-padding-bottom: 120px; }
+/* 滚动区的底部内边距会让吸底条悬空，用同色投影盖住它下方露出的内容。 */
+.approval-save-bar { position: sticky; bottom: 0; z-index: 1; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 56px 0 var(--page); }
 .approval-rule-example { display: block; margin-top: 8px; color: var(--muted); font-size: var(--font-caption); line-height: 1.6; overflow-wrap: anywhere; }
 .approval-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; padding: 16px 20px 20px; }
 .approval-rule { display: flex; flex-direction: column; min-width: 0; }

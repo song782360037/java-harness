@@ -1,7 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { activeMemberCount, approvalTargets, hostLabel, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, roundSpeakers, speakingMembers, studioSummary, taskRelations, taskSteps } from '../src/groups.ts'
+import { activeMemberCount, approvalTargets, hostLabel, hostQuestion, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, roundSpeakers, speakingMembers, studioSummary, taskRelations, taskSteps } from '../src/groups.ts'
 import { studioPose, studioSeats, studioSprite } from '../src/studioOffice.ts'
+
+test('host questions are recognized only by the server prefix', () => {
+  assert.equal(hostQuestion('主持人需要你补充：需要支持哪些登录方式？'), '需要支持哪些登录方式？')
+  assert.equal(hostQuestion('本轮协作已停止'), '')
+})
 
 const member = (id, name, enabled = true) => ({ id, name, enabled, sessionId: `s-${id}` })
 

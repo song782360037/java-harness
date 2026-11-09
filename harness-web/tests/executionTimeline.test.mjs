@@ -1,9 +1,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTimeline, elapsedSeconds, exploreSummary, formatDuration, toolLabel } from '../src/executionTimeline.ts'
+import { buildTimeline, condenseTimeline, elapsedSeconds, exploreSummary, formatDuration, toolLabel } from '../src/executionTimeline.ts'
 
 const tool = (step, callId, name, args, status = 'COMPLETED') => ({ runId: 'r', step, callId, name, arguments: JSON.stringify(args), status, output: '', startedAt: null, finishedAt: null })
 const step = (number, outputStart, reasoning = '', startedAt = '2026-01-01T00:00:00Z', reasoningAt = null, finishedAt = null) => ({ step: number, outputStart, reasoning, startedAt, reasoningAt, finishedAt })
+
+test('condensing hides brief finished reasoning, keeps long or live reasoning and merges adjacent exploration', () => {
+  const read = callId => ({ kind: 'tool', key: callId, tool: tool(1, callId, 'read_file', { path: 'A.java' }) })
+  const items = [read('a'), { kind: 'reasoning', key: 'r1', text: '短', seconds: 4, live: false }, { kind: 'explore', key: 'e', tools: [tool(2, 'b', 'search_files', { query: 'x' }), tool(2, 'c', 'list_directory', {})] },
+    { kind: 'reasoning', key: 'r2', text: '长', seconds: 12, live: false }, read('d'), { kind: 'reasoning', key: 'r3', text: '进行中', seconds: 0, live: true }]
+  const { items: condensed, hidden } = condenseTimeline(items)
+  assert.equal(hidden, 1)
+  assert.deepEqual(condensed.map(item => item.key), ['a', 'r2', 'd', 'r3'])
+  assert.deepEqual(condensed[0].tools.map(value => value.callId), ['a', 'b', 'c'])
+  assert.equal(items.length, 6)
+})
 
 test('steps interleave reasoning, text and tools and keep the final answer outside the process', () => {
   const output = '先读取代码分析完成'

@@ -35,6 +35,11 @@
   --warning: #85561f;
   --source-rose: #b04a6f;
   --source-violet: #6e56a8;
+  --usage-harness: #227a54;
+  --usage-claude: #c08238;
+  --usage-codex: #3f7fc0;
+  --usage-workbuddy: #c2527f;
+  --usage-qoder: #7a5cc0;
   --warning-bg: #fbf0e3;
   --danger: #a43e35;
   --danger-hover: #91372f;
@@ -81,6 +86,11 @@
   --warning: #e2bd90;
   --source-rose: #eba4bd;
   --source-violet: #c3b4ec;
+  --usage-harness: #3f9a70;
+  --usage-claude: #b98238;
+  --usage-codex: #5a8fd0;
+  --usage-workbuddy: #da6590;
+  --usage-qoder: #8a6fdc;
   --warning-bg: #413526;
   --danger: #ecb0a7;
   --danger-hover: #f0c1b9;

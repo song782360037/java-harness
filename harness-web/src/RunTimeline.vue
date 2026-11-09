@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, isActive, type Run, type RunStep, type SubagentRun, type ToolExecution } from './api'
-import { buildTimeline, elapsedSeconds, exploreSummary, formatDuration, isBusy, latestTodos, toolLabel } from './executionTimeline'
+import { buildTimeline, condenseTimeline, elapsedSeconds, exploreSummary, formatDuration, isBusy, latestTodos, toolLabel } from './executionTimeline'
 import MarkdownContent from './MarkdownContent.vue'
 import UiIcon from './UiIcon.vue'
 
@@ -21,6 +21,9 @@ let throttle: ReturnType<typeof setTimeout> | undefined
 
 const active = computed(() => isActive(props.run))
 const timeline = computed(() => loaded.value || error.value ? buildTimeline(props.run.output, steps.value, tools.value, active.value) : { items: [], answer: '' })
+const condensed = computed(() => condenseTimeline(timeline.value.items))
+const showBrief = ref(false)
+const visibleItems = computed(() => showBrief.value ? timeline.value.items : condensed.value.items)
 const todos = computed(() => latestTodos(tools.value))
 const todosDone = computed(() => todos.value.filter(todo => todo.status === 'completed').length)
 const open = computed(() => userOpen.value ?? (active.value || !timeline.value.answer.trim()))
@@ -98,7 +101,7 @@ onUnmounted(() => { disposed = true; clearInterval(ticker); clearTimeout(throttl
     </button>
     <p v-if="error" class="process-error" role="alert">{{ error }} <button type="button" @click="load">重试</button></p>
     <div v-if="open" :id="`process-${run.id}`" class="process-body">
-      <template v-for="item in timeline.items" :key="item.key">
+      <template v-for="item in visibleItems" :key="item.key">
         <details v-if="item.kind === 'reasoning'" class="process-reasoning" :open="item.live">
           <summary><UiIcon name="reasoning" :size="13" /><span>{{ item.live ? '正在思考…' : `思考了 ${formatDuration(item.seconds)}` }}</span></summary>
           <p>{{ item.text }}</p>
@@ -138,6 +141,7 @@ onUnmounted(() => { disposed = true; clearInterval(ticker); clearTimeout(throttl
           <pre>{{ item.tool.output || (isBusy(item.tool) ? '等待工具结果…' : '无输出') }}</pre>
         </details>
       </template>
+      <button v-if="condensed.hidden" type="button" class="process-more" @click="showBrief = !showBrief">{{ showBrief ? '收起简短思考' : `显示 ${condensed.hidden} 段简短思考` }}</button>
     </div>
   </section>
   <MarkdownContent v-if="timeline.answer" :content="timeline.answer" />
@@ -173,6 +177,8 @@ small { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nu
 .tool-status.pending { background: var(--warning-bg); color: var(--warning); }
 .process-tool strong { display: block; margin: 6px 0 4px 20px; color: var(--muted); font-weight: 550; }
 pre { margin: 4px 0 8px 20px; padding: 10px 12px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font: var(--font-caption)/1.7 ui-monospace, 'Cascadia Code', Consolas, monospace; }
+.process-more { align-self: flex-start; padding: 2px 6px; margin-left: -6px; min-height: 24px; border: 0; background: transparent; color: var(--faint); font-size: var(--font-caption); border-radius: var(--radius-sm); }
+.process-more:hover { color: var(--text); background: var(--hover); }
 .process-error { margin: 4px 0; color: var(--danger); }
 .subagent-notice { margin: 4px 0; color: var(--muted); }
 .subagent-body { margin: 4px 0 8px 6px; padding-left: 12px; border-left: 0.5px solid var(--border); }

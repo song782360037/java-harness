@@ -4,6 +4,7 @@ import { api } from './api'
 import { filterExtensions, saveAndRefresh, type ExtensionItem, type ExtensionKind } from './extensions'
 import ExtensionRow from './ExtensionRow.vue'
 import ExtensionConfiguration from './ExtensionConfiguration.vue'
+import SettingsLoading from './SettingsLoading.vue'
 import UiIcon from './UiIcon.vue'
 import './styles/extensions.css'
 
@@ -20,6 +21,8 @@ const toggling = ref(new Set<string>())
 let catalogRequest = 0
 const configurationBusy = ref(false)
 const locked = computed(() => busy.value || configurationBusy.value)
+// 首次读取结束前不展示列表，避免出现“全部插件 0”。
+const loaded = ref(false)
 const categories = computed(() => ['全部', '官方精选', '自定义', ...new Set(items.value.filter(item => item.kind === kind.value).map(item => item.category))])
 const visible = computed(() => filterExtensions(items.value, kind.value, query.value, category.value, installedOnly.value, sort.value))
 // 推荐只占一行，已展示条目从下方列表中移除，筛选时仍展示完整结果。
@@ -51,7 +54,7 @@ async function reload() {
 async function refresh() {
   if (locked.value) return
   busy.value = true; error.value = ''
-  try { await reload() } catch (cause) { error.value = message(cause) } finally { busy.value = false }
+  try { await reload(); loaded.value = true } catch (cause) { error.value = message(cause) } finally { busy.value = false }
 }
 function message(cause: unknown) { return cause instanceof Error ? cause.message : '扩展操作失败，请重试。' }
 /** 原生模态框隔离背景，关闭时恢复触发入口。 */
@@ -194,6 +197,8 @@ onMounted(refresh)
       <div class="extension-hero"><div><h1>{{ installedOnly ? '管理' : '发现' }}{{ current.label }} <span>{{ current.english }}</span></h1><p>{{ installedOnly ? '查看启停状态，统一管理已安装的扩展。' : current.tagline }}</p></div>
       </div>
       <p v-if="error" role="alert" class="extension-feedback">{{ error }} <button :disabled="locked" @click="refresh">重试</button></p>
+      <SettingsLoading v-if="!loaded && !error" label="正在读取扩展" />
+      <template v-else-if="loaded">
       <p v-if="busy && !dialog" role="status" class="extension-loading">正在读取扩展…</p>
       <section v-if="showRecommended" class="extension-recommendations" aria-label="官方推荐">
         <h2>官方推荐</h2>
@@ -205,6 +210,7 @@ onMounted(refresh)
         <div class="extension-grid"><ExtensionRow v-for="item in listed" :key="item.id" :item="item" :locked="locked" :pending="toggling.has(item.installationId)" @preview="preview" @toggle="toggle" @edit="edit" @remove="remove" /></div>
         <div v-if="!visible.length && !busy" class="extension-empty"><UiIcon :name="current.icon" :size="32" /><h3>{{ query ? '没有找到匹配的扩展' : installedOnly ? '还没有安装' + current.label : '这个分类还没有扩展' }}</h3><p>{{ query ? '试试其他关键词，或切换分类。' : '从官方目录选择，或添加自己的' + current.label + '。' }}</p><button :disabled="locked" @click="add">添加{{ current.label }}</button></div>
       </section>
+      </template>
     </div>
     <Teleport to="body"><dialog v-if="dialog" ref="modal" class="extension-modal" :class="{ 'extension-modal-preview': dialog === 'preview' }" aria-labelledby="extension-dialog-title" @keydown.esc.stop @cancel.prevent="close" @close="closed" @mousedown="pressStart" @click="outsideModal">
       <header class="extension-modal-heading"><div><span class="extension-modal-eyebrow">{{ dialog === 'add' ? '自定义扩展' : selected?.official ? 'JAVA HARNESS · 官方扩展' : selected?.parentName ? '插件内组件' : '自定义扩展' }}</span><h2 id="extension-dialog-title">{{ dialog === 'add' ? (editing ? '编辑' : '添加') + current.label : selected?.title }}</h2></div><button class="icon-button" :disabled="locked" aria-label="关闭扩展详情" @click="close"><UiIcon name="close" :size="20" /></button></header>

@@ -12,7 +12,7 @@ function blur(event: FocusEvent) { if (!menu.value?.contains(event.relatedTarget
   <div class="extension-row" :class="{ 'extension-disabled': item.installationId && !item.enabled }">
     <button class="extension-row-main" :disabled="locked" @click="$emit('preview', item)">
       <span class="extension-item-icon" :class="item.icon"><UiIcon :name="item.icon" :size="26" /></span>
-      <span class="extension-item-copy"><strong><span class="extension-item-title">{{ item.title }}</span><span v-if="item.official" class="extension-verified" title="Java Harness 官方提供"><UiIcon name="check" :size="10" /></span></strong><span class="extension-item-description">{{ item.issue || item.description }}</span><span class="extension-item-state" :class="{ enabled: item.installationId && item.enabled }">{{ item.installationId ? item.enabled ? '已安装 · 已启用' : '已安装 · 已停用' : '未安装' }}<small v-if="item.parentName" class="extension-bundled">随插件</small></span></span>
+      <span class="extension-item-copy"><strong><span class="extension-item-title">{{ item.title }}</span><span v-if="item.official" class="extension-verified" title="Java Harness 官方提供"><UiIcon name="check" :size="10" /></span></strong><span class="extension-item-description">{{ item.issue || item.description }}</span><span class="extension-item-state" :class="{ enabled: item.installationId && item.enabled }">{{ item.installationId ? item.enabled ? '已安装 · 已启用' : '已安装 · 已停用' : '未安装' }}<small v-if="item.parentName" class="extension-bundled" :title="item.parentName">来自 {{ item.parentName }}</small></span></span>
       <span v-if="!item.installationId" class="extension-row-action"><UiIcon name="plus" :size="17" /></span>
     </button>
     <div v-if="item.installationId" class="extension-row-controls">

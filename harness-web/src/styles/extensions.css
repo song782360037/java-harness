@@ -6,6 +6,8 @@
 .extension-connector { --extension-color: var(--success); }
 /* 与下方列表区预留相同的滚动条宽度，页签与标题左边缘保持对齐。 */
 .extension-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; justify-content: space-between; padding: 14px max(var(--settings-gutter, 28px), calc((100% - var(--settings-column, 1144px)) / 2)); flex-shrink: 0; scrollbar-gutter: stable both-edges; background: var(--surface); border-bottom: 0.5px solid var(--border); }
+/* 右侧给全局固定的任务中心入口留位，避免盖住工具按钮。 */
+.extension-toolbar { padding-right: max(160px, calc((100% - var(--settings-column, 1144px)) / 2)); }
 .extension-tabs, .extension-tools { display: flex; align-items: center; gap: 6px; }
 .extension-tools { flex-wrap: wrap; min-width: 0; margin-left: auto; }
 .extension-tabs { align-self: stretch; }

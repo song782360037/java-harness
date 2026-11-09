@@ -47,6 +47,22 @@ export function buildTimeline(output: string, steps: RunStep[], tools: ToolExecu
   return { items, answer }
 }
 
+const exploreToolsOf = (item: TimelineItem | undefined) => item?.kind === 'explore' ? item.tools : item?.kind === 'tool' && exploreTools.has(item.tool.name) ? [item.tool] : undefined
+
+/** 隐藏已结束的简短思考（10 秒内），并合并因此相邻的只读探索。 */
+export function condenseTimeline(items: TimelineItem[]) {
+  const result: TimelineItem[] = []
+  let hidden = 0
+  for (const item of items) {
+    if (item.kind === 'reasoning' && !item.live && item.seconds < 10) { hidden++; continue }
+    const last = result.at(-1)
+    const previous = exploreToolsOf(last), current = exploreToolsOf(item)
+    if (previous && current) result[result.length - 1] = { kind: 'explore', key: last!.key, tools: [...previous, ...current] }
+    else result.push(item)
+  }
+  return { items: result, hidden }
+}
+
 /** raw 表示未知工具（如插件 MCP 工具），展开时需展示原始参数。 */
 export interface ToolLabel { icon: string; verb: string; target: string; raw?: boolean }
 function parse(value: string): Record<string, unknown> {

@@ -54,6 +54,11 @@
 .studio-task.is-skipped .group-task-status, .studio-task.is-cancelled .group-task-status { color: var(--warning); background: var(--warning-bg); }
 
 .group-system { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 18px; color: var(--muted); font-size: var(--font-caption); text-align: center; }
+.group-question { display: flex; gap: 10px; margin: 0 0 18px; padding: 12px 14px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--muted); }
+.group-question > .ui-icon { flex-shrink: 0; margin-top: 2px; }
+.group-question strong { font-size: var(--font-caption); font-weight: 600; }
+.group-question p { margin: 4px 0 0; color: var(--text); line-height: 1.7; overflow-wrap: anywhere; }
+.group-question.is-pending { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
 
 .group-mentions { position: absolute; left: 12px; bottom: calc(100% + 6px); z-index: 5; list-style: none; margin: 0; padding: 4px; min-width: 180px; background: var(--surface); border: 0.5px solid var(--border-strong); border-radius: var(--radius-md); box-shadow: var(--composer-shadow); }
 .group-mentions li { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--radius-md); cursor: pointer; }
@@ -84,7 +89,8 @@
   .group-list { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 0.5px solid var(--border); padding: 10px 16px; }
   .group-create { margin: 0; flex-shrink: 0; }
   .group-item { width: auto; flex-shrink: 0; max-width: 220px; }
-  .group-roster { padding: 10px 16px 0; }
+  .group-roster { flex-wrap: nowrap; overflow-x: auto; padding: 10px 16px 4px; scrollbar-width: thin; }
+  .group-chip { flex-shrink: 0; }
   .group-tasks { margin: 10px 16px 0; }
 }
 

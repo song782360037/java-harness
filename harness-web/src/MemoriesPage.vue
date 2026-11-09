@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError, type Workspace } from './api'
 import MemoryGraph from './MemoryGraph.vue'
 import UiIcon from './UiIcon.vue'
-import { memoryKinds, memoryStatuses, memoryColors, type MemoryEntry, type MemoryPage, type MemoryRelation, type MemoryState } from './memory'
+import { memoryKinds, memoryStatuses, memoryColors, memoryTopics, type MemoryEntry, type MemoryPage, type MemoryRelation, type MemoryState } from './memory'
 
 const props = defineProps<{ workspaces: Workspace[]; defaultWorkspaceId: string; sidebarCollapsed: boolean }>()
 const emit = defineEmits<{ 'expand-sidebar': []; 'open-session': [id: string]; 'open-settings': [] }>()
@@ -35,8 +35,9 @@ const form = ref({ title: '', content: '', kind: 'FACT', tags: '', status: 'ACTI
 const relationTarget = ref('')
 const relationLabel = ref('相关')
 const related = computed(() => relations.value.filter(edge => edge.fromId === selectedId.value || edge.toId === selectedId.value))
-const groups = computed(() => [...new Set(entries.value.map(item => item.tags[0] || memoryKinds[item.kind] || item.kind))].sort())
-const visibleEntries = computed(() => group.value ? entries.value.filter(item => (item.tags[0] || memoryKinds[item.kind]) === group.value) : entries.value)
+const topics = computed(() => memoryTopics(entries.value))
+const groups = computed(() => [...new Set(topics.value.values())].sort())
+const visibleEntries = computed(() => group.value ? entries.value.filter(item => topics.value.get(item.id) === group.value) : entries.value)
 const workspaceName = computed(() => props.workspaces.find(item => item.id === workspaceId.value)?.name || '全局记忆')
 let loadVersion = 0
 let detailVersion = 0
@@ -201,7 +202,7 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
         <p class="memory-section-label">{{ workspaceName }}</p>
         <button :class="{ active: !group }" @click="group = ''"><span>全部主题</span><small>{{ entries.length }}</small></button>
         <button v-for="(name, index) in groups" :key="name" :class="{ active: group === name }" @click="group = group === name ? '' : name">
-          <i :style="{ background: memoryColors[index % memoryColors.length] }"></i><span>{{ name }}</span><small>{{ entries.filter(item => (item.tags[0] || memoryKinds[item.kind]) === name).length }}</small>
+          <i :style="{ background: memoryColors[index % memoryColors.length] }"></i><span>{{ name }}</span><small>{{ entries.filter(item => topics.get(item.id) === name).length }}</small>
         </button>
         <div class="memory-category-footer"><span>{{ entries.length }} / {{ total }} 条记忆</span><button v-if="entries.length < total" :disabled="loading" @click="load(true)">加载更多</button><span v-if="loading" role="status">正在读取…</span></div>
       </aside>
@@ -212,7 +213,7 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
             <span class="memory-list-meta">{{ memoryKinds[entry.kind] }}<small>{{ memoryStatuses[entry.status] }}</small></span><strong>{{ entry.title }}</strong><p>{{ entry.content }}</p><span class="memory-list-tags">{{ entry.tags.join(' / ') }}</span>
           </button>
         </div>
-        <div v-else class="memory-empty"><UiIcon name="branch" :size="44" /><h2>{{ loading ? '正在读取记忆…' : query || status ? '没有匹配的记忆' : !automatic ? '正在读取设置…' : !automatic.settings.enabled ? '自动记忆尚未开启' : automatic.progress.pending || automatic.progress.running ? '正在从对话生成记忆' : '暂时没有可保留的记忆' }}</h2><button v-if="!loading && !query && !status && automatic && !automatic.settings.enabled" class="memory-primary" @click="emit('open-settings')">前往设置开启</button></div>
+        <div v-else class="memory-empty"><UiIcon name="memory" :size="44" /><h2>{{ loading ? '正在读取记忆…' : query || status ? '没有匹配的记忆' : !automatic ? '正在读取设置…' : !automatic.settings.enabled ? '自动记忆尚未开启' : automatic.progress.pending || automatic.progress.running ? '正在从对话生成记忆' : '暂时没有可保留的记忆' }}</h2><button v-if="!loading && !query && !status && automatic && !automatic.settings.enabled" class="memory-primary" @click="emit('open-settings')">前往设置开启</button></div>
       </section>
       <aside v-if="selectedId" class="memory-inspector" aria-label="记忆详情" @keydown.esc.stop="closeDetail">
         <div class="memory-inspector-heading"><strong>记忆详情</strong><button ref="detailClose" class="icon-button" aria-label="关闭记忆详情" @click="closeDetail"><UiIcon name="close" :size="17" /></button></div>

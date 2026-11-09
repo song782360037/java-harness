@@ -55,6 +55,10 @@ export const modeOptions: { value: GroupMode; label: string; description: string
   { value: 'TASKS', label: '任务编排', description: '主持人拆分任务并行执行，最后汇总答复。' },
 ]
 
+const hostQuestionPrefix = '主持人需要你补充：'
+/** 主持人追问由服务端写成带固定前缀的系统消息，返回问题正文，其他消息返回空串。 */
+export const hostQuestion = (content: string) => content.startsWith(hostQuestionPrefix) ? content.slice(hostQuestionPrefix.length) : ''
+
 const taskLabels: Record<TaskStatus, string> = {
   PENDING: '等待中', RUNNING: '执行中', DONE: '已完成', FAILED: '失败', SKIPPED: '已跳过', CANCELLED: '已取消', INTERRUPTED: '已中断',
 }

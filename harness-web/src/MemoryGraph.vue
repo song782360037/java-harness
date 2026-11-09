@@ -78,7 +78,7 @@ function zoom(factor: number) {
   camera.value.zoom = value
 }
 function reset() { camera.value = memoryCamera(layout.value, size.value.width, size.value.height); positions.value = {} }
-watch(() => `${size.value.width}:${size.value.height}:${props.entries.map(item => `${item.id}:${item.tags[0] || item.kind}`).join('|')}`, reset, { immediate: true })
+watch(() => `${size.value.width}:${size.value.height}:${layout.value.nodes.map(node => `${node.id}:${node.group}`).join('|')}`, reset, { immediate: true })
 watch(() => props.entries.map(item => item.id).join(), () => { suppressClick = false })
 const observer = new ResizeObserver(records => {
   const bounds = records[0]?.contentRect

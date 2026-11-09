@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError, type CommandExecution, type FileChange, type ModelProfile, type Run, type Snapshot, type Workspace } from './api'
-import { activeStatuses, approvalTargets, avatarText, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, speakingMembers, studioSummary, taskLabel, taskSteps,
+import { activeStatuses, approvalTargets, avatarText, hostQuestion, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, speakingMembers, studioSummary, taskLabel, taskSteps,
   type GroupMember, type GroupMessage, type GroupSnapshot, type GroupSummary, type GroupTemplate, type RunApprovals } from './groups'
 import { preferences, shouldSendPrompt } from './preferences'
 import MarkdownContent from './MarkdownContent.vue'
@@ -52,7 +52,8 @@ const time = (value: string) => new Date(value).toLocaleTimeString('zh-CN', { ho
 const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
 // 每次进入群聊默认显示聊天；工作室期间由 App 收起并锁定全局侧栏。
 const view = ref<'chat' | 'studio'>('chat')
-const groupListOpen = ref(true)
+// 手机上默认收起群聊列表，把屏幕留给对话。
+const groupListOpen = ref(!window.matchMedia('(max-width: 780px)').matches)
 // 工作室视图需要的命令与文件审核状态，按运行的 status:activity 缓存，变化时才重新读取。
 const approvals = ref<Record<string, RunApprovals>>({})
 let approvalKeys: Record<string, string> = {}
@@ -387,6 +388,10 @@ onUnmounted(() => {
             <div v-if="!snapshot.messages.length" class="welcome"><div class="welcome-copy"><h2>说说你的问题或需求</h2><p class="welcome-description">输入 @昵称 可点名成员</p></div></div>
             <template v-for="item in snapshot.messages" :key="item.id">
               <div v-if="item.author === 'USER'" class="user-message-wrap"><details v-if="isLongPaste(item.content)" class="long-message"><summary><UiIcon name="file" :size="15" /><span>{{ item.content.slice(0, 40) }}…</span><small>{{ item.content.length }} 字符</small></summary><p class="user-message">{{ item.content }}</p></details><p v-else class="user-message">{{ item.content }}</p></div>
+              <div v-else-if="item.author === 'SYSTEM' && hostQuestion(item.content)" class="group-question" :class="{ 'is-pending': !snapshot.busy && item.id === snapshot.messages.at(-1)?.id }">
+                <UiIcon name="chat" :size="16" />
+                <div><strong>{{ !snapshot.busy && item.id === snapshot.messages.at(-1)?.id ? '等待你回答' : '主持人的追问' }}</strong><p>{{ hostQuestion(item.content) }}</p></div>
+              </div>
               <p v-else-if="item.author === 'SYSTEM'" class="group-system">{{ item.content }}</p>
               <article v-else class="group-message">
                 <span class="group-avatar" :style="{ background: memberOf(item)?.color || 'var(--muted)' }" aria-hidden="true">{{ avatarText(item.authorName) }}</span>

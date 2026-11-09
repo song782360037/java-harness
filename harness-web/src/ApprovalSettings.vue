@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, type ApprovalReviewerSettings, type ApprovalRules, type ModelProfile } from './api'
+import SettingsLoading from './SettingsLoading.vue'
 import UiIcon from './UiIcon.vue'
 const emit = defineEmits<{ busy: [value: boolean] }>()
 const kinds = [
@@ -27,13 +28,13 @@ async function load() {
 }
 async function save() {
   if (busy.value) return
-  busy.value = true; emit('busy', true); error.value = ''; notice.value = ''
+  busy.value = true; error.value = ''
   const lines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean)
   try {
     apply(await api<ApprovalRules>('/approval-policy', { revision: revision.value, deny: lines(texts.value.deny), ask: lines(texts.value.ask), allow: lines(texts.value.allow) }))
-    notice.value = '已保存，对之后提出的命令生效'
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '保存失败' }
-  finally { busy.value = false; emit('busy', false) }
+    return true
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '保存失败'; return false }
+  finally { busy.value = false }
 }
 const reviewerOptions = [
   { value: 'NONE', label: '不使用', help: '只按规则审批，规则未覆盖的动作交给你确认。' },
@@ -44,17 +45,21 @@ const reviewerOptions = [
 const reviewer = ref<ApprovalReviewerSettings | null>(null)
 const profiles = ref<ModelProfile[]>([])
 const jevApiKey = ref(''), clearJevApiKey = ref(false)
-const reviewerBusy = ref(false), reviewerError = ref(''), reviewerNotice = ref('')
+const reviewerBusy = ref(false), reviewerError = ref('')
+const reviewerSnapshot = () => JSON.stringify({ ...reviewer.value, jevApiKey: jevApiKey.value, clearJevApiKey: clearJevApiKey.value })
+const reviewerBaseline = ref('')
+const reviewerDirty = computed(() => !!reviewer.value && reviewerSnapshot() !== reviewerBaseline.value)
 async function loadReviewer() {
   reviewerError.value = ''
   try {
     const [settings, models] = await Promise.all([api<ApprovalReviewerSettings>('/approval-reviewer'), api<ModelProfile[]>('/model-profiles')])
     reviewer.value = settings; profiles.value = models; jevApiKey.value = ''; clearJevApiKey.value = false
+    reviewerBaseline.value = reviewerSnapshot()
   } catch (cause) { reviewerError.value = cause instanceof Error ? cause.message : '评审器设置读取失败' }
 }
 async function saveReviewer() {
   if (!reviewer.value || reviewerBusy.value) return
-  reviewerBusy.value = true; emit('busy', true); reviewerError.value = ''; reviewerNotice.value = ''
+  reviewerBusy.value = true; reviewerError.value = ''
   try {
     // 隐藏区块里的输入不提交：未使用 Jev 时既不改 Key 也不清除；超时为空时回到默认值。
     const value = reviewer.value
@@ -62,9 +67,20 @@ async function saveReviewer() {
       jevTimeoutSeconds: Number(value.jevTimeoutSeconds) || 10, llmTimeoutSeconds: Number(value.llmTimeoutSeconds) || 20,
       jevApiKey: usesJev() && !clearJevApiKey.value ? jevApiKey.value : '', clearJevApiKey: usesJev() && clearJevApiKey.value })
     jevApiKey.value = ''; clearJevApiKey.value = false
-    reviewerNotice.value = '已保存，对之后提出的动作生效'
-  } catch (cause) { reviewerError.value = cause instanceof Error ? cause.message : '保存失败' }
-  finally { reviewerBusy.value = false; emit('busy', false) }
+    reviewerBaseline.value = reviewerSnapshot()
+    return true
+  } catch (cause) { reviewerError.value = cause instanceof Error ? cause.message : '保存失败'; return false }
+  finally { reviewerBusy.value = false }
+}
+/** 规则和评审器用同一个保存入口，只提交有变化的部分，两者互不影响。 */
+async function saveAll() {
+  // 入口先定下提交范围，保存期间的新输入留到下一次保存。
+  const rules = dirty.value, review = reviewerDirty.value
+  if (busy.value || reviewerBusy.value || !rules && !review) return
+  notice.value = ''; emit('busy', true)
+  const saved = [rules ? await save() : true, review ? await saveReviewer() : true]
+  emit('busy', false)
+  if (saved.every(Boolean)) notice.value = '已保存，对之后提出的动作生效'
 }
 const usesJev = () => reviewer.value?.reviewers === 'JEV' || reviewer.value?.reviewers === 'JEV_LLM'
 const usesLlm = () => reviewer.value?.reviewers === 'LLM' || reviewer.value?.reviewers === 'JEV_LLM'
@@ -74,7 +90,10 @@ onMounted(() => { void load(); void loadReviewer() })
   <section class="approval-settings" aria-label="审批规则">
     <p class="approval-note"><UiIcon name="shield" :size="16" /><span>规则在智能审批与完全访问下生效，这两种模式下文件修改直接写入（可撤销），受保护路径（如 .github、AGENTS.md）仍需人工审核。高危命令（如删除根目录、磁盘操作）始终需要你确认。</span></p>
     <p v-if="error" role="alert" class="dialog-error">{{ error }} <button type="button" :disabled="busy" @click="load">{{ loaded ? '重新加载（放弃未保存的修改）' : '重试' }}</button></p>
-    <form v-if="loaded" class="approval-card" @submit.prevent="save">
+    <p v-if="reviewerError" role="alert" class="dialog-error">{{ reviewerError }} <button type="button" :disabled="reviewerBusy" @click="loadReviewer">重新加载</button></p>
+    <SettingsLoading v-if="!loaded && !reviewer && !error && !reviewerError" label="正在读取审批规则" />
+    <form v-if="loaded || reviewer" class="approval-form" @submit.prevent="saveAll">
+    <section v-if="loaded" class="approval-card">
       <header class="approval-card-heading"><h2>命令规则</h2><p>每行一条，按命令前缀匹配</p></header>
       <div class="approval-rules">
         <div v-for="kind in kinds" :key="kind.key" class="approval-rule" :class="`is-${kind.key}`">
@@ -84,10 +103,8 @@ onMounted(() => { void load(); void loadReviewer() })
           <small :id="`approval-${kind.key}-example`" class="approval-rule-example">示例：{{ kind.placeholder.split('\n').join('、') }}</small>
         </div>
       </div>
-      <footer class="approval-card-footer"><span v-if="dirty" class="settings-save-hint">有未保存的更改</span><span v-else-if="notice" role="status" class="saved-note">{{ notice }}</span><span v-else class="settings-save-hint">修改后保存，对之后提出的命令生效</span><button type="submit" class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存规则' }}</button></footer>
-    </form>
-    <p v-if="reviewerError" role="alert" class="dialog-error">{{ reviewerError }} <button type="button" :disabled="reviewerBusy" @click="loadReviewer">重新加载</button></p>
-    <form v-if="reviewer" class="approval-card" @submit.prevent="saveReviewer">
+    </section>
+    <section v-if="reviewer" class="approval-card">
       <header class="approval-card-heading"><h2 id="approval-reviewers-title">智能审批评审器</h2><p>规则未覆盖的动作先由评审器判断</p></header>
       <div class="reviewer-options" role="radiogroup" aria-labelledby="approval-reviewers-title">
         <label v-for="option in reviewerOptions" :key="option.value" class="reviewer-option" :class="{ selected: reviewer.reviewers === option.value }">
@@ -117,7 +134,8 @@ onMounted(() => { void load(); void loadReviewer() })
           </div>
         </div>
       </div>
-      <footer class="approval-card-footer"><span v-if="reviewerNotice" role="status" class="saved-note">{{ reviewerNotice }}</span><button type="submit" class="primary" :disabled="reviewerBusy">保存评审器</button></footer>
+    </section>
+    <footer class="approval-card-footer approval-save-bar"><span v-if="dirty || reviewerDirty" class="settings-save-hint">有未保存的更改</span><span v-else-if="notice" role="status" class="saved-note">{{ notice }}</span><span v-else class="settings-save-hint">修改后保存，对之后提出的动作生效</span><button type="submit" class="primary" :disabled="busy || reviewerBusy">{{ busy || reviewerBusy ? '保存中…' : '保存' }}</button></footer>
     </form>
   </section>
 </template>

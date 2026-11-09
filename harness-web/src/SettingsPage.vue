@@ -21,7 +21,7 @@ const sections = [{ id: 'general', label: '常规', icon: 'settings' },
   { id: 'models', label: '模型与提供商', icon: 'cube' },
   { id: 'workspace', label: '工作区', icon: 'folder' },
   { id: 'approval', label: '审批', icon: 'shield' },
-  { id: 'memory', label: '记忆', icon: 'branch' },
+  { id: 'memory', label: '记忆', icon: 'memory' },
   { id: 'plugins', label: '扩展', icon: 'puzzle' },
   { id: 'usage', label: '使用统计', icon: 'chart' },
   { id: 'updates', label: '关于与更新', icon: 'refresh' }] as const
