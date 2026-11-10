@@ -103,7 +103,7 @@ onMounted(() => {
 <template>
   <dialog ref="dialog" class="model-editor-dialog automation-editor-dialog group-settings-dialog" aria-labelledby="group-settings-title" @keydown.esc.stop @cancel.prevent="close()">
     <div class="model-editor-panel automation-editor">
-      <header class="model-editor-heading"><div><p>群聊</p><h2 id="group-settings-title">{{ editing ? '群聊设置' : '新建群聊' }}</h2></div><button type="button" class="icon-button" :disabled="busy" aria-label="关闭群聊设置" @click="close()"><UiIcon name="close" :size="20" /></button></header>
+      <header class="model-editor-heading"><h2 id="group-settings-title">{{ editing ? '群聊设置' : '新建群聊' }}</h2><button type="button" class="icon-button" :disabled="busy" aria-label="关闭群聊设置" @click="close()"><UiIcon name="close" :size="20" /></button></header>
       <div class="model-editor-content">
         <p v-if="error" role="alert" class="dialog-error">{{ error }}</p>
         <form v-if="!editingMember" id="group-settings-form" @submit.prevent="saveGroup">
@@ -139,14 +139,14 @@ onMounted(() => {
                 <button type="button" class="icon-button" :disabled="busy" :aria-label="`编辑成员 ${member.name}`" title="编辑" @click="editMember(member)"><UiIcon name="edit" :size="14" /></button>
                 <button type="button" class="icon-button" :disabled="busy" :aria-label="`移除成员 ${member.name}`" title="移除" @click="confirmingDelete = member.id"><UiIcon name="trash" :size="14" /></button>
               </span>
-              <p v-if="confirmingDelete === member.id" role="alert" class="dialog-error">移除「{{ member.name }}」？其历史发言会保留。<button type="button" :disabled="busy" @click="removeMember(member)">确认移除</button><button type="button" :disabled="busy" @click="confirmingDelete = ''">取消</button></p>
+              <p v-if="confirmingDelete === member.id" role="alert" class="dialog-error inline-confirm"><span>移除「{{ member.name }}」？其历史发言会保留。</span><button type="button" :disabled="busy" @click="confirmingDelete = ''">取消</button><button type="button" class="primary danger" :disabled="busy" @click="removeMember(member)">确认移除</button></p>
             </li>
           </ul>
           <div class="group-add-members">
             <button v-for="template in availableTemplates" :key="template.key" type="button" :disabled="busy" :title="template.focus" @click="editMember(undefined, template)"><UiIcon name="plus" :size="13" />{{ template.name }}</button>
             <button type="button" :disabled="busy" @click="editMember()"><UiIcon name="plus" :size="13" />自定义成员</button>
           </div>
-          <p v-if="confirmingDelete === 'group'" role="alert" class="dialog-error">删除群聊「{{ form.name }}」及全部聊天记录？<button type="button" :disabled="busy" @click="removeGroup">确认删除</button><button type="button" :disabled="busy" @click="confirmingDelete = ''">取消</button></p>
+          <p v-if="confirmingDelete === 'group'" role="alert" class="dialog-error inline-confirm"><span>删除群聊「{{ form.name }}」及全部聊天记录？</span><button type="button" :disabled="busy" @click="confirmingDelete = ''">取消</button><button type="button" class="primary danger" :disabled="busy" @click="removeGroup">确认删除</button></p>
           <button v-else type="button" class="group-delete" :disabled="busy || groupBusy" :title="groupBusy ? '协作进行中，停止后才能删除' : undefined" @click="confirmingDelete = 'group'"><UiIcon name="trash" :size="14" />删除群聊</button>
         </section>
         <form v-if="editingMember" id="group-member-form" @submit.prevent="saveMember">

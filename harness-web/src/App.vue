@@ -27,7 +27,7 @@ import SidebarResize from './SidebarResize.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionDeleteDialog from './SessionDeleteDialog.vue'
 import UiIcon from './UiIcon.vue'
-import { preferences, shouldSendPrompt } from './preferences'
+import { modifierKeyLabel, preferences, shouldSendPrompt } from './preferences'
 import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, upload, type Run, type RunEvent, type RunStatus,
   type Session, type Snapshot, type Submission, type ModelProfile, type Workspace, type ApprovalMode } from './api'
 import { addMention, attachmentProblem, attachmentsOnlyPrompt, droppedFiles, isImage, isLongPaste, mentionLabel, MAX_ATTACHMENTS, MAX_MENTIONS, nextPastedName, removeFileMentionQuery,
@@ -57,7 +57,7 @@ const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[prefere
 watch(fontSize, value => {
   document.documentElement.style.setProperty('--app-font-size', `${value}px`)
 }, { immediate: true })
-const sendShortcutHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
+const sendShortcutHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : `${modifierKeyLabel} + Enter 发送`)
 const creatingWorkspace = ref(false)
 const settingsBusy = ref(false)
 const workspaceSaving = ref(false)
@@ -213,6 +213,10 @@ const multiRoot = computed(() => (workspaces.value.find(value => value.id === sn
 const attachmentsBlocked = computed(() => draftAttachments.value.some(item => !item.id || item.error))
 // 正文、引用或附件任一项非空即可发送。
 const hasDraftContent = computed(() => !!prompt.value.trim() || draftMentions.value.length > 0 || draftAttachments.value.length > 0)
+// 只有正在输入时才提示可发送，切到带草稿的会话不弹跳。
+const sendReady = ref(false)
+// 本次发送的消息播放一次出场，历史消息不播放。
+const freshRunId = ref('')
 const attachmentsOf = (runId: string) => sentAttachments.value.filter(item => item.runId === runId)
 // 选择、粘贴或拖入后立即上传，失败的附件保留错误提示，移除后才能发送。
 function addFiles(files: File[]) {
@@ -338,6 +342,8 @@ function toggleGroup(path: string) {
 function resizePrompt() {
   const input = promptInput.value
   if (!input) return
+  // 发送过渡中正文已显示在对话区，输入框按空内容收起。
+  if (launching.value) { input.style.height = ''; return }
   input.style.height = 'auto'
   input.style.height = `${Math.min(input.scrollHeight, 200)}px`
 }
@@ -510,6 +516,62 @@ function setPending(value: Submission | null) {
   pending.value = value
   storageSet(`harness.pending.${selectedId.value}`, value ? JSON.stringify(value) : null)
 }
+// 从欢迎页发送时立即切到对话布局，用占位消息在对话区等待真实记录返回。
+const launching = ref<{ text: string; attachments: DraftAttachment[] } | null>(null)
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+let landing: Animation[] = []
+function composerBox() {
+  const input = promptInput.value
+  const box = input?.closest('.composer')?.getBoundingClientRect()
+  return input && box ? { top: box.top, bottom: box.bottom, inputHeight: input.offsetHeight } : undefined
+}
+/** 布局切换后，让输入框落到新位置，对话内容同时从输入框处升起。 */
+function landComposer(from: NonNullable<ReturnType<typeof composerBox>>) {
+  // 提交很快失败时上一段还在播放：from 已记下当前视觉位置，先取消才能量到静止位置。
+  landing.forEach(animation => animation.cancel())
+  landing = []
+  if (prefersReducedMotion()) return
+  resizePrompt()
+  const to = composerBox()
+  if (!to) return
+  const timing = { duration: 380, easing: 'cubic-bezier(.2, .8, .2, 1)' }
+  const dock = promptInput.value?.closest('.composer-dock')?.animate([{ transform: `translateY(${from.bottom - to.bottom}px)` }, { transform: 'none' }], timing)
+  // 动画期间读到的是过渡中的高度，结束时按实际内容重算一次。
+  const settle = promptInput.value?.animate([{ height: `${from.inputHeight}px` }, { height: `${to.inputHeight}px` }], timing)
+  if (settle) settle.onfinish = resizePrompt
+  // 动画放在滚动容器上，真实记录中途替换占位消息时不会中断。
+  const messageTop = timeline.value?.querySelector('.user-message')?.getBoundingClientRect().top
+  const rise = messageTop === undefined ? 0 : Math.max(0, from.top - messageTop)
+  const content = timeline.value?.animate([{ opacity: 0, transform: `translateY(${rise}px)` }, { opacity: 1, offset: .7 }, { opacity: 1, transform: 'none' }], timing)
+  landing = [dock, settle, content].filter(animation => animation !== undefined)
+}
+/** 欢迎内容已被布局移除，用定格的副本原地淡出。 */
+function fadeOutWelcome() {
+  if (prefersReducedMotion()) return
+  const panel = timeline.value?.closest('.main-panel')
+  for (const element of panel?.querySelectorAll<HTMLElement>('.welcome, .suggestion-list') ?? []) {
+    const box = element.getBoundingClientRect()
+    const ghost = element.cloneNode(true) as HTMLElement
+    ghost.inert = true
+    Object.assign(ghost.style, { position: 'fixed', top: `${box.top}px`, left: `${box.left}px`, width: `${box.width}px`, margin: '0', animation: 'none' })
+    // 排在输入框之前，下落的输入框才能盖住副本。
+    panel?.prepend(ghost)
+    ghost.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(-8px)' }], { duration: 110, easing: 'ease-out' }).onfinish = () => ghost.remove()
+  }
+}
+function startLaunch() {
+  const from = composerBox()
+  fadeOutWelcome()
+  launching.value = { text: pending.value?.prompt ?? draftText(), attachments: draftAttachments.value }
+  if (from) void nextTick(() => landComposer(from))
+}
+// 提交失败时还没有对话记录，输入框要退回欢迎页。
+function endLaunch() {
+  if (!launching.value) return
+  const from = snapshot.value?.runs.length ? undefined : composerBox()
+  launching.value = null
+  if (from) void nextTick(() => landComposer(from))
+}
 async function refresh(id: string, version: number) {
   const titles = titleRevision
   const value = await api<Snapshot>(`/sessions/${id}`)
@@ -519,6 +581,9 @@ async function refresh(id: string, version: number) {
   const node = timeline.value
   const initialLoad = !snapshot.value
   const scroll = initialLoad || (preferences.value.autoScroll && (!node || node.scrollHeight - node.scrollTop - node.clientHeight < 100))
+  // 已发送附件要多一次请求才回来，先沿用占位卡片的附件，替换时不闪动。
+  const launched = launching.value && !snapshot.value?.runs.length ? value.runs[0] : undefined
+  if (launched) sentAttachments.value = launching.value!.attachments.map(({ id, name, mediaType, size }) => ({ id, name, mediaType, size, runId: launched.id, createdAt: launched.createdAt }))
   snapshot.value = value
   sessions.value = sessions.value.map(session => session.id === value.session.id ? value.session : session)
   if (error.value === '读取记录失败，正在重试。') error.value = ''
@@ -631,7 +696,9 @@ function resumeStream(event: Event) {
   if (event.type === 'online') reconnectDelay = 1500
   if (event.type === 'online' || Date.now() - lastStreamMessageAt > 15000) restartStream()
 }
-async function selectSession(id: string) {
+async function selectSession(id: string, keepSnapshot = false) {
+  freshRunId.value = ''
+  sendReady.value = false
   awayFromLatest.value = false
   closeSettings()
   const version = ++revision
@@ -646,7 +713,7 @@ async function selectSession(id: string) {
   dirty = false
   connected.value = false
   selectedId.value = id
-  snapshot.value = null
+  if (!keepSnapshot) { snapshot.value = null; launching.value = null }
   toolRevisions.value = {}
   stepRevisions.value = {}; answers.value = {}
   changeRevisions.value = {}
@@ -694,7 +761,9 @@ async function addSession(title: string, workspaceId: string) {
   showAutomations.value = false
   showMemories.value = false
   showGroups.value = false
-  await selectSession(session.id)
+  // 发送过渡中保留草稿快照，避免工作区等选项闪回空状态。
+  await selectSession(session.id, !!launching.value)
+  if (selectedId.value === session.id && snapshot.value?.session.id !== session.id) snapshot.value = null
   selectedProfileId.value = profile; reasoningEffort.value = effort; approvalMode.value = approval
   if (isMobile.value) sidebarCollapsed.value = true
   await nextTick()
@@ -706,16 +775,24 @@ async function createSession() {
 }
 async function send() {
   if (optimizingPrompt.value || workspaceChanging.value) return
-  if (selectedId.value) { await submit(); return }
+  if (selectedId.value) {
+    const launch = !snapshot.value?.runs.length && canSubmit()
+    if (launch) startLaunch()
+    await submit()
+    if (launch) endLaunch()
+    return
+  }
   if (attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
   if (loading.value || submitting.value || !model.value?.configured || !hasDraftContent.value) return
   const draft = prompt.value
   let ready = false
+  startLaunch()
   submitting.value = true; error.value = ''
   try { ready = await addSession(draft.trim().slice(0, 40) || '新会话', snapshot.value?.session.workspaceId || '') }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '创建会话失败' }
   finally { prompt.value = draft; submitting.value = false }
   if (ready) { saveDraft('', ''); await submit() }
+  endLaunch()
 }
 function settingsSaved(value: ModelProfile) {
   profileRevision++
@@ -806,6 +883,9 @@ async function openTask(task: TaskActivity) {
   }
 }
 watch(taskNavigationBlocked, blocked => { if (!blocked && queuedTask.value) void openTask(queuedTask.value) })
+watch(hasDraftContent, has => { sendReady.value = has && document.activeElement === promptInput.value })
+// 欢迎页与对话页的最小高度不同，内联高度要随状态和程序写入的内容重新计算。
+watch([prompt, () => snapshot.value?.runs.length, launching], () => { void nextTick(resizePrompt) })
 // 新建只切换到草稿；重复点击当前草稿入口时保留输入，不创建空会话。
 async function createWorkspaceSession(workspaceId: string) {
   if (loading.value || submitting.value || workspaceChanging.value) return
@@ -833,14 +913,21 @@ async function initialize() {
   } catch { error.value = '无法连接服务，请确认后端已启动后重试。' }
   finally { loading.value = false }
 }
+function canSubmit() {
+  if (submitting.value || !snapshot.value) return false
+  return !!pending.value || (!attachmentsBlocked.value && !!model.value?.configured && !current.value && hasDraftContent.value)
+}
+// 只有引用卡片时用引用路径作正文，与在正文中写 @path 等效；只有附件时说明内容在附件里。
+function draftText() {
+  return prompt.value.trim() ? prompt.value
+    : draftMentions.value.length ? draftMentions.value.map(entry => `@${mentionLabel(entry, multiRoot.value)}`).join(' ')
+    : attachmentsOnlyPrompt(draftAttachments.value.map(item => item.name))
+}
 async function submit() {
   if (!pending.value && attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
-  if (submitting.value || !snapshot.value || (!pending.value && (!model.value?.configured || current.value || !hasDraftContent.value))) return
+  if (!canSubmit()) return
   const mentions = draftMentions.value
-  // 只有引用卡片时用引用路径作正文，与在正文中写 @path 等效；只有附件时说明内容在附件里。
-  const text = prompt.value.trim() ? prompt.value
-    : mentions.length ? mentions.map(entry => `@${mentionLabel(entry, multiRoot.value)}`).join(' ')
-    : attachmentsOnlyPrompt(draftAttachments.value.map(item => item.name))
+  const text = draftText()
   const id = selectedId.value
   const version = revision
   const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: text,
@@ -850,8 +937,9 @@ async function submit() {
   submitting.value = true
   error.value = ''
   try {
-    await api<Run>(`/sessions/${id}/runs`, request)
+    const created = await api<Run>(`/sessions/${id}/runs`, request)
     if (version === revision) {
+      if (!launching.value && !snapshot.value?.runs.some(run => run.id === created.id)) freshRunId.value = created.id
       setPending(null)
       prompt.value = ''
       clearComposerInputs()
@@ -940,7 +1028,7 @@ onUnmounted(() => {
     </Teleport>
     <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="sessionRenamed" @close="closeRename" />
     <SessionDeleteDialog v-if="deletingSession" :session="deletingSession" @deleted="sessionDeleted" @close="closeDelete" />
-    <main v-show="!showSettings && !showAutomations && !showMemories && !showGroups" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length }" :inert="isMobile && !sidebarCollapsed || undefined">
+    <main v-show="!showSettings && !showAutomations && !showMemories && !showGroups" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length && !launching, 'is-launching': launching }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
         <div class="header-meta"><span v-if="selectedId && !connected" class="connection" title="正在重新连接">连接中</span></div>
@@ -948,15 +1036,19 @@ onUnmounted(() => {
       <div v-if="error" class="error-banner" role="alert">{{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button></div>
       <div class="workbench-body"><div class="chat-panel">
       <div ref="timeline" class="timeline" aria-label="对话记录" :aria-busy="loading" @scroll.passive="trackTimeline">
-        <div v-if="loading" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
-        <div v-else-if="!snapshot?.runs.length" class="welcome">
+        <div v-if="loading && !launching" class="empty-state"><span class="loading-indicator"></span><p>正在读取会话…</p></div>
+        <div v-else-if="!snapshot?.runs.length && !launching" class="welcome">
           <div class="welcome-copy">
             <p class="welcome-eyebrow"><span aria-hidden="true"></span>{{ workspaces.find(value => value.id === snapshot?.session.workspaceId)?.name || '新的任务' }}</p>
             <h2>今天想推进什么？</h2>
           </div>
         </div>
-        <article v-for="run in snapshot?.runs" :key="run.id" class="run-card">
-          <div class="user-message-wrap"><p class="user-message">{{ run.prompt }}</p><ul v-if="attachmentsOf(run.id).length" class="message-attachments" aria-label="消息附件"><li v-for="item in attachmentsOf(run.id)" :key="item.id"><a :href="`/api/attachments/${item.id}/content`" target="_blank" rel="noopener" :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" loading="lazy" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
+        <article v-if="launching && !snapshot?.runs.length" class="run-card">
+          <div class="user-message-wrap"><p class="user-message">{{ launching.text }}</p><ul v-if="launching.attachments.length" class="message-attachments" aria-label="消息附件"><li v-for="item in launching.attachments" :key="item.key"><a :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
+          <section class="response" aria-label="等待回答"><div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span class="working-label"><span class="activity-dot"></span>{{ labels.QUEUED }}</span></div></section>
+        </article>
+        <article v-for="run in snapshot?.runs" :key="run.id" class="run-card" :class="{ 'is-fresh': run.id === freshRunId }">
+          <div class="user-message-wrap" @animationend="freshRunId = ''"><p class="user-message">{{ run.prompt }}</p><ul v-if="attachmentsOf(run.id).length" class="message-attachments" aria-label="消息附件"><li v-for="item in attachmentsOf(run.id)" :key="item.id"><a :href="`/api/attachments/${item.id}/content`" target="_blank" rel="noopener" :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" loading="lazy" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
           <section class="response" :aria-label="run.model + ' 的回答'">
             <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
             <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
@@ -993,11 +1085,11 @@ onUnmounted(() => {
             <TokenUsageRing :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
             <PromptOptimizer :text="prompt" :session-id="snapshot?.session.id || ''" :workspace="snapshot?.session.workspace || ''" :workspace-id="snapshot?.session.workspaceId || ''" :model-profile-id="selectedProfileId" :reasoning-effort="reasoningEffort" :mentions="draftMentions" :attachment-ids="draftAttachments.map(item => item.id)" :disabled="!model?.configured || !!current || submitting || !!pending || loading || workspaceChanging || attachmentsBlocked || showSettings || showAutomations || showMemories || showGroups" @busy="optimizingPrompt = $event" @error="optimizationError = $event" @apply="prompt = $event; nextTick(() => promptInput?.focus())" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
-            <button v-else type="submit" class="send-button" :disabled="optimizingPrompt || loading || submitting || workspaceChanging || (!pending && (!model?.configured || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending ? '重试提交' : '发送消息'" :title="pending ? '重试提交' : sendShortcutHint"><UiIcon :name="pending ? 'refresh' : 'arrow'" :size="18" /></button>
+            <button v-else type="submit" class="send-button" :class="{ 'is-ready': sendReady }" :disabled="optimizingPrompt || loading || submitting || workspaceChanging || (!pending && (!model?.configured || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending && !submitting ? '重试提交' : '发送消息'" :title="pending && !submitting ? '重试提交' : sendShortcutHint"><UiIcon :name="pending && !submitting ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
         </form>
-        <div v-if="!snapshot?.runs.length && !loading" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="optimizingPrompt || submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>
         <div class="composer-caption"><span>{{ sendShortcutHint }}</span></div>
+        <div v-if="!snapshot?.runs.length && !loading && !launching" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="optimizingPrompt || submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>
       </div>
       </div>
       </div>
@@ -1007,7 +1099,7 @@ onUnmounted(() => {
     <GroupChatsPage v-if="showGroups" ref="groupPage" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" @studio="setGroupStudio" />
     <DesktopUpdateNotice @details="openSettings('updates')" />
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
-      <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="17" /></button></header>
+      <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="20" /></button></header>
       <WorkspaceSettings v-if="browsingWorkspace" :session-id="snapshot?.session.id" initial-path="" :initial-workspace="editingWorkspace" :disabled="workspaceSyncing || !!current || submitting || !!pending || loading" @busy="workspaceSaving = $event" @saved="workspacePicked" @cancel="closeWorkspaceDialog" />
     </dialog>
     <SettingsPage v-if="showSettings" :initial-profile-id="selectedProfileId" :initial-section="settingsSection" :session="snapshot?.session" :workspaces="workspaces" :creating-workspace="creatingWorkspace" :workspace-disabled="!!current || submitting || !!pending || loading" @close="closeSettings" @busy="settingsBusy = $event" @saved="settingsSaved" @deleted="profileDeleted" @changed="loadProfiles().catch(() => {})" @workspace-saved="workspacePicked" />

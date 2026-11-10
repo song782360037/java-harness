@@ -1,5 +1,5 @@
 .reference-settings { background: var(--sidebar); color: var(--text); }
-.reference-settings .settings-nav { display: flex; flex-direction: column; width: 224px; padding: 16px 14px; background: var(--sidebar); }
+.reference-settings .settings-nav { display: flex; flex-direction: column; width: 224px; padding: 16px 14px; border-right: 0; background: var(--sidebar); }
 .settings-brand { display: flex; gap: 10px; align-items: center; padding: 0 8px; min-height: 44px; margin-bottom: 24px; font-size: var(--font-body); color: var(--muted); }
 .settings-brand strong { font-size: var(--font-heading); font-weight: 650; letter-spacing: -.5px; color: var(--text); }
 .settings-brand .brand-icon { border-radius: var(--radius-md); }
@@ -10,13 +10,13 @@
 .reference-settings .settings-nav button:hover:not(:disabled) { background: var(--sidebar-hover); }
 .reference-settings .settings-nav button.selected { background: var(--sidebar-selected); color: var(--text); font-weight: 550; }
 .reference-settings { --settings-gutter: 40px; --settings-column: 1144px; }
-.reference-settings .settings-content { padding: 40px var(--settings-gutter) 48px; margin: 6px 6px 6px 0; background: var(--page); border: 0.5px solid var(--border); border-radius: var(--radius-lg); }
+.reference-settings .settings-content { padding: 40px var(--settings-gutter) 48px; background: var(--page); border: 0.5px solid var(--border); border-radius: var(--radius-lg); }
 /* 所有分区共用同一左边缘，窄内容在宽栏内靠左，切换分区时标题不跳动。 */
 .reference-settings .settings-content-inner { max-width: var(--settings-column); margin: 0 auto; }
 .reference-settings .settings-content:not(.model-settings-content, .extensions-content) .settings-content-inner > * { max-width: 780px; }
 /* 标题行避开右上角固定的任务中心入口。 */
 .reference-settings .model-settings-content .settings-title-row { padding-top: 12px; }
-.reference-title { font-size: var(--font-title); line-height: 1.3; margin: 0 0 10px; font-weight: 620; letter-spacing: -.03em; outline: none; }
+.reference-title { font-size: var(--font-title); line-height: 1.3; margin: 0 0 10px; font-weight: 620; outline: none; }
 .settings-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .reference-settings .icon-button { border: 0; background: transparent; color: var(--muted); padding: 7px; width: 34px; height: 34px; flex-shrink: 0; }
 .reference-settings .icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
@@ -42,7 +42,7 @@
 .provider-heading-icon { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; color: var(--accent); background: var(--accent-soft); border: 0.5px solid var(--border-strong); border-radius: 12px; }
 .provider-heading-copy { flex: 1; min-width: 0; }
 .provider-heading-copy > div { display: flex; align-items: center; gap: 6px; }
-.provider-heading h2 { font-size: var(--font-heading); font-weight: 600; margin: 0; overflow-wrap: anywhere; min-width: 0; letter-spacing: -.02em; }
+.provider-heading h2 { font-size: var(--font-heading); font-weight: 600; margin: 0; overflow-wrap: anywhere; min-width: 0; }
 .provider-status { display: flex; align-items: center; flex-shrink: 0; }
 .connection-badge { font-size: var(--font-caption); border-radius: 6px; background: var(--subtle); color: var(--muted); padding: 4px 8px; white-space: nowrap; }
 .connection-badge.ready { color: var(--success); background: var(--success-bg); }
@@ -92,23 +92,24 @@
 .models-empty { font-size: var(--font-caption); line-height: 1.8; color: var(--muted); padding: 28px 20px; margin: 0; border: 0.5px dashed var(--border-strong); border-radius: var(--radius-lg); text-align: center; }
 .model-editor-dialog { position: fixed; inset: 0 0 0 auto; width: min(540px, 100%); max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-left: 0.5px solid var(--border); background: var(--surface); color: var(--text); overflow: hidden; box-shadow: var(--popover-shadow); }
 .model-editor-dialog::backdrop { background: var(--scrim); }
+/* 表单在关闭时同步卸载，面板会塌成细线，所以不播退场。 */
+.model-editor-dialog:not([open]) { transition: none; }
 .model-editor-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 /* 居中弹窗也限制面板高度，让正文滚动而操作区保持可见。 */
 .model-editor-dialog.automation-editor-dialog .model-editor-panel { max-height: calc(100dvh - 50px); overflow: hidden; }
-.model-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 26px 28px 22px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; }
-.model-editor-heading p { color: var(--accent); font-size: var(--font-caption); font-weight: 550; margin: 0 0 8px; letter-spacing: .08em; }
-.model-editor-heading h2 { font-size: var(--font-title); font-weight: 600; letter-spacing: -.03em; margin: 0; }
-.model-editor-content { flex: 1; min-height: 0; padding: 24px 28px; overflow: auto; overscroll-behavior: contain; }
+.model-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 16px 16px 24px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; }
+.model-editor-heading h2 { font-size: var(--font-heading); font-weight: 600; margin: 0; }
+.model-editor-content { flex: 1; min-height: 0; padding: 20px 24px; overflow: auto; overscroll-behavior: contain; }
 .model-editor-context { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 14px; margin-bottom: 20px; background: var(--accent-soft); color: var(--accent); border-radius: 9px; }
 .model-editor-context strong { font-size: var(--font-body); font-weight: 550; overflow-wrap: anywhere; min-width: 0; }
 .model-editor-content .dialog-error { margin: 0 0 18px; }
-.reference-settings .model-editor-content label { color: var(--text); margin: 20px 0 8px; font-weight: 550; }
+.reference-settings .model-editor-content label { color: var(--text); margin: 20px 0 8px; font-weight: 500; }
 .model-editor-content fieldset > label:first-child { margin-top: 0; }
 .model-editor-content select { width: 100%; }
 .model-editor-content .field-note { margin: 8px 0 0; font-size: var(--font-caption); }
 .model-editor-content .advanced-settings { border-top: 0.5px solid var(--border); margin-top: 24px; padding-top: 18px; }
 .model-editor-content .advanced-settings summary { color: var(--text); font-size: var(--font-caption); cursor: pointer; }
-.model-editor-footer { display: flex; align-items: center; gap: 10px; padding: 20px 28px; border-top: 0.5px solid var(--border); flex-shrink: 0; background: var(--surface); }
+.model-editor-footer { display: flex; align-items: center; gap: 10px; padding: 14px 24px; border-top: 0.5px solid var(--border); flex-shrink: 0; background: var(--surface); }
 .model-editor-footer > span { flex: 1; font-size: var(--font-caption); color: var(--muted); line-height: 1.7; }
 .model-editor-footer button { flex-shrink: 0; }
 .reference-settings .settings-card { background: var(--surface); border: 0.5px solid var(--border); padding: 0; }
@@ -138,7 +139,7 @@
 }
 @media (max-width: 780px) {
   /* 横向导航收窄，右侧留给固定的任务中心入口；分隔线放到内容区，保持整行。 */
-  .reference-settings .settings-nav { flex-direction: row; width: calc(100% - 140px); align-items: center; padding: 8px 12px; gap: 4px; overflow-x: auto; border-bottom: 0; }
+  .reference-settings .settings-nav { flex-direction: row; width: calc(100% - 140px); align-items: center; padding: 8px 28px 8px 12px; gap: 4px; overflow-x: auto; border-bottom: 0; mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
   .settings-brand, .reference-settings .settings-nav .nav-group-label { display: none; }
   .reference-settings .settings-nav .back-button { margin: 0 auto 0 0; }
   .reference-settings .settings-nav button { width: auto; margin: 0; white-space: nowrap; flex-shrink: 0; min-height: 40px; }

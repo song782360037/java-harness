@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import PreferenceSelect from './PreferenceSelect.vue'
-import { preferences, preferencesPersistent, updatePreferences } from './preferences'
+import { modifierKeyLabel, preferences, preferencesPersistent, updatePreferences } from './preferences'
 import { taskActivity, taskActivityError, taskNotificationsBusy, setTaskNotifications } from './taskActivity'
 const desktopTasks = !!window.harnessDesktop?.setTaskNotifications
-const shortcuts = [{ value: 'modifier-enter', label: 'Ctrl / ⌘ + Enter' }, { value: 'enter', label: 'Enter' }] as const
+const shortcuts = [{ value: 'modifier-enter', label: `${modifierKeyLabel} + Enter` }, { value: 'enter', label: 'Enter' }] as const
 const fontSizes = [{ value: 'small', label: '小 · 13 px' }, { value: 'standard', label: '标准 · 14 px' }, { value: 'large', label: '大 · 16 px' }] as const
 const sendShortcut = computed(() => preferences.value.sendShortcut)
 const fontSize = computed(() => preferences.value.chatFontSize)

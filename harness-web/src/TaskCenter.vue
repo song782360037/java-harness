@@ -10,6 +10,7 @@ const trigger = ref<HTMLButtonElement>()
 const tab = ref<'active' | 'recent'>('active')
 const items = computed(() => taskActivity.value[tab.value])
 const waiting = computed(() => taskActivity.value.active.filter(task => task.status.startsWith('WAITING_')).length)
+const idle = computed(() => !taskActivity.value.active.length && !taskActivityError.value)
 const time = (value: string) => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 /** 原生对话框提供焦点圈定与 Escape 关闭，关闭后恢复入口焦点。 */
 async function show() { panel.value?.showModal(); await nextTick(); panel.value?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus() }
@@ -18,15 +19,15 @@ function navigate(task: TaskActivity) { if (props.disabled) return; close(); emi
 </script>
 <template>
   <div class="task-center">
-    <button ref="trigger" type="button" class="task-center-trigger" :class="{ 'needs-attention': waiting }" aria-haspopup="dialog" aria-controls="task-center-dialog" @click="show">
-      <UiIcon :name="taskActivityError ? 'warning' : 'clock'" :size="16" /><span>{{ taskActivityError ? '任务状态异常' : `活动中 ${taskActivity.active.length}` }}</span><span v-if="waiting" class="task-waiting-count" :aria-label="`${waiting} 个任务待处理`">{{ waiting }}</span>
+    <button ref="trigger" type="button" class="task-center-trigger" :class="{ 'needs-attention': waiting, 'is-idle': idle }" :title="idle ? '任务中心' : undefined" aria-haspopup="dialog" aria-controls="task-center-dialog" @click="show">
+      <UiIcon :name="taskActivityError ? 'warning' : 'clock'" :size="16" /><span :class="{ 'sr-only': idle }">{{ taskActivityError ? '任务状态异常' : `活动中 ${taskActivity.active.length}` }}</span><span v-if="waiting" class="task-waiting-count" :aria-label="`${waiting} 个任务待处理`">{{ waiting }}</span>
     </button>
     <dialog id="task-center-dialog" ref="panel" class="task-center-dialog" aria-labelledby="task-center-title" @click="$event.target === panel && close()" @cancel.prevent="close">
       <header class="task-center-heading"><h2 id="task-center-title">任务中心</h2><button type="button" class="icon-button" aria-label="关闭任务中心" @click="close"><UiIcon name="close" :size="18" /></button></header>
-      <div class="task-center-tabs" role="group" aria-label="任务列表">
+      <div class="task-center-tabs"><div class="segmented task-center-segmented" role="group" aria-label="任务列表">
         <button type="button" :aria-pressed="tab === 'active'" @click="tab = 'active'">进行中 <span>{{ taskActivity.active.length }}</span></button>
         <button type="button" :aria-pressed="tab === 'recent'" @click="tab = 'recent'">最近结束</button>
-      </div>
+      </div></div>
       <p v-if="taskActivityError" class="task-center-error" role="status">{{ taskActivityError }}，正在重试</p>
       <p v-if="disabled" class="task-center-error" role="status">当前操作完成后可跳转任务</p>
       <div class="task-center-list">

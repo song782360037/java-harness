@@ -20,7 +20,8 @@
 .command-card footer > span { color: var(--muted); font-size: var(--font-caption); flex: 1 1 200px; overflow-wrap: anywhere; }
 .command-card footer > div { display: flex; gap: 8px; }
 .command-card button { padding: 6px 10px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font-size: var(--font-caption); }
-.command-card button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.command-card button.primary:not(:disabled) { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.command-card button.primary:disabled { background: var(--subtle); color: var(--faint); border-color: var(--border); }
 .command-details > summary { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; font-size: var(--font-caption); list-style: none; }
 .command-details > summary::-webkit-details-marker { display: none; }
 .command-details > summary::before { content: '›'; font-size: var(--font-heading); color: var(--muted); }

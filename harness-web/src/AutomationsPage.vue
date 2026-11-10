@@ -137,7 +137,7 @@ onUnmounted(() => window.clearInterval(pollTimer))
               <button type="button" class="icon-button" :disabled="busy" aria-label="删除自动化" title="删除" @click="confirmingDelete = true"><UiIcon name="trash" :size="15" /></button>
             </div>
           </div>
-          <p v-if="confirmingDelete" role="alert" class="dialog-error">删除「{{ selected.name }}」及其触发记录？已创建的会话会保留。<button type="button" :disabled="busy" @click="remove(selected)">确认删除</button><button type="button" :disabled="busy" @click="confirmingDelete = false">取消</button></p>
+          <p v-if="confirmingDelete" role="alert" class="dialog-error inline-confirm"><span>删除「{{ selected.name }}」及其触发记录？已创建的会话会保留。</span><button type="button" :disabled="busy" @click="confirmingDelete = false">取消</button><button type="button" class="primary danger" :disabled="busy" @click="remove(selected)">确认删除</button></p>
           <dl class="automation-meta">
             <div><dt>工作区</dt><dd>{{ workspaceName(selected.workspaceId) }}</dd></div>
             <div><dt>模型</dt><dd>{{ profileName(selected.modelProfileId) }} · {{ selected.reasoningEffort === null ? '模型默认强度' : effortLabel(selected.reasoningEffort) }}</dd></div>
@@ -161,12 +161,12 @@ onUnmounted(() => window.clearInterval(pollTimer))
     </div>
     <dialog ref="editor" class="model-editor-dialog automation-editor-dialog" aria-labelledby="automation-editor-title" @keydown.esc.stop @cancel.prevent="closeEditor">
       <form v-if="editingId !== null" class="model-editor-panel automation-editor" @submit.prevent="save">
-        <header class="model-editor-heading"><div><p>自动化</p><h2 id="automation-editor-title">{{ editingId ? '编辑自动化' : '新建自动化' }}</h2></div><button type="button" class="icon-button" :disabled="busy" aria-label="关闭自动化编辑" @click="closeEditor"><UiIcon name="close" :size="20" /></button></header>
+        <header class="model-editor-heading"><h2 id="automation-editor-title">{{ editingId ? '编辑自动化' : '新建自动化' }}</h2><button type="button" class="icon-button" :disabled="busy" aria-label="关闭自动化编辑" @click="closeEditor"><UiIcon name="close" :size="20" /></button></header>
         <div class="model-editor-content">
           <p v-if="formError" role="alert" class="dialog-error">{{ formError }}</p>
           <fieldset :disabled="busy">
             <label for="automation-name">名称</label><input id="automation-name" v-model="form.name" required maxlength="100" placeholder="例如 每日代码巡检" />
-            <label for="automation-prompt">提示词</label><textarea id="automation-prompt" v-model="form.prompt" required rows="6" placeholder="每次运行要做什么，以及什么情况下需要汇报"></textarea>
+            <label for="automation-prompt">提示词</label><textarea id="automation-prompt" v-model="form.prompt" required rows="4" placeholder="每次运行要做什么，以及什么情况下需要汇报"></textarea>
             <label for="automation-workspace">工作区</label><select id="automation-workspace" v-model="form.workspaceId" @change="!form.workspaceId && (form.allowCommands = false)"><option value="">仅聊天</option><option v-if="form.workspaceId && !workspaces.some(item => item.id === form.workspaceId)" :value="form.workspaceId">工作区已不存在，请重新选择</option><option v-for="item in workspaces" :key="item.id" :value="item.id">{{ item.name }}</option></select>
             <div class="automation-grid">
               <div><label for="automation-model">模型</label><select id="automation-model" v-model="form.modelProfileId"><option v-if="!profiles.some(item => item.id === form.modelProfileId)" :value="form.modelProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></div>

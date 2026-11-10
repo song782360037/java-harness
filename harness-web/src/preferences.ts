@@ -7,6 +7,8 @@ export interface Preferences {
   autoScroll: boolean
 }
 const key = 'harness.preferences'
+// 快捷键提示只显示当前平台的修饰键，实际判定仍同时接受 Ctrl 和 ⌘。
+export const modifierKeyLabel = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl'
 
 // 逐项校验浏览器偏好，旧值或无效值恢复为当前默认值。
 export function normalizePreferences(value: unknown): Preferences {

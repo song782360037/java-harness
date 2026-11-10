@@ -48,6 +48,7 @@
   --popover-shadow: 0 16px 40px #2029231a, 0 2px 8px #2029230a;
   --composer-shadow: 0 8px 28px #2029230a, 0 1px 3px #20292308;
   --scrim: #11171359;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a665e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -99,6 +100,7 @@
   --popover-shadow: 0 16px 44px #00000066, 0 2px 8px #00000038;
   --composer-shadow: 0 10px 32px #00000024, 0 1px 3px #00000026;
   --scrim: #000000a6;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aab6ad' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 html { background: var(--page); color: var(--text); accent-color: var(--accent); }
 * { scrollbar-color: var(--border-strong) transparent; }

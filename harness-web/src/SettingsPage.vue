@@ -253,7 +253,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
                   </div>
                   <p v-else class="models-empty">{{ provider.id ? '尚未添加模型，添加后即可在聊天中选择。' : '先保存提供商，再添加它支持的模型。' }}</p>
                 </section>
-                <p v-if="confirmDelete" role="alert" class="dialog-error">确认删除{{ confirmDelete === 'provider' ? provider.displayName : deletingModel?.displayName }}？<button type="button" :disabled="busy" @click="remove">确认删除</button><button type="button" :disabled="busy" @click="resetFeedback()">取消</button></p>
+                <p v-if="confirmDelete" role="alert" class="dialog-error inline-confirm"><span>确认删除{{ confirmDelete === 'provider' ? provider.displayName : deletingModel?.displayName }}？</span><button type="button" :disabled="busy" @click="resetFeedback()">取消</button><button type="button" class="primary danger" :disabled="busy" @click="remove">确认删除</button></p>
               </template>
               <p v-else class="models-empty">{{ busy ? '正在读取配置…' : '添加一个自定义提供商，开始配置模型。' }}</p>
             </div>
@@ -267,7 +267,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
     </div>
     <dialog ref="modelEditor" class="model-editor-dialog automation-editor-dialog"aria-labelledby="model-editor-title" @keydown.esc.stop @cancel.prevent="closeModelEditor">
       <form v-if="editingModel && form" class="model-editor-panel" @submit.prevent="saveModel">
-        <header class="model-editor-heading"><div><p>模型配置</p><h2 id="model-editor-title">{{ form.id ? '编辑模型' : '添加模型' }}</h2></div><button type="button" class="icon-button" :disabled="busy" aria-label="关闭模型编辑" @click="closeModelEditor"><UiIcon name="close" :size="20" /></button></header>
+        <header class="model-editor-heading"><h2 id="model-editor-title">{{ form.id ? '编辑模型' : '添加模型' }}</h2><button type="button" class="icon-button" :disabled="busy" aria-label="关闭模型编辑" @click="closeModelEditor"><UiIcon name="close" :size="20" /></button></header>
         <div class="model-editor-content">
           <div class="model-editor-context"><UiIcon name="cube" :size="19" /><strong>{{ form.displayName || '新模型' }}</strong><span v-if="form.id === 'default'" class="default-model-badge">默认配置</span></div>
           <p v-if="error" role="alert" class="dialog-error">{{ error }}</p>

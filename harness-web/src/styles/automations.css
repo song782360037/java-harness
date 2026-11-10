@@ -6,14 +6,14 @@
 
 .automations-page .automation-create { display: inline-flex; align-items: center; gap: 6px; }
 .automations-body { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px 24px; padding: 24px; align-content: start; }
-.automations-empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 8vh auto 0; max-width: 420px; text-align: center; color: var(--muted); }
-.automations-empty > .ui-icon { color: var(--accent); }
+.automations-empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 12vh auto 0; max-width: 420px; text-align: center; color: var(--muted); }
+.automations-empty > .ui-icon { box-sizing: content-box; padding: 12px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
 .automations-empty h2 { margin: 4px 0 0; font-size: var(--font-heading); font-weight: 600; color: var(--text); }
 .automations-empty p { margin: 0 0 8px; line-height: 1.7; }
 .automations-empty .primary { display: inline-flex; align-items: center; gap: 6px; }
 .automation-list { display: flex; flex-direction: column; gap: 6px; align-self: start; }
 .automation-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 11px 13px; background: var(--surface); border-radius: var(--radius-md); }
-.automation-item[aria-current] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.automation-item[aria-current] { background: var(--selected); border-color: var(--border-strong); }
 .automation-item-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .automation-item-title strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
 .automation-item small { color: var(--muted); font-size: var(--font-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -50,9 +50,10 @@
 .automation-editor-dialog .model-editor-panel { height: auto; flex: 1 1 auto; }
 
 .automation-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.automation-editor label { display: block; font-size: var(--font-caption); font-weight: 550; margin: 18px 0 7px; }
+.automation-editor label { display: block; font-size: var(--font-caption); font-weight: 500; margin: 18px 0 7px; }
 .automation-editor fieldset > label:first-child { margin-top: 0; }
 .automation-editor input:not([type=checkbox]), .automation-editor select, .automation-editor textarea { display: block; width: 100%; min-height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 9px 11px; color: var(--text); background: var(--surface); font-size: var(--font-body); min-width: 0; box-sizing: border-box; }
+.automation-editor select { display: flex; }
 .automation-editor textarea { resize: vertical; line-height: 1.7; }
 .automation-editor input:focus, .automation-editor select:focus, .automation-editor textarea:focus { border-color: var(--accent); }
 .automation-editor .check-label { display: flex; align-items: center; gap: 8px; font-weight: 400; margin-top: 20px; }

@@ -2,7 +2,7 @@
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
 .markdown-content p { margin: 0 0 16px; }
-.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { line-height: 1.45; font-weight: 600; margin: 28px 0 12px; letter-spacing: -.02em; }
+.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { line-height: 1.45; font-weight: 600; margin: 28px 0 12px; }
 .markdown-content h1 { font-size: var(--font-title); }
 .markdown-content h2 { font-size: var(--font-heading); }
 .markdown-content h3 { font-size: calc(16rem / 14); }

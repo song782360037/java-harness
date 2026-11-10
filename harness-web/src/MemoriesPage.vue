@@ -181,7 +181,7 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
 </script>
 
 <template>
-  <main class="memories-page">
+  <main class="main-panel memories-page">
     <header class="workspace-header">
       <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" @click="emit('expand-sidebar')"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>长期记忆</h1></div>
       <button class="memory-settings-link" :disabled="busy" @click="emit('open-settings')"><UiIcon name="settings" :size="15" />记忆设置</button>
@@ -190,7 +190,7 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
       <select v-model="workspaceId" aria-label="记忆范围" :disabled="busy"><option value="">全局记忆</option><option v-for="workspace in workspaces" :key="workspace.id" :value="workspace.id">{{ workspace.name }}</option></select>
       <label class="memory-search"><UiIcon name="search" :size="16" /><input v-model="query" maxlength="200" placeholder="搜索记忆" aria-label="搜索记忆" :disabled="busy" /></label>
       <select v-model="status" aria-label="记忆状态" :disabled="busy"><option value="">全部状态</option><option v-for="(label, value) in memoryStatuses" :key="value" :value="value">{{ label }}</option></select>
-      <div class="memory-view-switch" aria-label="视图"><button :aria-pressed="mode === 'graph'" @click="mode = 'graph'">图谱</button><button :aria-pressed="mode === 'list'" @click="mode = 'list'">列表</button></div>
+      <div class="memory-view-switch segmented" aria-label="视图"><button :aria-pressed="mode === 'graph'" @click="mode = 'graph'">图谱</button><button :aria-pressed="mode === 'list'" @click="mode = 'list'">列表</button></div>
       <button class="icon-button" :disabled="loading || busy" aria-label="刷新记忆" title="刷新记忆" @click="load()"><UiIcon name="refresh" :size="16" /></button>
     </div>
     <div v-if="automatic" class="memory-automatic-status" role="status"><span class="memory-status-state" :class="{ enabled: automatic.settings.enabled }"><i aria-hidden="true"></i>{{ automatic.settings.enabled ? '自动记忆已开启' : '自动记忆已关闭' }}</span><template v-if="automatic.settings.enabled"><span>已处理 {{ automatic.progress.completed + automatic.progress.skipped }} / {{ automatic.progress.total }} 段对话</span><span v-if="automatic.progress.running">正在生成</span><span v-if="automatic.progress.failed">失败 {{ automatic.progress.failed }}</span></template></div>
@@ -213,9 +213,9 @@ onUnmounted(() => { disposed = true; loadVersion++; detailVersion++; clearTimeou
             <span class="memory-list-meta">{{ memoryKinds[entry.kind] }}<small>{{ memoryStatuses[entry.status] }}</small></span><strong>{{ entry.title }}</strong><p>{{ entry.content }}</p><span class="memory-list-tags">{{ entry.tags.join(' / ') }}</span>
           </button>
         </div>
-        <div v-else class="memory-empty"><UiIcon name="memory" :size="44" /><h2>{{ loading ? '正在读取记忆…' : query || status ? '没有匹配的记忆' : !automatic ? '正在读取设置…' : !automatic.settings.enabled ? '自动记忆尚未开启' : automatic.progress.pending || automatic.progress.running ? '正在从对话生成记忆' : '暂时没有可保留的记忆' }}</h2><button v-if="!loading && !query && !status && automatic && !automatic.settings.enabled" class="memory-primary" @click="emit('open-settings')">前往设置开启</button></div>
+        <div v-else class="memory-empty"><UiIcon name="memory" :size="26" /><h2>{{ loading ? '正在读取记忆…' : query || status ? '没有匹配的记忆' : !automatic ? '正在读取设置…' : !automatic.settings.enabled ? '自动记忆尚未开启' : automatic.progress.pending || automatic.progress.running ? '正在从对话生成记忆' : '暂时没有可保留的记忆' }}</h2><button v-if="!loading && !query && !status && automatic && !automatic.settings.enabled" class="memory-primary" @click="emit('open-settings')">前往设置开启</button></div>
       </section>
-      <aside v-if="selectedId" class="memory-inspector" aria-label="记忆详情" @keydown.esc.stop="closeDetail">
+      <aside v-if="selectedId" class="memory-inspector" aria-label="记忆详情" @keydown.esc.stop="($event.target as Element).tagName !== 'OPTION' && closeDetail()">
         <div class="memory-inspector-heading"><strong>记忆详情</strong><button ref="detailClose" class="icon-button" aria-label="关闭记忆详情" @click="closeDetail"><UiIcon name="close" :size="17" /></button></div>
         <template v-if="selected">
           <div class="memory-detail-meta"><span>{{ memoryKinds[selected.kind] }}</span><span class="memory-status-badge" :class="selected.status.toLowerCase()">{{ memoryStatuses[selected.status] }}</span></div>

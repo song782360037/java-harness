@@ -5,7 +5,7 @@
 .group-create { display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 6px; }
 .group-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 10px; background: transparent; border: 0; border-radius: var(--radius-md); }
 .group-item:hover { background: var(--subtle); }
-.group-item[aria-current] { background: var(--subtle); box-shadow: inset 0 0 0 1px var(--accent); }
+.group-item[aria-current] { background: var(--selected); }
 .group-item-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .group-item-copy strong { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-item-copy small { color: var(--muted); font-size: var(--font-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -14,7 +14,7 @@
 .group-avatar.small { width: 20px; height: 20px; font-size: 11px; }
 
 .group-chat { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.group-chat > .automations-empty { margin-top: 12vh; padding: 0 24px; }
+.group-chat > .automations-empty { padding: 0 24px; }
 .group-roster { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px max(28px, calc((100% - 780px) / 2)) 0; }
 .group-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 20px; background: var(--surface); font-size: var(--font-caption); }
 .group-chip.disabled { opacity: .5; }
@@ -94,9 +94,9 @@
   .group-tasks { margin: 10px 16px 0; }
 }
 
-.group-view-switch { display: inline-flex; padding: 2px; border-radius: var(--radius-md); background: var(--subtle); }
+.group-view-switch { margin-right: 8px; padding: 2px; border-radius: var(--radius-md); background: var(--subtle); }
 .group-view-switch button { min-height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 0; border-radius: calc(var(--radius-md) - 2px); background: transparent; color: var(--muted); font-size: var(--font-caption); }
-.group-view-switch button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 0.5px var(--border); }
+.group-view-switch button[aria-pressed="true"] { color: var(--text); }
 
 .studio { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 14px; padding: 14px; overflow: hidden; background: var(--page); }
 .studio-office { --accent: #7562b1; --accent-hover: #625096; --accent-soft: #f0ecfa; --focus-ring: #7562b129; background: linear-gradient(145deg, var(--page), var(--accent-soft)); }

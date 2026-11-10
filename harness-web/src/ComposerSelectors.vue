@@ -40,8 +40,13 @@ async function toggle(value: NonNullable<typeof open.value>) {
     const bounds = button?.getBoundingClientRect()
     if (bounds) {
       const width = Math.min(value === 'workspace' ? 340 : value === 'approval' ? 220 : value === 'model' ? 310 : 320, window.innerWidth - 24)
-      menuPosition.value = { left: `${Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12))}px`,
-        bottom: `${window.innerHeight - bounds.top + 8}px`, width: `${width}px`, maxHeight: `${Math.max(100, Math.min(480, bounds.top - 20))}px` }
+      const above = bounds.top - 20
+      const below = window.innerHeight - bounds.bottom - 20
+      // 带搜索的长列表在上方放不下时改为向下展开，其余短菜单始终贴着输入框向上。
+      const upwards = !(value === 'workspace' || value === 'model') || above >= 400 || above >= below
+      menuPosition.value = { left: `${Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12))}px`, width: `${width}px`,
+        maxHeight: `${Math.max(100, Math.min(480, upwards ? above : below))}px`,
+        ...(upwards ? { bottom: `${window.innerHeight - bounds.top + 8}px` } : { top: `${bounds.bottom + 8}px` }) }
     }
   }
   await nextTick()

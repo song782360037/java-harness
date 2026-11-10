@@ -72,7 +72,7 @@
 .workspace-context strong { font-size: var(--font-body); }
 .workspace-context p { font-size: var(--font-caption); color: var(--muted); overflow-wrap: anywhere; margin: 5px 0 0; }
 .workspace-fields { padding: 22px 24px 24px; background: var(--surface); border-radius: var(--radius-lg); }
-.workspace-fields > label { display: block; margin: 22px 0 8px; color: var(--text); font-weight: 550; }
+.workspace-fields > label { display: block; margin: 22px 0 8px; color: var(--text); font-weight: 500; }
 .workspace-fields > label:first-child { margin-top: 0; }
 .workspace-fields > input { width: 100%; }
 .workspace-sources { border: 0.5px dashed var(--border-strong); border-radius: 10px; padding: 8px; max-height: 260px; overflow: auto; }
@@ -98,8 +98,8 @@
 .workspace-appearance-preview { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--subtle); flex-shrink: 0; }
 .workspace-appearance summary small { display: block; margin-top: 3px; color: var(--muted); font-size: var(--font-caption); font-weight: 400; }
 .workspace-appearance > label { display: block; margin: 18px 0 8px; color: var(--text); font-weight: 550; }
-.workspace-dialog .dialog-actions { position: sticky; bottom: -16px; padding: 16px 14px; margin-top: 0; border-top: 0.5px solid var(--border); background: var(--page); }
-.workspace-dialog .inspector-header { padding: 20px 24px 16px; background: var(--surface); }
+.workspace-dialog .dialog-actions { position: sticky; bottom: 0; align-items: center; padding: 14px 24px; margin-top: 0; border-top: 0.5px solid var(--border); background: var(--surface); }
+.workspace-dialog .inspector-header { padding: 16px 16px 16px 24px; background: var(--surface); }
 .composer-selectors { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
 .selector-anchor { position: relative; min-width: 0; }
 .composer-chip { display: flex; align-items: center; gap: 7px; padding: 7px 8px; border: 0.5px solid transparent; background: var(--subtle); font-size: var(--font-caption); max-width: 190px; min-width: 0; min-height: 32px; border-radius: var(--radius-md); }
@@ -114,9 +114,13 @@
 @keyframes reasoning-text-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
 .chevron { color: var(--faint); font-size: 1rem; flex-shrink: 0; }
 .selector-divider { height: 12px; border-left: 0.5px solid var(--border); margin: 0 2px; }
-.selector-popover { position: fixed; z-index: 40; max-width: calc(100vw - 24px); overflow: auto; background: var(--surface); border: 0.5px solid var(--border); box-shadow: var(--popover-shadow); border-radius: var(--radius-lg); padding: 6px; animation: arrive .16s ease-out; }
+.selector-popover { position: fixed; z-index: 40; max-width: calc(100vw - 24px); overflow: auto; background: var(--surface); border: 0.5px solid var(--border); box-shadow: var(--popover-shadow); border-radius: var(--radius-lg); padding: 6px; animation: pop-in .16s ease-out; }
 .popover-heading { font-size: var(--font-caption); font-weight: 550; color: var(--muted); padding: 10px; }
 .model-search { width: calc(100% - 12px); margin: 0 6px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 9px 10px; font-size: var(--font-caption); }
+/* 可用高度不足时只压缩选项区，搜索框和底部操作保持可见。 */
+.selector-popover:has(.model-options-scroll) { display: flex; flex-direction: column; overflow: hidden; }
+.selector-popover:has(.model-options-scroll) > * { flex-shrink: 0; }
+.selector-popover > .model-options-scroll { flex: 0 1 auto; min-height: 0; }
 .model-options-scroll { max-height: 260px; overflow: auto; }
 .model-option-group h3 { font-size: var(--font-caption); font-weight: 500; color: var(--muted); margin: 12px 10px 6px; }
 .selector-option { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; border: 0; border-radius: var(--radius-md); padding: 10px; background: transparent; font-size: var(--font-caption); }
@@ -152,14 +156,14 @@
   .settings-page { min-height: 0; }
   .settings-content { padding: 24px 16px; }
   .composer-chip { max-width: 100%; font-size: var(--font-caption); }
-  /* 选择器独占一行，工作区和模型按需截断，思考强度保持完整。 */
+  /* 四个选择器排成两行两列，名称和审批模式都能读全。 */
   .composer-actions { flex-wrap: wrap; justify-content: flex-end; }
   .composer-actions > :first-child { margin-right: auto; }
-  .composer-selectors { order: -1; flex: 1 0 100%; flex-wrap: nowrap; gap: 4px; }
+  .composer-selectors { order: -1; flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .selector-anchor { flex: 0 1 auto; max-width: 130px; }
-  .effort-anchor { flex-shrink: 0; }
-  .workspace-chip > span { max-width: 100px; }
+  .composer-chip { width: 100%; }
+  .composer-chip > .chevron { margin-left: auto; flex-shrink: 0; }
+  .workspace-chip > span { max-width: none; }
   .selector-divider { display: none; }
   .workspace-context { align-items: flex-start; flex-wrap: wrap; }
 }
@@ -281,6 +285,7 @@
 .approval-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .reference-settings .approval-grid label { display: block; margin: 0; color: var(--muted); font-size: var(--font-caption); font-weight: 500; }
 .reference-settings .approval-input { display: block; width: 100%; box-sizing: border-box; min-height: 36px; margin-top: 6px; padding: 7px 10px; border-radius: var(--radius-md); font-size: var(--font-caption); }
+.reference-settings select.approval-input { display: flex; }
 .reference-settings .approval-check { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; color: var(--muted); font-size: var(--font-caption); }
 @media (max-width: 620px) {
   .approval-card-heading { padding: 16px 16px 0; }
@@ -290,5 +295,3 @@
   .reviewer-config { padding: 0 16px 16px; }
   .approval-card-footer { padding: 12px 16px; }
 }
-/* 窄屏只保留审批图标，与其他选择器保持一行。 */
-@media (max-width: 520px) { .approval-chip > span { display: none; } .approval-anchor { flex-shrink: 0; } }

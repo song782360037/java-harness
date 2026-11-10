@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, 
 import { api, ApiError, type CommandExecution, type FileChange, type ModelProfile, type Run, type Snapshot, type Workspace } from './api'
 import { activeStatuses, approvalTargets, avatarText, hostQuestion, insertMention, memberStates, mentionCandidates, mentionQuery, roundNotice, speakingMembers, studioSummary, taskLabel, taskSteps,
   type GroupMember, type GroupMessage, type GroupSnapshot, type GroupSummary, type GroupTemplate, type RunApprovals } from './groups'
-import { preferences, shouldSendPrompt } from './preferences'
+import { modifierKeyLabel, preferences, shouldSendPrompt } from './preferences'
 import MarkdownContent from './MarkdownContent.vue'
 import FileChanges from './FileChanges.vue'
 import Commands from './Commands.vue'
@@ -49,11 +49,13 @@ const steps = computed(() => taskSteps(snapshot.value?.tasks ?? []))
 const finishedTasks = computed(() => snapshot.value?.tasks.filter(task => task.status === 'DONE').length ?? 0)
 const waitingText = computed(() => snapshot.value?.group.mode !== 'TASKS' ? '主持人正在安排下一位发言…' : snapshot.value.tasks.length ? '正在推进任务…' : '主持人正在拆分任务…')
 const time = (value: string) => new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : 'Ctrl / ⌘ + Enter 发送')
+const sendHint = computed(() => preferences.value.sendShortcut === 'enter' ? 'Enter 发送，Shift + Enter 换行' : `${modifierKeyLabel} + Enter 发送`)
 // 每次进入群聊默认显示聊天；工作室期间由 App 收起并锁定全局侧栏。
 const view = ref<'chat' | 'studio'>('chat')
 // 手机上默认收起群聊列表，把屏幕留给对话。
 const groupListOpen = ref(!window.matchMedia('(max-width: 780px)').matches)
+// 还没有群聊时只保留主区的创建入口，避免并排两个主按钮。
+const hasGroupList = computed(() => loading.value || groups.value.length > 0)
 // 工作室视图需要的命令与文件审核状态，按运行的 status:activity 缓存，变化时才重新读取。
 const approvals = ref<Record<string, RunApprovals>>({})
 let approvalKeys: Record<string, string> = {}
@@ -338,8 +340,8 @@ onUnmounted(() => {
     <header class="workspace-header">
       <div class="workspace-title"><button v-if="view === 'studio'" type="button" class="icon-button" aria-label="返回聊天" title="返回聊天" @click="setView('chat')"><UiIcon name="back" /></button><button v-else-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="emit('expandSidebar')"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1 id="groups-title">{{ snapshot?.group.name || '群聊' }}</h1></div>
       <div class="header-meta">
-        <button v-if="view === 'chat'" type="button" class="icon-button" :aria-label="groupListOpen ? '收起群聊列表' : '展开群聊列表'" :title="groupListOpen ? '收起群聊列表' : '展开群聊列表'" :aria-expanded="groupListOpen" aria-controls="group-list" @click="groupListOpen = !groupListOpen"><UiIcon name="panel" :size="16" /></button>
-        <div v-if="snapshot" class="group-view-switch" role="group" aria-label="群聊视图">
+        <button v-if="view === 'chat' && hasGroupList" type="button" class="icon-button" :aria-label="groupListOpen ? '收起群聊列表' : '展开群聊列表'" :title="groupListOpen ? '收起群聊列表' : '展开群聊列表'" :aria-expanded="groupListOpen" aria-controls="group-list" @click="groupListOpen = !groupListOpen"><UiIcon name="panel" :size="16" /></button>
+        <div v-if="snapshot" class="group-view-switch segmented" role="group" aria-label="群聊视图">
           <button type="button" :aria-pressed="view === 'chat'" @click="setView('chat')"><UiIcon name="chat" :size="14" />聊天</button>
           <button type="button" :aria-pressed="view === 'studio'" @click="setView('studio')"><UiIcon name="users" :size="14" />工作室</button>
         </div>
@@ -348,8 +350,8 @@ onUnmounted(() => {
       </div>
     </header>
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
-    <div class="groups-body" :class="{ 'is-studio': view === 'studio', 'is-list-collapsed': !groupListOpen }" :aria-busy="loading">
-      <nav v-if="view === 'chat' && groupListOpen" id="group-list" class="group-list" aria-label="群聊列表">
+    <div class="groups-body" :class="{ 'is-studio': view === 'studio', 'is-list-collapsed': !groupListOpen || !hasGroupList }" :aria-busy="loading">
+      <nav v-if="view === 'chat' && groupListOpen && hasGroupList" id="group-list" class="group-list" aria-label="群聊列表">
         <button type="button" class="primary group-create" :disabled="loading" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
         <button v-for="item in groups" :key="item.group.id" type="button" class="group-item" :aria-current="item.group.id === selectedId ? 'true' : undefined" @click="select(item.group.id)">
           <span class="group-avatar" :style="{ background: item.group.color }" aria-hidden="true"><UiIcon name="users" :size="15" /></span>
@@ -362,6 +364,7 @@ onUnmounted(() => {
         <div v-else-if="!groups.length" class="automations-empty">
           <UiIcon name="users" :size="26" />
           <h2>让 AI 成员一起协作</h2>
+          <p>让不同角色的 AI 成员同处一个群聊，由主持人安排分工。</p>
           <button type="button" class="primary" @click="settings = 'create'"><UiIcon name="plus" :size="15" />新建群聊</button>
         </div>
         <template v-else-if="snapshot">
@@ -386,6 +389,8 @@ onUnmounted(() => {
           </details>
           <div ref="timeline" class="timeline group-timeline" aria-label="群聊记录" aria-live="polite">
             <div v-if="!snapshot.messages.length" class="welcome"><div class="welcome-copy"><h2>说说你的问题或需求</h2><p class="welcome-description">输入 @昵称 可点名成员</p></div></div>
+            <!-- 按群聊重建过渡组，切换群聊和首次加载的历史消息不播放出场。 -->
+            <TransitionGroup :key="snapshot.group.id" name="message-in">
             <template v-for="item in snapshot.messages" :key="item.id">
               <div v-if="item.author === 'USER'" class="user-message-wrap"><details v-if="isLongPaste(item.content)" class="long-message"><summary><UiIcon name="file" :size="15" /><span>{{ item.content.slice(0, 40) }}…</span><small>{{ item.content.length }} 字符</small></summary><p class="user-message">{{ item.content }}</p></details><p v-else class="user-message">{{ item.content }}</p></div>
               <div v-else-if="item.author === 'SYSTEM' && hostQuestion(item.content)" class="group-question" :class="{ 'is-pending': !snapshot.busy && item.id === snapshot.messages.at(-1)?.id }">
@@ -410,6 +415,7 @@ onUnmounted(() => {
                 </div>
               </article>
             </template>
+            </TransitionGroup>
             <article v-for="{ member, run } in speaking" :key="run.id" class="group-message typing">
               <span class="group-avatar" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>
               <div class="group-message-body">
