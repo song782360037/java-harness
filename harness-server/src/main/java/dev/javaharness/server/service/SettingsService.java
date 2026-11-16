@@ -49,6 +49,8 @@ public final class SettingsService implements RunConfigurationSource {
     private final UnattendedSubmissions unattended;
     // Group chats add their transcript to member runs; attached once the group service exists.
     private volatile java.util.function.BiFunction<Session, RunExtension, RunExtension> groups;
+    // Flows follow the runs of their item sessions; attached once the flow orchestrator exists.
+    private volatile java.util.function.BiFunction<Session, RunExtension, RunExtension> flows;
     // Attended runs may ask the user; attached once the question service exists.
     private volatile QuestionService questions;
 
@@ -283,7 +285,20 @@ public final class SettingsService implements RunConfigurationSource {
         }
         // The group decorator returns ordinary sessions unchanged; member runs speak in a group and get neither tool.
         if (decorated != extension) return decorated;
-        return withInteraction(extension, unattended.unattended(session.id()) ? null : questions);
+        var interactive = withInteraction(extension, unattended.unattended(session.id()) ? null : questions);
+        var flowDecorator = flows;
+        if (flowDecorator == null) return interactive;
+        try {
+            return flowDecorator.apply(session, interactive);
+        } catch (RuntimeException error) {
+            interactive.close();
+            throw error;
+        }
+    }
+
+    /** Let flows observe the settlement of runs in their item sessions. */
+    public void useFlows(java.util.function.BiFunction<Session, RunExtension, RunExtension> decorator) {
+        flows = decorator;
     }
 
     /** Let attended runs ask the user questions; set once the question service exists. */

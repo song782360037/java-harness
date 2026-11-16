@@ -1,6 +1,7 @@
 package dev.javaharness.server.web;
 
 import dev.javaharness.server.service.ComposerInputService;
+import dev.javaharness.server.service.FlowService;
 import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.WorkspaceDirectories;
@@ -39,6 +40,7 @@ public class SessionController {
     private final WorkspaceDirectories directories;
     private final SessionNamingService naming;
     private final GroupChatService groups;
+    private final FlowService flows;
     private final ComposerInputService inputs;
 
     public SessionController(
@@ -47,12 +49,14 @@ public class SessionController {
             WorkspaceDirectories directories,
             SessionNamingService naming,
             GroupChatService groups,
+            FlowService flows,
             ComposerInputService inputs) {
         this.store = store;
         this.engine = engine;
         this.directories = directories;
         this.naming = naming;
         this.groups = groups;
+        this.flows = flows;
         this.inputs = inputs;
     }
 
@@ -88,6 +92,7 @@ public class SessionController {
     @PostMapping(value = "/sessions/{id}/workspace", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session workspace(@PathVariable String id, @RequestBody ChangeWorkspace request) {
         groups.requireOrdinary(id);
+        flows.requireOrdinary(id);
         return request.workspaceId() == null
                 ? store.updateWorkspace(id, directories.normalize(request.workspace()))
                 : store.selectWorkspace(id, request.workspaceId());
@@ -97,6 +102,7 @@ public class SessionController {
     @PostMapping(value = "/sessions/{id}/title", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session rename(@PathVariable String id, @RequestBody RenameSession request) {
         groups.requireOrdinary(id);
+        flows.requireOrdinary(id);
         return store.renameSession(id, request.title());
     }
 
@@ -137,12 +143,14 @@ public class SessionController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable String id) {
         groups.requireOrdinary(id);
+        flows.requireOrdinary(id);
         store.deleteSession(id);
     }
 
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
         groups.requireOrdinary(id);
+        flows.requireOrdinary(id);
         var selection = new ModelSelection(request.modelProfileId(), request.reasoningEffort());
         // Omitting the mode keeps the session's last choice.
         var mode = request.approvalMode() == null ? null : ApprovalMode.parse(request.approvalMode());

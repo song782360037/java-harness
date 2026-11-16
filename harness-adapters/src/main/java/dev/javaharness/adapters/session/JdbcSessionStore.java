@@ -342,11 +342,11 @@ public final class JdbcSessionStore implements SessionStore {
         });
     }
 
-    /** Hidden group member sessions are listed by their group chat, not here. */
+    /** Hidden group member and flow item sessions are listed by their group chat or flow, not here. */
     @Override
     public synchronized List<Session> sessions() {
         return jdbc.query(
-                "SELECT * FROM harness_session WHERE group_id IS NULL ORDER BY created_at DESC, id DESC",
+                "SELECT * FROM harness_session WHERE group_id IS NULL AND flow_id IS NULL ORDER BY created_at DESC, id DESC",
                 SESSION_MAPPER);
     }
 

@@ -14,5 +14,6 @@ import './styles/commands.css'
 import './styles/automations.css'
 import './styles/memories.css'
 import './styles/groups.css'
+import './styles/flows.css'
 
 createApp(App).mount('#app')

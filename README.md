@@ -144,6 +144,7 @@ java-harness/
 | [长期记忆](docs/memory.md) | 自动生成、历史回填、图谱和召回规则 |
 | [提示词优化](docs/prompt-optimization.md) | 草稿优化、上下文与记忆来源 |
 | [群聊](docs/group-chat.md) | 成员、主持人调度、@ 接力与终止条件 |
+| [流水线](docs/flows.md) | 按需求生成固定流程、岗位流转、人工环节与接口 |
 | [功能验证记录](docs/verification.md) · [扩展验证记录](docs/plugin-validation.md) | 各功能的验证过程与结果 |
 
 ## 参与贡献

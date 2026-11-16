@@ -6,6 +6,7 @@ import dev.javaharness.adapters.approval.ApprovalReviewer;
 import dev.javaharness.adapters.attachment.AttachmentStore;
 import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.command.CommandService;
+import dev.javaharness.adapters.flow.FlowStore;
 import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.adapters.memory.JdbcMemoryStore;
 import dev.javaharness.adapters.plugins.PluginService;
@@ -22,6 +23,8 @@ import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.DesktopUpdateGate;
+import dev.javaharness.server.service.FlowOrchestrator;
+import dev.javaharness.server.service.FlowService;
 import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.GroupOrchestrator;
 import dev.javaharness.server.service.LlmApprovalJudge;
@@ -308,6 +311,33 @@ public class RuntimeConfiguration {
                 new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), settings, orchestrator);
         settings.useGroups(service::decorate);
         return service;
+    }
+
+    /** Flow items; created after the engine, whose startup recovery interrupts old item runs. */
+    @Bean
+    @DependsOnDatabaseInitialization
+    FlowOrchestrator flowOrchestrator(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            AgentEngine engine,
+            SettingsService settings) {
+        var orchestrator =
+                new FlowOrchestrator(new FlowStore(jdbc), sessions, new TransactionTemplate(transactions), engine);
+        settings.useFlows(orchestrator::decorate);
+        return orchestrator;
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    FlowService flowService(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            SettingsService settings,
+            RunConfigurationSource configurations) {
+        return new FlowService(
+                new FlowStore(jdbc), sessions, new TransactionTemplate(transactions), settings, configurations);
     }
 
     /** 由桌面壳启动时开启：标准输入关闭即视为桌面壳已退出，随之关闭应用。 */
