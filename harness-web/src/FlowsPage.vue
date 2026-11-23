@@ -207,15 +207,33 @@ async function submitForm() {
   } catch (cause) { formError.value = message(cause, '保存失败') }
   finally { busy.value = false }
 }
-// 页面打开期间定时刷新，流转中的事项和新的待办会自己出现。
+// 仅在窗口可见时定时刷新。
 // 上一轮还没返回时跳过，避免慢请求被下一轮不断作废。
 function poll() {
-  if (busy.value || polling) return
+  if (document.hidden || busy.value || polling) return
   polling = true
   void load().finally(() => { polling = false })
 }
-onMounted(() => { poll(); pollTimer = window.setInterval(poll, 2000) })
-onUnmounted(() => window.clearInterval(pollTimer))
+/** 停止定时刷新，保留手动操作后的刷新。 */
+function stopPolling() {
+  window.clearInterval(pollTimer)
+  pollTimer = undefined
+}
+/** 根据窗口可见性暂停轮询或立即刷新并恢复轮询。 */
+function syncPolling() {
+  if (document.hidden) { stopPolling(); return }
+  if (pollTimer !== undefined) return
+  poll()
+  pollTimer = window.setInterval(poll, 2000)
+}
+onMounted(() => {
+  document.addEventListener('visibilitychange', syncPolling)
+  syncPolling()
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', syncPolling)
+  stopPolling()
+})
 </script>
 
 <template>
