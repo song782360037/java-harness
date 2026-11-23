@@ -49,6 +49,17 @@ async function stopChild(child: SubagentRun) {
   }
 }
 const duration = (tool: ToolExecution) => tool.startedAt && tool.finishedAt ? Math.round((Date.parse(tool.finishedAt) - Date.parse(tool.startedAt)) / 1000) : 0
+function formatRawArguments(tool: ToolExecution): string {
+  try {
+    const parsed = JSON.parse(tool.arguments)
+    if (tool.name === 'external_agent_tool' && parsed && typeof parsed === 'object') {
+      const input = (parsed as Record<string, unknown>).input
+      if (input === undefined || input === null || input === '') return '无参数'
+      return typeof input === 'string' ? input : JSON.stringify(input, null, 2)
+    }
+    return JSON.stringify(parsed, null, 2)
+  } catch { return tool.arguments || '无参数' }
+}
 
 async function load() {
   if (loading) { dirty = true; return }
@@ -137,7 +148,7 @@ onUnmounted(() => { disposed = true; clearInterval(ticker); clearTimeout(throttl
             <span v-if="statusLabels[item.tool.status]" class="tool-status" :class="item.tool.status.toLowerCase()">{{ statusLabels[item.tool.status] }}</span>
             <small v-if="duration(item.tool) > 1">{{ formatDuration(duration(item.tool)) }}</small>
           </summary>
-          <template v-if="toolLabel(item.tool).raw"><strong>参数</strong><pre>{{ item.tool.arguments }}</pre><strong>结果</strong></template>
+          <template v-if="toolLabel(item.tool).raw"><strong>参数</strong><pre>{{ formatRawArguments(item.tool) }}</pre><strong>结果</strong></template>
           <pre>{{ item.tool.output || (isBusy(item.tool) ? '等待工具结果…' : '无输出') }}</pre>
         </details>
       </template>

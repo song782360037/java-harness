@@ -1,4 +1,4 @@
-export interface PluginCommand { id: string; description: string }
+export interface PluginCommand { id: string; description: string; agentId?: string }
 type CommandRequest = <T>(path: string) => Promise<T>
 
 // 仅补全消息开头的命令，保留普通路径、正文斜杠和已有参数的输入行为。
@@ -20,6 +20,11 @@ export function completePluginCommand(text: string, id: string): { text: string;
   const suffix = end < 0 ? ' ' : text.slice(end)
   const prefix = `/${id}`
   return { text: prefix + suffix, caret: prefix.length + 1 }
+}
+
+// Mirror the server's leading alias without capturing namespaced plugin commands or path tokens.
+export function externalCommandAlias(text: string): string | undefined {
+  return /^\/([a-z0-9][a-z0-9-]{0,31})(?=\s|$)/.exec(text)?.[1]
 }
 
 // 已有会话按生效范围读取；首次对话复用用户绑定，浏览菜单不创建会话或启动工具。

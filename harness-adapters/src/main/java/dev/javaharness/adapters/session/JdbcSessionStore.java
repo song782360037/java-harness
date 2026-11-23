@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.workspace.WorkspaceRoots;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ContextSummary;
-import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelImage;
+import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
@@ -383,21 +383,13 @@ public final class JdbcSessionStore implements SessionStore {
             if (jdbc.queryForObject("SELECT parent_run_id FROM harness_run WHERE id=?", String.class, parentRunId)
                     != null) throw new HarnessException("CONFLICT", "子智能体不能再委派");
             String id = UUID.randomUUID().toString();
-            jdbc.update(
-                    """
+            jdbc.update("""
                     INSERT INTO harness_run(id,session_id,request_id,prompt,scenario,status,output,detail,created_at,provider,model,
                         workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,parent_run_id,parent_call_id,agent_name,approval_mode)
                     SELECT ?,session_id,?,?,scenario,'QUEUED','','',?,provider,model,
                         workspace,model_profile_id,reasoning_effort,requested_selection,plugin_snapshot,id,?,?,approval_mode
                     FROM harness_run WHERE id=?
-                    """,
-                    id,
-                    UUID.randomUUID().toString(),
-                    prompt,
-                    now(),
-                    parentCallId,
-                    agent,
-                    parentRunId);
+                    """, id, UUID.randomUUID().toString(), prompt, now(), parentCallId, agent, parentRunId);
             appendEvent(parent.sessionId(), id, "STATE", RunStatus.QUEUED, "");
             return transition(id, RunStatus.RUNNING, "");
         });
@@ -406,8 +398,7 @@ public final class JdbcSessionStore implements SessionStore {
     @Override
     public synchronized List<SubagentRun> subagents(String runId) {
         run(runId);
-        return jdbc.query(
-                "SELECT * FROM harness_run WHERE parent_run_id=? " + BY_QUEUED, SUBAGENT_MAPPER, runId);
+        return jdbc.query("SELECT * FROM harness_run WHERE parent_run_id=? " + BY_QUEUED, SUBAGENT_MAPPER, runId);
     }
 
     /** Sum reported step usage across the session; steps without a report are skipped. */
@@ -461,7 +452,7 @@ public final class JdbcSessionStore implements SessionStore {
         return jdbc.query("""
                 SELECT r.* FROM harness_run r
                 JOIN harness_event e ON e.run_id=r.id AND e.event_type='STATE' AND e.status='QUEUED'
-                WHERE r.session_id=? AND r.parent_run_id IS NULL AND e.seq < (
+                WHERE r.session_id=? AND r.parent_run_id IS NULL AND r.scenario <> 'ACP' AND e.seq < (
                     SELECT seq FROM harness_event WHERE run_id=? AND event_type='STATE' AND status='QUEUED')
                 ORDER BY e.seq
                 """, RUN_MAPPER, current.sessionId(), runId);
@@ -492,7 +483,9 @@ public final class JdbcSessionStore implements SessionStore {
                                 message.content(),
                                 message.toolCalls(),
                                 message.toolCallId(),
-                                message.images().stream().map(ModelImage::withoutData).toList()))
+                                message.images().stream()
+                                        .map(ModelImage::withoutData)
+                                        .toList()))
                 .toList();
         return new ModelRequest(
                 request.runId(),
@@ -814,7 +807,7 @@ public final class JdbcSessionStore implements SessionStore {
         }
         // 长度不设固定上限，由模型上下文预算兜底。
         if (prompt == null || prompt.isBlank()) throw new HarnessException("INVALID", "输入不能为空");
-        if (scenario == null || !List.of("NORMAL", "FAIL", "SLOW").contains(scenario)) {
+        if (scenario == null || !List.of("NORMAL", "FAIL", "SLOW", "ACP").contains(scenario)) {
             throw new HarnessException("INVALID", "未知模拟场景");
         }
         var existing = jdbc.query(
@@ -872,7 +865,10 @@ public final class JdbcSessionStore implements SessionStore {
         var retry = retry(sessionId, requestId, prompt, scenario, requested);
         if (retry != null) return retry;
         return tx.execute(status -> {
-            if (!model.provider().equals("simulated") && !scenario.equals("NORMAL")) {
+            boolean external = scenario.equals("ACP");
+            if (external != model.provider().equals("external-acp"))
+                throw new HarnessException("INVALID", "执行类型与任务不匹配");
+            if (!external && !model.provider().equals("simulated") && !scenario.equals("NORMAL")) {
                 throw new HarnessException("INVALID", "真实模型仅支持 NORMAL 场景");
             }
             if (!model.configured()) throw new HarnessException("INVALID", "请在页面的模型配置中设置模型名称和 API Key");
@@ -901,13 +897,15 @@ public final class JdbcSessionStore implements SessionStore {
                     extensions,
                     mode,
                     session(sessionId).workspaceId());
-            jdbc.update(
-                    "UPDATE harness_session SET active_run_id=?,model_profile_id=?,reasoning_effort=?,approval_mode=? WHERE id=?",
-                    id,
-                    selected.profileId(),
-                    selected.reasoningEffort(),
-                    mode,
-                    sessionId);
+            if (external) jdbc.update("UPDATE harness_session SET active_run_id=? WHERE id=?", id, sessionId);
+            else
+                jdbc.update(
+                        "UPDATE harness_session SET active_run_id=?,model_profile_id=?,reasoning_effort=?,approval_mode=? WHERE id=?",
+                        id,
+                        selected.profileId(),
+                        selected.reasoningEffort(),
+                        mode,
+                        sessionId);
             appendEvent(sessionId, id, "STATE", RunStatus.QUEUED, "");
             return new Submission(run(id), true);
         });

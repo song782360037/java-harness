@@ -11,6 +11,9 @@ import Commands from './Commands.vue'
 import Questions from './Questions.vue'
 import PluginRunDetails from './PluginRunDetails.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
+import ExternalAgentRequests from './ExternalAgentRequests.vue'
+import { externalCommandAlias } from './pluginCommands'
+import type { ExternalAgentCommand } from './api'
 import MentionPicker from './MentionPicker.vue'
 import ComposerAddMenu from './ComposerAddMenu.vue'
 import ComposerAttachments from './ComposerAttachments.vue'
@@ -53,7 +56,7 @@ const groupPage = ref<{ openTask(id: string): Promise<void>; navigationBlocked: 
 const taskNavigationBlocked = computed(() => submitting.value || loading.value || settingsBusy.value || workspaceChanging.value || !!groupPage.value?.navigationBlocked)
 const queuedTask = ref<TaskActivity>()
 let disconnectTaskActivity = () => {}
-const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates'>('general')
+const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
 // 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
 watch(fontSize, value => {
@@ -294,7 +297,7 @@ async function startMention() {
 }
 // 已有正文时不改写，命令只能写在开头，空输入框才插入 /。
 async function startCommand() {
-  if (prompt.value && !prompt.value.startsWith('/')) { error.value = '插件命令需写在消息开头，请先清空输入框或在开头输入 /'; return }
+  if (prompt.value && !prompt.value.startsWith('/')) { error.value = '斜杠命令需写在消息开头，请先清空输入框或在开头输入 /'; return }
   if (!prompt.value) prompt.value = '/'
   await nextTick(); promptInput.value?.setSelectionRange(1, 1); promptInput.value?.focus()
 }
@@ -403,13 +406,17 @@ async function copyAnswer(run: Run) {
   try { await navigator.clipboard.writeText(answerOf(run)); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
   catch { copyError.value = '复制失败，请选择回答内容手动复制。' }
 }
-function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' = 'general', creating = false) {
+function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents' = 'general', creating = false) {
   if (workspaceChanging.value) return
   settingsSection.value = section
   creatingWorkspace.value = creating
   showSettings.value = true
 }
-function closeSettings() { showSettings.value = false; settingsBusy.value = false }
+function closeSettings() {
+  if (showSettings.value) void loadExternalAgents()
+  showSettings.value = false
+  settingsBusy.value = false
+}
 function navigateSession(id: string) {
   if (isMobile.value) sidebarCollapsed.value = true
   showAutomations.value = false
@@ -443,6 +450,7 @@ function timelineLoaded() {
 const latestContext = computed(() => [...(snapshot.value?.runs ?? [])].reverse().find(run => !!run.context?.maxTokens)?.context ?? null)
 // 与输入框模型选择器的显示规则一致；配置已删除时退回运行记录中的模型 ID。
 function runModelLabel(run: Run) {
+  if (run.provider === 'external-acp') return run.model
   const profile = profiles.value.find(item => item.id === run.modelProfileId)
   return profile?.displayName || profile?.modelName || run.model
 }
@@ -520,7 +528,7 @@ function setPending(value: Submission | null) {
   storageSet(`harness.pending.${selectedId.value}`, value ? JSON.stringify(value) : null)
 }
 // 从欢迎页发送时立即切到对话布局，用占位消息在对话区等待真实记录返回。
-const launching = ref<{ text: string; attachments: DraftAttachment[] } | null>(null)
+const launching = ref<{ text: string; attachments: DraftAttachment[]; agentName?: string } | null>(null)
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 let landing: Animation[] = []
 function composerBox() {
@@ -565,7 +573,8 @@ function fadeOutWelcome() {
 function startLaunch() {
   const from = composerBox()
   fadeOutWelcome()
-  launching.value = { text: pending.value?.prompt ?? draftText(), attachments: draftAttachments.value }
+  launching.value = { text: pending.value?.prompt ?? draftText(), attachments: draftAttachments.value,
+    agentName: externalDraft.value ? draftAgent.value?.description || draftAlias.value : undefined }
   if (from) void nextTick(() => landComposer(from))
 }
 // 提交失败时还没有对话记录，输入框要退回欢迎页。
@@ -787,7 +796,7 @@ async function send() {
     return
   }
   if (attachmentsBlocked.value) { error.value = '附件仍在上传或上传失败，请等待完成或移除后再发送'; return }
-  if (loading.value || submitting.value || !model.value?.configured || !hasDraftContent.value) return
+  if (loading.value || submitting.value || !canUseDraftRoute.value || !hasDraftContent.value) return
   const draft = prompt.value
   let ready = false
   startLaunch()
@@ -919,7 +928,7 @@ async function initialize() {
   loading.value = true
   error.value = ''
   try {
-    await loadProfiles()
+    await Promise.all([loadProfiles(), loadExternalAgents()])
     await loadWorkspaces()
     sessions.value = await api<Session[]>('/sessions')
     const stored = storageGet('harness.session')
@@ -928,9 +937,29 @@ async function initialize() {
   } catch { error.value = '无法连接服务，请确认后端已启动后重试。' }
   finally { loading.value = false }
 }
+const externalAgents = ref<ExternalAgentCommand[]>([])
+const draftAlias = computed(() => externalCommandAlias(prompt.value))
+const draftAgent = computed(() => externalAgents.value.find(agent => agent.id === draftAlias.value))
+const externalDraft = computed(() => !!draftAgent.value || ['codex', 'claude'].includes(draftAlias.value || ''))
+const externalComposer = computed(() => externalDraft.value || current.value?.provider === 'external-acp')
+const externalDraftTask = computed(() => prompt.value.replace(/^\/[a-z0-9][a-z0-9-]{0,31}(?=\s|$)/, '').trim())
+const externalDraftProblem = computed<{ text: string; action?: 'agents' | 'workspace' } | null>(() => {
+  if (!externalDraft.value) return null
+  if (!draftAgent.value) return { text: `外部智能体 /${draftAlias.value} 尚未配置`, action: 'agents' }
+  if (!draftAgent.value.enabled) return { text: `外部智能体 /${draftAgent.value.id} 已停用`, action: 'agents' }
+  if (!snapshot.value?.session.workspace) return { text: '请先选择工作区，外部智能体需要工作目录', action: workspaces.value.length ? undefined : 'workspace' }
+  if (draftAttachments.value.length > 0 || draftMentions.value.length > 0) return { text: '外部智能体不接收附件或文件引用，请先移除' }
+  if (!externalDraftTask.value) return { text: `请在 /${draftAgent.value.id} 后输入任务内容` }
+  return null
+})
+const canUseDraftRoute = computed(() => externalDraft.value ? !externalDraftProblem.value : !!model.value?.configured)
+/** Refresh the visible alias catalog after extension settings close. */
+async function loadExternalAgents() {
+  try { externalAgents.value = await api('/external-agents/commands') } catch { /* ordinary chat remains available */ }
+}
 function canSubmit() {
   if (submitting.value || !snapshot.value) return false
-  return !!pending.value || (!attachmentsBlocked.value && !!model.value?.configured && !current.value && hasDraftContent.value)
+  return !!pending.value || (!attachmentsBlocked.value && canUseDraftRoute.value && !current.value && hasDraftContent.value)
 }
 // 只有引用卡片时用引用路径作正文，与在正文中写 @path 等效；只有附件时说明内容在附件里。
 function draftText() {
@@ -947,7 +976,7 @@ async function submit() {
   const version = revision
   const request = pending.value ?? { requestId: crypto.randomUUID(), prompt: text,
     scenario: 'NORMAL', modelProfileId: selectedProfileId.value, reasoningEffort: reasoningEffort.value, approvalMode: approvalMode.value,
-    mentions, attachmentIds: draftAttachments.value.map(item => item.id) }
+    mentions, attachmentIds: draftAttachments.value.map(item => item.id), externalAgentId: draftAgent.value?.agentId }
   setPending(request)
   submitting.value = true
   error.value = ''
@@ -1060,22 +1089,25 @@ onUnmounted(() => {
         </div>
         <article v-if="launching && !snapshot?.runs.length" class="run-card">
           <div class="user-message-wrap"><p class="user-message">{{ launching.text }}</p><ul v-if="launching.attachments.length" class="message-attachments" aria-label="消息附件"><li v-for="item in launching.attachments" :key="item.key"><a :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
-          <section class="response" aria-label="等待回答"><div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span class="working-label"><span class="activity-dot"></span>{{ labels.QUEUED }}</span></div></section>
+          <section class="response" aria-label="等待回答"><div class="assistant-heading"><UiIcon v-if="launching.agentName" name="puzzle" :size="22" /><img v-else class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>{{ launching.agentName || 'Harness' }}</strong><span class="working-label"><span class="activity-dot"></span>{{ labels.QUEUED }}</span></div></section>
         </article>
         <article v-for="run in snapshot?.runs" :key="run.id" class="run-card" :class="{ 'is-fresh': run.id === freshRunId }">
           <div class="user-message-wrap" @animationend="freshRunId = ''"><p class="user-message">{{ run.prompt }}</p><ul v-if="attachmentsOf(run.id).length" class="message-attachments" aria-label="消息附件"><li v-for="item in attachmentsOf(run.id)" :key="item.id"><a :href="`/api/attachments/${item.id}/content`" target="_blank" rel="noopener" :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" loading="lazy" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
           <section class="response" :aria-label="run.model + ' 的回答'">
-            <div class="assistant-heading"><img class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>Harness</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
+            <div class="assistant-heading"><UiIcon v-if="run.provider === 'external-acp'" name="puzzle" :size="22" /><img v-else class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>{{ run.provider === 'external-acp' ? run.model : 'Harness' }}</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
             <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
-            <MemoryUsage :run-id="run.id" :revision="`${run.status}:${run.context ? 'prepared' : 'pending'}`" />
+            <MemoryUsage v-if="run.provider !== 'external-acp'" :run-id="run.id" :revision="`${run.status}:${run.context ? 'prepared' : 'pending'}`" />
             <p v-if="isActive(run) ? !run.output && (questionActivity[run.id] || pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
             <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
-            <ArtifactCards v-if="run.workspace" :run-id="run.id" :workspace="run.workspace" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" />
-            <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" :can-revert="!isActive(run) && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
-            <Questions :run-id="run.id" :revision="`${run.status}:${questionRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="questionActivity[run.id] = $event" />
-            <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
-            <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
-            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ runModelLabel(run) }} · {{ effortShortLabel(run.reasoningEffort) }}</span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
+            <ExternalAgentRequests v-if="run.provider === 'external-acp'" :run-id="run.id" :revision="`${run.status}:${questionRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="questionActivity[run.id] = $event" />
+            <template v-else>
+              <ArtifactCards v-if="run.workspace" :run-id="run.id" :workspace="run.workspace" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" />
+              <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" :can-revert="!isActive(run) && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
+              <Questions :run-id="run.id" :revision="`${run.status}:${questionRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="questionActivity[run.id] = $event" />
+              <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
+              <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
+            </template>
+            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ runModelLabel(run) }}<template v-if="run.provider !== 'external-acp'"> · {{ effortShortLabel(run.reasoningEffort) }}</template></span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
           </section>
         </article>
         <p v-if="copyError" role="status" class="run-notice">{{ copyError }}</p>
@@ -1084,23 +1116,24 @@ onUnmounted(() => {
         <button v-if="awayFromLatest && snapshot?.runs.length" type="button" class="latest-message" @click="goToLatest"><UiIcon name="down" :size="14" />回到最新</button>
         <form class="composer" @submit.prevent="send" @dragover="onComposerDragover" @drop="onComposerDrop">
           <label class="sr-only" for="prompt">输入问题</label>
-          <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="optimizingPrompt || !!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="prompt = $event" />
+          <PluginCommandPicker ref="pluginCommandPicker" :session-id="snapshot?.session.id" :disabled="optimizingPrompt || !!current || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" :agents="externalAgents" @select="prompt = $event" />
           <MentionPicker ref="mentionPicker" :session-id="snapshot?.session.id" :workspace-id="snapshot?.session.workspaceId" :workspace="!!snapshot?.session.workspace" :multi-root="multiRoot" :disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging || showSettings" :text="prompt" :input="promptInput" @select="pickMention" />
           <ComposerAttachments :items="draftAttachments" :mentions="draftMentions" :multi-root="multiRoot" :disabled="optimizingPrompt || submitting || !!pending" @remove="removeAttachment" @remove-mention="removeMention" />
           <div class="composer-input">
-            <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问这个项目中的任何问题，@ 引用文件，/ 选择插件命令…' : '描述你的问题，可粘贴图片，/ 选择插件命令…'" :disabled="optimizingPrompt || !!pending || submitting || loading || workspaceChanging" :aria-describedby="optimizationError ? 'prompt-optimization-error' : undefined" rows="1" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />
+            <textarea id="prompt" @input="resizePrompt" @paste="onPromptPaste" ref="promptInput" v-model="prompt" :placeholder="snapshot?.session.workspace ? '询问项目，@ 引用文件，/ 选择命令…' : '描述你的问题，可粘贴图片，/ 选择命令…'" :disabled="optimizingPrompt || !!pending || submitting || loading || workspaceChanging" :aria-describedby="optimizationError ? 'prompt-optimization-error' : undefined" rows="1" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="pluginCommandPicker?.open || mentionPicker?.open || false" :aria-controls="pluginCommandPicker?.activeId ? 'plugin-command-options' : mentionPicker?.activeId ? 'file-mention-options' : undefined" :aria-activedescendant="pluginCommandPicker?.activeId || mentionPicker?.activeId" @keydown="onPromptKeydown" />
             <div v-if="optimizingPrompt" class="prompt-optimization-status" role="status"><span class="loading-indicator" aria-hidden="true"></span>正在优化提示词…</div>
           </div>
           <p v-if="optimizationError" id="prompt-optimization-error" class="prompt-optimization-error" role="alert">{{ optimizationError }}</p>
           <div v-if="pending" v-show="!submitting" class="pending-note">上次提交结果待确认，重试不会重复创建任务。<template v-if="pending.attachmentIds?.length || pending.mentions?.length">重试将带上 {{ pending.attachmentIds?.length || 0 }} 个附件、{{ pending.mentions?.length || 0 }} 个引用。</template></div>
-          <p v-else-if="!model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
+          <p v-else-if="externalDraftProblem" class="configuration-hint"><span>{{ externalDraftProblem.text }}</span><button v-if="externalDraftProblem.action === 'agents'" type="button" @click="openSettings('agents')">前往配置 <UiIcon name="chevron" :size="12" /></button><button v-else-if="externalDraftProblem.action === 'workspace'" type="button" @click="browseWorkspace()">新建工作区 <UiIcon name="chevron" :size="12" /></button></p>
+          <p v-else-if="!externalComposer && !model?.configured && !loading" class="configuration-hint"><span>连接一个模型，即可开始对话</span><button type="button" @click="openSettings('models')">配置模型 <UiIcon name="chevron" :size="12" /></button></p>
           <div class="composer-actions">
             <ComposerAddMenu :disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging" :workspace="!!snapshot?.session.workspace" @files="addFiles" @mention="startMention" @command="startCommand" />
-            <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" :approval-mode="approvalMode" @model="chooseProfile" @effort="reasoningEffort = $event" @approval="approvalMode = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
-            <TokenUsageRing :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
-            <PromptOptimizer :text="prompt" :session-id="snapshot?.session.id || ''" :workspace="snapshot?.session.workspace || ''" :workspace-id="snapshot?.session.workspaceId || ''" :model-profile-id="selectedProfileId" :reasoning-effort="reasoningEffort" :mentions="draftMentions" :attachment-ids="draftAttachments.map(item => item.id)" :disabled="!model?.configured || !!current || submitting || !!pending || loading || workspaceChanging || attachmentsBlocked || showSettings || showAutomations || showMemories || showGroups" @busy="optimizingPrompt = $event" @error="optimizationError = $event" @apply="prompt = $event; nextTick(() => promptInput?.focus())" />
+            <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" :workspace-only="externalComposer" :approval-mode="approvalMode" @model="chooseProfile" @effort="reasoningEffort = $event" @approval="approvalMode = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
+            <TokenUsageRing v-if="!externalComposer" :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
+            <PromptOptimizer v-if="!externalComposer" :text="prompt" :session-id="snapshot?.session.id || ''" :workspace="snapshot?.session.workspace || ''" :workspace-id="snapshot?.session.workspaceId || ''" :model-profile-id="selectedProfileId" :reasoning-effort="reasoningEffort" :mentions="draftMentions" :attachment-ids="draftAttachments.map(item => item.id)" :disabled="!model?.configured || !!current || submitting || !!pending || loading || workspaceChanging || attachmentsBlocked || showSettings || showAutomations || showMemories || showGroups" @busy="optimizingPrompt = $event" @error="optimizationError = $event" @apply="prompt = $event; nextTick(() => promptInput?.focus())" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
-            <button v-else type="submit" class="send-button" :class="{ 'is-ready': sendReady }" :disabled="optimizingPrompt || loading || submitting || workspaceChanging || (!pending && (!model?.configured || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending && !submitting ? '重试提交' : '发送消息'" :title="pending && !submitting ? '重试提交' : sendShortcutHint"><UiIcon :name="pending && !submitting ? 'refresh' : 'arrow'" :size="18" /></button>
+            <button v-else type="submit" class="send-button" :class="{ 'is-ready': sendReady }" :disabled="optimizingPrompt || loading || submitting || workspaceChanging || (!pending && (!canUseDraftRoute || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending && !submitting ? '重试提交' : '发送消息'" :title="pending && !submitting ? '重试提交' : sendShortcutHint"><UiIcon :name="pending && !submitting ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
         </form>
         <div class="composer-caption"><span>{{ sendShortcutHint }}</span></div>

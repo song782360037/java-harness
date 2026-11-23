@@ -96,15 +96,24 @@ java -jar harness-server/target/harness-server-0.2.2.jar
 
 ## 插件与扩展
 
-在 **设置 → 扩展** 中发现和管理插件、技能与连接器（MCP），均提供官方内容和自定义添加入口。
+在 **设置 → 扩展** 中发现和管理插件、技能、连接器（MCP）和外部智能体。
 
 | 类型 | 用途 | 自定义方式 |
 | --- | --- | --- |
 | 插件 | 将技能、命令与工具组织成可复用的工作流，例如代码审查、项目理解和发布检查。 | 从本地目录或 ZIP 安装插件包。 |
 | 技能 | 为特定任务提供方法与指令，例如前端设计、根因分析、测试用例设计和技术文档。 | 直接填写 Markdown 技能正文。 |
 | 连接器（MCP） | 将 MCP 服务提供的工具接入对话，支持 `stdio` 与 Streamable HTTP。 | 配置本地程序或远端 MCP 服务。 |
+| 外部智能体 | 在聊天中把一条任务直接交给 Codex、Claude Code 或其他 ACP 智能体。 | 配置可信的本地 ACP v1 stdio 程序。 |
 
 在聊天输入框输入 `/` 可唤起插件命令。示例插件位于 [`examples/plugins`](examples/plugins)，完整说明见 [扩展使用与开发](docs/plugins.md)。
+
+### 外部智能体
+
+1. 安装对应的 ACP 适配器：[Codex ACP](https://github.com/agentclientprotocol/codex-acp) 或 [Claude Agent ACP](https://github.com/agentclientprotocol/claude-agent-acp)。按其上游说明完成认证。Java Harness 不安装适配器，也不转交自身的模型 API Key。
+2. 打开 **设置 → 扩展 → 外部智能体**，添加对应预设。可以保留命令名，也可以选择适配器的绝对路径。点击 **测试连接** 验证 ACP 握手，然后启用并保存。握手通过不代表模型已认证。
+3. 回到对话，选择工作区，在消息开头输入 `/codex` 或 `/claude`，加空格和任务。例如：`/claude 梳理项目模块之间的依赖`。这条消息不经过 Java Harness 的主模型；下一条普通消息仍由主模型处理。适配器支持续接时，同一对话、配置和工作区会复用外部上下文。
+
+外部任务以工作区的第一个目录运行，不转发 Java Harness 的对话历史、记忆、附件或 MCP 配置。程序仍以当前系统账户运行：Codex 默认使用 `read-only`，Claude Code 默认使用 `plan`，这些是适配器模式，不是 Java Harness 沙箱。只有适配器发给客户端的审批或表单才会显示；外部程序直接改动的文件不能在 Java Harness 内撤销。
 
 ## 架构
 

@@ -1,10 +1,12 @@
 package dev.javaharness.server.web;
 
 import dev.javaharness.server.service.ComposerInputService;
+import dev.javaharness.server.service.ExternalAgentRuns;
 import dev.javaharness.server.service.FlowService;
 import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.WorkspaceDirectories;
+import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ModelRequest;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.AgentEngine;
@@ -42,6 +44,7 @@ public class SessionController {
     private final GroupChatService groups;
     private final FlowService flows;
     private final ComposerInputService inputs;
+    private final ExternalAgentRuns external;
 
     public SessionController(
             SessionStore store,
@@ -50,7 +53,8 @@ public class SessionController {
             SessionNamingService naming,
             GroupChatService groups,
             FlowService flows,
-            ComposerInputService inputs) {
+            ComposerInputService inputs,
+            ExternalAgentRuns external) {
         this.store = store;
         this.engine = engine;
         this.directories = directories;
@@ -58,6 +62,7 @@ public class SessionController {
         this.groups = groups;
         this.flows = flows;
         this.inputs = inputs;
+        this.external = external;
     }
 
     public record CreateSession(String title, String workspace, String workspaceId) {}
@@ -74,7 +79,8 @@ public class SessionController {
             String reasoningEffort,
             String approvalMode,
             List<ComposerInputService.Mention> mentions,
-            List<String> attachmentIds) {}
+            List<String> attachmentIds,
+            String externalAgentId) {}
 
     @GetMapping("/sessions")
     public List<Session> sessions() {
@@ -151,10 +157,22 @@ public class SessionController {
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
         groups.requireOrdinary(id);
         flows.requireOrdinary(id);
+        var routed = external.submit(
+                id,
+                request.requestId(),
+                request.prompt(),
+                request.externalAgentId(),
+                (request.mentions() != null && !request.mentions().isEmpty())
+                        || (request.attachmentIds() != null
+                                && !request.attachmentIds().isEmpty()));
+        if (routed != null)
+            return ResponseEntity.status(routed.created() ? HttpStatus.ACCEPTED : HttpStatus.OK)
+                    .body(routed.run());
         var selection = new ModelSelection(request.modelProfileId(), request.reasoningEffort());
         // Omitting the mode keeps the session's last choice.
         var mode = request.approvalMode() == null ? null : ApprovalMode.parse(request.approvalMode());
         String scenario = request.scenario() == null ? "NORMAL" : request.scenario();
+        if (ExternalAgentRuns.SCENARIO.equals(scenario)) throw new HarnessException("INVALID", "请使用已配置的外部智能体别名");
         // An exact retry returns the existing run before re-reading mentioned files that may have changed since.
         var retry = store.retry(id, request.requestId(), request.prompt(), scenario, selection);
         var result = retry != null
@@ -182,6 +200,6 @@ public class SessionController {
 
     @PostMapping(value = "/runs/{id}/cancel", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Run cancel(@PathVariable String id) {
-        return engine.cancel(id);
+        return ExternalAgentRuns.PROVIDER.equals(store.run(id).provider()) ? external.cancel(id) : engine.cancel(id);
     }
 }

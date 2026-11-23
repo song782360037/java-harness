@@ -11,10 +11,10 @@ import UsageSettings from './UsageSettings.vue'
 import ApprovalSettings from './ApprovalSettings.vue'
 import MemorySettings from './MemorySettings.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
 const currentWorkspace = computed(() => props.workspaces.find(workspace => workspace.id === props.session?.workspaceId))
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
-const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory' | 'updates'>(props.initialSection)
+const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory' | 'updates'>(props.initialSection === 'agents' ? 'plugins' : props.initialSection)
 const pageTitle = ref<HTMLElement>()
 const sections = [{ id: 'general', label: '常规', icon: 'settings' },
   { id: 'appearance', label: '外观', icon: 'palette' },
@@ -205,7 +205,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
           <p v-if="notice && section === 'models'" role="status" class="saved-note">{{ notice }}</p>
           <GeneralSettings v-show="section === 'general'" />
           <AboutUpdates v-if="section === 'updates' && desktopAvailable" />
-          <ExtensionCenter v-if="section === 'plugins'" @busy="pluginBusy = $event" />
+          <ExtensionCenter v-if="section === 'plugins'" :initial-agents="props.initialSection === 'agents'" @busy="pluginBusy = $event" />
           <AppearanceSettings v-show="section === 'appearance'" />
           <UsageSettings v-if="section === 'usage'" />
           <ApprovalSettings v-if="section === 'approval'" @busy="pluginBusy = $event" />

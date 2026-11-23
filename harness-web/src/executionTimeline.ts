@@ -75,6 +75,7 @@ export function toolLabel(tool: ToolExecution): ToolLabel {
   const args = parse(tool.arguments)
   const path = text(args.path)
   switch (tool.name) {
+    case 'external_agent_tool': return { icon: 'puzzle', verb: '调用', target: text(args.title) || '外部工具', raw: true }
     case 'read_file': {
       const range = args.start_line ? `:${text(args.start_line)}${args.end_line ? `-${text(args.end_line)}` : ''}` : ''
       return { icon: 'file', verb: '读取', target: path + range }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ExternalAgentSettings from './ExternalAgentSettings.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api } from './api'
 import { filterExtensions, saveAndRefresh, type ExtensionItem, type ExtensionKind } from './extensions'
@@ -8,6 +9,7 @@ import SettingsLoading from './SettingsLoading.vue'
 import UiIcon from './UiIcon.vue'
 import './styles/extensions.css'
 
+const props = defineProps<{ initialAgents?: boolean }>()
 const emit = defineEmits<{ busy: [value: boolean] }>()
 const tabs = [
   { id: 'plugin', label: '插件', english: 'Plugins', icon: 'cube', tagline: '聚焦效率、代码质量、工作流。' },
@@ -15,12 +17,13 @@ const tabs = [
   { id: 'connector', label: '连接器', english: 'Connectors', icon: 'globe', tagline: '连接工具，让工作流更进一步。' },
 ] as const
 const kind = ref<ExtensionKind>('plugin'), query = ref(''), category = ref('全部'), installedOnly = ref(false), sort = ref('featured')
+const showAgents = ref(!!props.initialAgents), agentsBusy = ref(false)
 const current = computed(() => tabs.find(tab => tab.id === kind.value)!)
 const items = ref<ExtensionItem[]>([]), busy = ref(false), error = ref('')
 const toggling = ref(new Set<string>())
 let catalogRequest = 0
 const configurationBusy = ref(false)
-const locked = computed(() => busy.value || configurationBusy.value)
+const locked = computed(() => busy.value || configurationBusy.value || agentsBusy.value)
 // 首次读取结束前不展示列表，避免出现“全部插件 0”。
 const loaded = ref(false)
 const categories = computed(() => ['全部', '官方精选', '自定义', ...new Set(items.value.filter(item => item.kind === kind.value).map(item => item.category))])
@@ -186,14 +189,15 @@ onMounted(refresh)
 <template>
   <section class="extension-center" :class="`extension-${kind}`" aria-label="扩展">
     <header class="extension-toolbar">
-      <nav class="extension-tabs" aria-label="扩展类型"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="kind === tab.id" :class="{ active: kind === tab.id }" :disabled="locked" @click="kind = tab.id">{{ tab.label }}<small v-if="tab.id === 'connector'">MCP</small></button></nav>
-      <div class="extension-tools"><button class="icon-button" aria-label="刷新扩展" title="刷新扩展" :disabled="locked" @click="refresh"><UiIcon name="refresh" :size="17" /></button>
+      <nav class="extension-tabs" aria-label="扩展类型"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="!showAgents && kind === tab.id" :class="{ active: !showAgents && kind === tab.id }" :disabled="locked" @click="showAgents = false; kind = tab.id">{{ tab.label }}<small v-if="tab.id === 'connector'">MCP</small></button><button :aria-pressed="showAgents" :class="{ active: showAgents }" :disabled="locked" @click="showAgents = true">外部智能体</button></nav>
+      <div v-if="!showAgents" class="extension-tools"><button class="icon-button" aria-label="刷新扩展" title="刷新扩展" :disabled="locked" @click="refresh"><UiIcon name="refresh" :size="17" /></button>
         <label class="extension-search"><UiIcon name="search" :size="17" /><input v-model="query" aria-label="搜索扩展" placeholder="搜索名称、说明或分类" /></label>
         <button class="extension-installed" :class="{ active: installedOnly }" :aria-pressed="installedOnly" @click="installedOnly = !installedOnly">已安装</button>
         <button class="extension-add" :disabled="locked" @click="add">添加{{ current.label }}</button>
       </div>
     </header>
-    <div class="extension-discovery">
+    <ExternalAgentSettings v-if="showAgents" @busy="agentsBusy = $event" />
+    <div v-else class="extension-discovery">
       <div class="extension-hero"><div><h1>{{ installedOnly ? '管理' : '发现' }}{{ current.label }} <span>{{ current.english }}</span></h1><p>{{ installedOnly ? '查看启停状态，统一管理已安装的扩展。' : current.tagline }}</p></div>
       </div>
       <p v-if="error" role="alert" class="extension-feedback">{{ error }} <button :disabled="locked" @click="refresh">重试</button></p>

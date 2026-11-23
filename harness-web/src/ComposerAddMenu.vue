@@ -41,7 +41,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside))
     <div v-if="open" class="composer-add-menu" role="menu" aria-label="添加内容">
       <button type="button" role="menuitem" @click="act('files')"><UiIcon name="paperclip" :size="16" /><span><strong>上传图片或文件</strong><small>图片、文本文件，也可粘贴或拖入</small></span></button>
       <button type="button" role="menuitem" :disabled="!workspace" @click="act('mention')"><UiIcon name="at" :size="16" /><span><strong>引用文件或目录</strong><small>{{ workspace ? '从当前工作区选择，或输入 @' : '需要先选择工作区' }}</small></span></button>
-      <button type="button" role="menuitem" @click="act('command')"><UiIcon name="cube" :size="16" /><span><strong>插件命令</strong><small>或在开头输入 /</small></span></button>
+      <button type="button" role="menuitem" @click="act('command')"><UiIcon name="cube" :size="16" /><span><strong>斜杠命令</strong><small>插件命令或外部智能体，在开头输入 /</small></span></button>
     </div>
     <input ref="picker" type="file" multiple hidden @change="picked" />
   </div>

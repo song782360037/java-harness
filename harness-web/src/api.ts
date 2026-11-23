@@ -87,6 +87,22 @@ export interface Snapshot { session: Session; runs: Run[]; lastSeq: number; usag
 export interface Submission {
   requestId: string; prompt: string; scenario: string; modelProfileId?: string; reasoningEffort?: string; approvalMode?: ApprovalMode
   mentions?: { root: number; path: string; directory: boolean }[]; attachmentIds?: string[]
+  externalAgentId?: string
+}
+export interface ExternalAgent {
+  id: string; alias: string; name: string; preset: 'codex' | 'claude' | 'custom'; executable: string
+  arguments: string[]; workspaceWrite: boolean; enabled: boolean; revision: number
+}
+export interface ExternalAgentCommand { id: string; description: string; agentId: string; enabled: boolean }
+export interface ExternalField {
+  type: 'string' | 'number' | 'integer' | 'boolean'; title?: string; description?: string; enum?: string[]
+  minimum?: number; maximum?: number; minLength?: number; maxLength?: number; default?: string | number | boolean
+}
+export interface ExternalInteraction {
+  id: string; kind: 'permission' | 'form'; title: string; details: string; status: string
+  choices: { id: string; name: string; allow: boolean }[]
+  schema: { properties: Record<string, ExternalField>; required?: string[] } | null
+  answer?: unknown
 }
 export interface RunEvent { sessionId: string; seq: number; runId: string | null; type: string }
 export const isActive = (run: Run) => ['QUEUED', 'RUNNING', 'CANCELLING'].includes(run.status)

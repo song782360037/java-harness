@@ -45,6 +45,8 @@ public class TaskActivityService {
                         SELECT run_id,'APPROVAL' kind,id FROM harness_command WHERE status='PENDING'
                         UNION ALL SELECT run_id,'APPROVAL',id FROM harness_external_approval WHERE status='PENDING'
                         UNION ALL SELECT run_id,'ANSWER',id FROM harness_question WHERE status='PENDING'
+                        UNION ALL SELECT run_id,CASE WHEN interaction_kind='permission' THEN 'APPROVAL' ELSE 'ANSWER' END,id
+                            FROM harness_external_interaction WHERE status='PENDING'
                     ) a JOIN harness_run r ON r.id=a.run_id JOIN harness_session s ON s.id=r.session_id
                     WHERE r.status='RUNNING'
                     ORDER BY a.id

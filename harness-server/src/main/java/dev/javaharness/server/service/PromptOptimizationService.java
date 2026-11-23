@@ -132,6 +132,7 @@ public final class PromptOptimizationService implements AutoCloseable {
                 ? List.<Run>of()
                 : snapshot.runs().stream()
                         .filter(run -> run.status() == RunStatus.COMPLETED
+                                && !ExternalAgentRuns.PROVIDER.equals(run.provider())
                                 && !run.provider().equals("simulated")
                                 && !run.output().isBlank()
                                 && run.workspace().equals(session.workspace()))

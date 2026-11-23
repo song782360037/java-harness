@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { approvalModeLabel, approvalModeOptions, effortShortLabel, type ApprovalMode, type ModelProfile, type Workspace } from './api'
 import ReasoningSlider from './ReasoningSlider.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ profiles: ModelProfile[]; modelId: string; effort: string; disabled: boolean; workspaceId: string; workspaces: Workspace[]; workspaceDisabled: boolean; approvalMode: ApprovalMode }>()
+const props = defineProps<{ profiles: ModelProfile[]; modelId: string; effort: string; disabled: boolean; workspaceId: string; workspaces: Workspace[]; workspaceDisabled: boolean; approvalMode: ApprovalMode; workspaceOnly?: boolean }>()
 const emit = defineEmits<{ model: [id: string]; effort: [value: string]; settings: []; workspace: [id: string]; browse: []; edit: []; approval: [value: ApprovalMode] }>()
 const root = ref<HTMLElement>()
 const modelButton = ref<HTMLButtonElement>()
@@ -94,6 +94,7 @@ function navigate(event: KeyboardEvent) {
 }
 watch(() => props.workspaceDisabled, value => { if (value && open.value === 'workspace') close() })
 watch(() => props.disabled, value => { if (value) close() })
+watch(() => props.workspaceOnly, value => { if (value && open.value !== 'workspace') close() })
 onMounted(() => { document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape); document.addEventListener('scroll', scroll, true); window.addEventListener('resize', outsideResize) })
 onUnmounted(() => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); document.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', outsideResize) })
 // 视口改变时关闭菜单，避免位置继续依赖旧尺寸。
@@ -116,6 +117,7 @@ function outsideResize() { close() }
         <button type="button" class="manage-models" @click="close(true); emit('browse')"><span><UiIcon name="plus" :size="15" /> 新建工作区</span><UiIcon name="chevron" :size="13" /></button>
       </div>
     </div>
+    <template v-if="!workspaceOnly">
     <span class="selector-divider" aria-hidden="true"></span>
     <div class="selector-anchor">
       <button id="composer-model" ref="modelButton" type="button" class="composer-chip" :disabled="disabled" :aria-expanded="open === 'model'" aria-controls="model-options" aria-label="选择模型" :title="selected ? `${selected.providerName} / ${selected.modelName}` : '请选择模型'" @click="toggle('model')"><span>{{ selected?.displayName || selected?.modelName || '选择模型' }}</span><UiIcon class="chevron" name="down" :size="12" /></button>
@@ -151,5 +153,6 @@ function outsideResize() { close() }
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>

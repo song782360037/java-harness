@@ -1,29 +1,30 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { api } from './api'
+import { api, type ExternalAgentCommand } from './api'
 import { completePluginCommand, fetchPluginCommands, matchingPluginCommands, slashCommandQuery, type PluginCommand } from './pluginCommands'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ sessionId?: string; disabled: boolean; text: string; input?: HTMLTextAreaElement }>()
+const props = defineProps<{ sessionId?: string; disabled: boolean; text: string; input?: HTMLTextAreaElement; agents: ExternalAgentCommand[] }>()
 const emit = defineEmits<{ select: [value: string] }>()
-const commands = ref<PluginCommand[]>([]), query = ref<string | null>(null), error = ref(''), loading = ref(false), active = ref(0)
+const pluginCommands = ref<PluginCommand[]>([]), query = ref<string | null>(null), error = ref(''), loading = ref(false), active = ref(0)
 const panel = ref<HTMLElement>(), dismissedText = ref<string | null>(null)
 const availableHeight = ref(300)
 const open = computed(() => query.value !== null)
+const commands = computed<PluginCommand[]>(() => [...props.agents.filter(value => value.enabled), ...pluginCommands.value])
 const matching = computed(() => matchingPluginCommands(commands.value, query.value || ''))
-const activeId = computed(() => open.value && !loading.value && !error.value && matching.value[active.value] ? `plugin-command-${active.value}` : undefined)
+const activeId = computed(() => open.value && !loading.value && matching.value[active.value] ? `plugin-command-${active.value}` : undefined)
 let generation = 0
 
 // 使关闭或切换会话前发出的请求失效，不保留上一范围的候选项。
 function close(dismiss = false) {
   if (dismiss) dismissedText.value = props.input?.value ?? props.text
-  generation++; query.value = null; commands.value = []; loading.value = false; error.value = ''
+  generation++; query.value = null; pluginCommands.value = []; loading.value = false; error.value = ''
 }
 // 每次唤起重新读取启用选择，安装、停用或范围变化在下一次打开时生效。
 async function load() {
   const version = ++generation
-  commands.value = []; error.value = ''; loading.value = true
-  try { const values = await fetchPluginCommands(api, props.sessionId); if (version === generation) commands.value = values }
-  catch { if (version === generation) error.value = '命令读取失败，请重试。' }
+  pluginCommands.value = []; error.value = ''; loading.value = true
+  try { const values = await fetchPluginCommands(api, props.sessionId); if (version === generation) pluginCommands.value = values }
+  catch { if (version === generation) error.value = '插件命令读取失败。' }
   finally { if (version === generation) loading.value = false }
 }
 // 输入、光标移动及选区变化后，只在首个命令标记中展示补全。
@@ -83,18 +84,23 @@ onUnmounted(() => {
 defineExpose({ keydown, open, activeId })
 </script>
 <template>
-  <section v-if="open" ref="panel" class="slash-command-menu" :style="{ maxHeight: `${availableHeight}px` }" aria-label="插件命令">
-    <header><span><UiIcon name="cube" :size="15" /> 插件命令</span><small>↑↓ 选择 · Enter 填入</small></header>
+  <section v-if="open" ref="panel" class="slash-command-menu" :style="{ maxHeight: `${availableHeight}px` }" aria-label="斜杠命令">
+    <header><span><UiIcon name="cube" :size="15" /> 斜杠命令</span><small>↑↓ 选择 · Enter 填入</small></header>
     <p v-if="loading" role="status">正在读取命令…</p>
-    <p v-else-if="error" role="alert">{{ error }} <button type="button" @mousedown.prevent @click="load">重试</button></p>
-    <div v-else-if="matching.length" id="plugin-command-options" class="slash-command-options" role="listbox" aria-label="可用插件命令">
-      <button v-for="(command, index) in matching" :id="`plugin-command-${index}`" :key="command.id" type="button" role="option" tabindex="-1" :aria-selected="active === index" :class="{ active: active === index }" :title="`/${command.id} · ${command.description}`" @mouseenter="active = index" @mousedown.prevent @click="choose(command)"><span><strong>/{{ command.id }}</strong><small>{{ command.description }}</small></span><UiIcon v-if="active === index" name="chevron" :size="15" /></button>
+    <p v-if="error" role="alert">{{ error }} <button type="button" @mousedown.prevent @click="load">重试</button></p>
+    <div v-if="!loading && matching.length" id="plugin-command-options" class="slash-command-options" role="listbox" aria-label="可用命令">
+      <template v-for="(command, index) in matching" :key="command.agentId ? `agent:${command.id}` : `plugin:${command.id}`">
+        <div v-if="index === 0 || !!matching[index - 1]?.agentId !== !!command.agentId" class="command-group" :class="{ 'has-divider': index > 0 }" role="presentation">{{ command.agentId ? '外部智能体' : '插件命令' }}</div>
+        <button :id="`plugin-command-${index}`" type="button" role="option" tabindex="-1" :aria-selected="active === index" :class="{ active: active === index }" :title="`/${command.id}: ${command.description}`" @mouseenter="active = index" @mousedown.prevent @click="choose(command)"><span><strong>/{{ command.id }}</strong><small>{{ command.description }}</small></span><UiIcon v-if="active === index" name="chevron" :size="15" /></button>
+      </template>
     </div>
-    <p v-else role="status">{{ commands.length ? '没有匹配的插件命令' : '暂无可用命令，可在设置 → 扩展中启用插件' }}</p>
+    <p v-else-if="!loading && !error" role="status">{{ commands.length ? '没有匹配的命令' : '暂无可用命令，可在设置 → 扩展中启用插件或外部智能体' }}</p>
     <footer>选择后可补充任务要求，再发送消息。<span>Esc 关闭</span></footer>
   </section>
 </template>
 <style scoped>
+.command-group { padding: 6px 10px 4px; color: var(--muted); font-size: var(--font-caption); font-weight: 550; }
+.command-group.has-divider { margin-top: 4px; padding-top: 8px; border-top: 0.5px solid var(--border); }
 .slash-command-menu { position: absolute; z-index: 12; left: 0; right: 0; bottom: calc(100% + 8px); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); color: var(--text); display: flex; flex-direction: column; overflow: hidden; }
 header, footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; font-size: var(--font-caption); color: var(--muted); }
 header > span { display: flex; align-items: center; gap: 6px; font-weight: 550; }
