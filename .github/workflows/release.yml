@@ -87,7 +87,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create $env:RELEASE_TAG --draft --title $env:RELEASE_TAG --generate-notes
+          $notesFile = "docs/releases/$($env:RELEASE_TAG).md"
+          $notesArgs = @('--generate-notes')
+          if (Test-Path -LiteralPath $notesFile -PathType Leaf) {
+            $notesArgs = @('--notes-file', $notesFile)
+          }
+          gh release create $env:RELEASE_TAG --draft --title $env:RELEASE_TAG @notesArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           gh release upload $env:RELEASE_TAG (Get-ChildItem release).FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
