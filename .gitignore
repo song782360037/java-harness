@@ -28,14 +28,6 @@ pnpm-debug.log*
 *.mv.db
 *.trace.db
 
-# Video production: renders, temp files and captured screenshots are reproducible
-/remotion-videos/output/
-/remotion-videos/.tmp/
-/video-assets/shots/
-/video-assets/*/out/
-/video-assets/*/review/
-/video-assets/*/shots/
-
 # AI-generated drafts (posters, mockups)
 /generated-images/
 
