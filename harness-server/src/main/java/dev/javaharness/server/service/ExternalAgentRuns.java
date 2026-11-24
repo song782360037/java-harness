@@ -583,7 +583,7 @@ public class ExternalAgentRuns {
 
     private static String clientVersion() {
         String version = ExternalAgentRuns.class.getPackage().getImplementationVersion();
-        return version == null || version.isBlank() ? "0.3.0" : version;
+        return version == null || version.isBlank() ? "0.3.1" : version;
     }
 
     private static JsonNode call(AcpProcess process, Task task, String method, Object params)
