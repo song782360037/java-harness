@@ -4,14 +4,9 @@ import TaskCenter from './TaskCenter.vue'
 import { connectTaskActivity, taskActivity } from './taskActivity'
 import type { TaskActivity } from './taskActivityModel'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import RunTimeline from './RunTimeline.vue'
-import FileChanges from './FileChanges.vue'
-import ArtifactCards from './ArtifactCards.vue'
-import Commands from './Commands.vue'
-import Questions from './Questions.vue'
-import PluginRunDetails from './PluginRunDetails.vue'
+import AppSidebar from './AppSidebar.vue'
+import ChatRunCard from './ChatRunCard.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
-import ExternalAgentRequests from './ExternalAgentRequests.vue'
 import { externalCommandAlias } from './pluginCommands'
 import type { ExternalAgentCommand } from './api'
 import MentionPicker from './MentionPicker.vue'
@@ -23,20 +18,16 @@ import AutomationsPage from './AutomationsPage.vue'
 import MemoriesPage from './MemoriesPage.vue'
 import GroupChatsPage from './GroupChatsPage.vue'
 import FlowsPage from './FlowsPage.vue'
-import MemoryUsage from './MemoryUsage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
 import TokenUsageRing from './TokenUsageRing.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
-import SidebarResize from './SidebarResize.vue'
-import SessionRenameDialog from './SessionRenameDialog.vue'
-import SessionDeleteDialog from './SessionDeleteDialog.vue'
 import UiIcon from './UiIcon.vue'
 import { modifierKeyLabel, preferences, shouldSendPrompt } from './preferences'
-import { api, ApiError, isActive, effortShortLabel, normalizeReasoningDepth, upload, type Run, type RunEvent, type RunStatus,
+import { api, ApiError, isActive, normalizeReasoningDepth, upload, type Run, type RunEvent,
   type Session, type Snapshot, type Submission, type ModelProfile, type Workspace, type ApprovalMode } from './api'
 import { addMention, attachmentProblem, attachmentsOnlyPrompt, droppedFiles, isImage, isLongPaste, mentionLabel, MAX_ATTACHMENTS, MAX_MENTIONS, nextPastedName, removeFileMentionQuery,
   type Attachment, type DraftAttachment, type FileEntry } from './composer'
-import { draftSession, workspaceSummary } from './workspaces'
+import { draftSession } from './workspaces'
 
 const sessions = ref<Session[]>([])
 const workspaces = ref<Workspace[]>([])
@@ -52,6 +43,9 @@ const showAutomations = ref(false)
 const showMemories = ref(false)
 const showGroups = ref(false)
 const showFlows = ref(false)
+const activePage = computed<'chat' | 'automations' | 'memories' | 'groups' | 'flows'>(() =>
+  showAutomations.value ? 'automations' : showMemories.value ? 'memories' : showGroups.value ? 'groups' : showFlows.value ? 'flows' : 'chat',
+)
 const groupPage = ref<{ openTask(id: string): Promise<void>; navigationBlocked: boolean }>()
 const flowPage = ref<{ openTask(flowId: string, itemId?: string): Promise<void> }>()
 const waitingFlowCount = computed(() => taskActivity.value.active.filter(task => task.source === 'FLOW' && task.status.startsWith('WAITING_')).length)
@@ -72,7 +66,6 @@ const workspaceSyncing = ref(false)
 const workspaceChanging = computed(() => workspaceSaving.value || workspaceSyncing.value)
 const workspaceDialog = ref<HTMLDialogElement>()
 const browsingWorkspace = ref(false)
-const collapsedGroups = ref(new Set<string>())
 const sidebarCollapsed = ref(window.innerWidth <= 780)
 const savedSidebarWidth = Number(storageGet('harness.sidebar.width'))
 const sidebarWidth = ref(Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0 ? Math.max(200, Math.min(400, savedSidebarWidth)) : 248)
@@ -87,88 +80,12 @@ function setGroupStudio(active: boolean) {
   sidebarCollapsed.value = active || sidebarBeforeStudio || isMobile.value
 }
 watch(sidebarCollapsed, value => { if (groupStudio.value && !value) sidebarCollapsed.value = true })
-const sessionMenuId = ref('')
-const sessionMenuElement = ref<HTMLElement>()
-const sessionMenuPosition = ref<Record<string, string>>({})
-const sessionMenuSession = computed(() => sessions.value.find(session => session.id === sessionMenuId.value))
-let sessionMenuTrigger: HTMLElement | null = null
-function closeSessionMenu(restoreFocus = false) {
-  const trigger = sessionMenuTrigger
-  sessionMenuId.value = ''
-  sessionMenuTrigger = null
-  if (restoreFocus) trigger?.focus()
-}
-async function toggleSessionMenu(session: Session, event: MouseEvent) {
-  if (sessionMenuId.value === session.id) { closeSessionMenu(true); return }
-  const trigger = event.currentTarget as HTMLElement
-  const bounds = trigger.getBoundingClientRect()
-  const width = 144
-  const below = window.innerHeight - bounds.bottom - 12
-  const above = bounds.top - 12
-  const upwards = below < 88 && above > below
-  sessionMenuTrigger = trigger
-  sessionMenuPosition.value = {
-    left: `${Math.max(8, Math.min(bounds.right - width, window.innerWidth - width - 8))}px`,
-    maxHeight: `${Math.max(80, upwards ? above : below)}px`,
-    ...(upwards ? { bottom: `${window.innerHeight - bounds.top + 4}px` } : { top: `${bounds.bottom + 4}px` }),
-  }
-  sessionMenuId.value = session.id
-  await nextTick()
-  sessionMenuElement.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
-}
-function outsideSessionMenu(event: PointerEvent) {
-  if (!sessionMenuId.value) return
-  const target = event.target as Node
-  if (!sessionMenuTrigger?.contains(target) && !sessionMenuElement.value?.contains(target)) closeSessionMenu()
-}
-function focusOutsideSessionMenu(event: FocusEvent) {
-  if (!sessionMenuId.value) return
-  const target = event.target as Node
-  if (!sessionMenuTrigger?.contains(target) && !sessionMenuElement.value?.contains(target)) closeSessionMenu()
-}
-function scrollSessionMenu(event: Event) {
-  if (sessionMenuId.value && !sessionMenuElement.value?.contains(event.target as Node)) closeSessionMenu()
-}
-function resizeSessionMenu() { closeSessionMenu() }
-function navigateSessionMenu(event: KeyboardEvent) {
-  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-  const options = [...(sessionMenuElement.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])]
-  if (!options.length) return
-  event.preventDefault()
-  const index = options.indexOf(event.target as HTMLButtonElement)
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
-    : event.key === 'ArrowDown' ? (index + 1) % options.length : (index <= 0 ? options.length : index) - 1
-  options[next]?.focus()
-}
-const renamingSession = ref<Session | null>(null)
-let renameTrigger: HTMLElement | null = null
 let titleRevision = 0
-// 记录重命名入口，关闭弹窗后恢复键盘焦点。
-function openRename(session: Session, event: MouseEvent) {
-  renameTrigger = sessionMenuTrigger || (event.currentTarget as HTMLElement)
-  closeSessionMenu()
-  renamingSession.value = session
-}
 // 仅同步标题，保留可能同时刷新的工作区和运行记录。
 function sessionRenamed(session: Session) {
   titleRevision++
   sessions.value = sessions.value.map(value => value.id === session.id ? { ...value, title: session.title } : value)
   if (snapshot.value?.session.id === session.id) snapshot.value.session.title = session.title
-}
-// 弹窗取消和保存后都返回原入口。
-async function closeRename() {
-  const trigger = renameTrigger
-  renamingSession.value = null; renameTrigger = null
-  await nextTick()
-  if (trigger?.isConnected) trigger.focus()
-}
-const deletingSession = ref<Session | null>(null)
-let deleteTrigger: HTMLElement | null = null
-// 记录删除入口，关闭弹窗后恢复键盘焦点。
-function openDelete(session: Session, event: MouseEvent) {
-  deleteTrigger = sessionMenuTrigger || (event.currentTarget as HTMLElement)
-  closeSessionMenu()
-  deletingSession.value = session
 }
 // 删除成功后移除列表项；删除的是当前会话时，断开实时连接并切换到下一个会话或回到空白页。
 async function sessionDeleted(session: { id: string }) {
@@ -185,27 +102,13 @@ async function sessionDeleted(session: { id: string }) {
   refreshing = false; dirty = false; connected.value = false
   selectedId.value = ''; snapshot.value = null; pending.value = null
   prompt.value = readDraft('')
-  toolRevisions.value = {}; stepRevisions.value = {}; answers.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; commandActivity.value = {}; pluginActivity.value = {}; questionRevisions.value = {}; questionActivity.value = {}
+  toolRevisions.value = {}; stepRevisions.value = {}; changeRevisions.value = {}; commandRevisions.value = {}; questionRevisions.value = {}
   error.value = ''
   storageSet('harness.session', null)
-}
-// 弹窗取消和删除后都返回原入口；入口已随会话移除时，焦点落到"新对话"。
-async function closeDelete() {
-  const trigger = deleteTrigger
-  deletingSession.value = null; deleteTrigger = null
-  await nextTick()
-  if (trigger?.isConnected) trigger.focus()
-  else (document.querySelector('.new-session') as HTMLElement | null)?.focus()
 }
 const mobileLayout = window.matchMedia('(max-width: 780px)')
 const isMobile = ref(mobileLayout.matches)
 function onLayoutChange() { isMobile.value = mobileLayout.matches; if (isMobile.value) sidebarCollapsed.value = true }
-function closeSidebarOnEscape(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || event.defaultPrevented) return
-  if (sessionMenuId.value) { event.preventDefault(); closeSessionMenu(true); return }
-  if (isMobile.value) sidebarCollapsed.value = true
-}
-const sessionSearch = ref('')
 const promptInput = ref<HTMLTextAreaElement>()
 const optimizingPrompt = ref(false)
 const optimizationError = ref('')
@@ -314,37 +217,12 @@ async function loadSentAttachments(id: string, version: number, runs: number) {
     if (version === revision && request === sentAttachmentsRequest) { sentAttachments.value = values; sentAttachmentsKey = key }
   } catch { /* 下次刷新重试 */ }
 }
-const copiedRun = ref('')
-const copyError = ref('')
-let copyTimer: ReturnType<typeof setTimeout> | undefined
-const sessionGroups = computed(() => {
-  const groups = new Map<string, { label: string; icon: string; color: string; directories: string[]; sessions: Session[] }>()
-  for (const workspace of workspaces.value) {
-    if (!sessionSearch.value || `${workspace.name} ${workspace.directories.join(' ')}`.toLowerCase().includes(sessionSearch.value.toLowerCase()))
-      groups.set(workspace.id, { label: workspace.name, icon: workspace.icon, color: workspace.color, directories: workspace.directories, sessions: [] })
-  }
-  for (const session of sessions.value) {
-    const workspace = workspaces.value.find(value => value.id === session.workspaceId)
-    if (!`${session.title} ${workspace?.name || ''} ${session.workspace}`.toLowerCase().includes(sessionSearch.value.toLowerCase())) continue
-    const key = session.workspaceId || ''
-    if (!groups.has(key)) groups.set(key, { label: workspace?.name || '最近会话', icon: workspace?.icon || 'folder', color: workspace?.color || '', directories: workspace?.directories || [], sessions: [] })
-    groups.get(key)!.sessions.push(session)
-  }
-  return [...groups.entries()]
-})
 const suggestions = [
   { icon: 'folder', title: '了解项目', description: '从结构到入口，建立全局视图', prompt: '查看项目结构，读取构建配置，并结合源码解释程序入口。' },
   { icon: 'scan', title: '定位问题', description: '从现象出发，找到问题所在', prompt: '请帮我定位一个问题，先告诉我需要提供哪些错误信息和复现步骤。' },
   { icon: 'branch', title: '梳理调用链', description: '连接模块，理清执行脉络', prompt: '分析项目的核心模块和调用关系，标明关键类与方法。' },
 ]
 function useSuggestion(value: string) { prompt.value = value; promptInput.value?.focus() }
-// 在项目列表中折叠或展开会话，搜索时始终显示结果。
-function toggleGroup(path: string) {
-  const next = new Set(collapsedGroups.value)
-  if (next.has(path)) next.delete(path)
-  else next.add(path)
-  collapsedGroups.value = next
-}
 // 输入框随草稿增长，超过上限后在框内滚动。
 function resizePrompt() {
   const input = promptInput.value
@@ -404,10 +282,6 @@ async function workspacePicked(session: Session) {
     document.getElementById('composer-workspace')?.focus()
   }
 }
-async function copyAnswer(run: Run) {
-  try { await navigator.clipboard.writeText(answerOf(run)); copiedRun.value = run.id; copyError.value = ''; clearTimeout(copyTimer); copyTimer = setTimeout(() => { copiedRun.value = '' }, 2000) }
-  catch { copyError.value = '复制失败，请选择回答内容手动复制。' }
-}
 function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents' = 'general', creating = false) {
   if (workspaceChanging.value) return
   settingsSection.value = section
@@ -433,15 +307,6 @@ const stepRevisions = ref<Record<string, number>>({})
 const changeRevisions = ref<Record<string, number>>({})
 const commandRevisions = ref<Record<string, number>>({})
 const questionRevisions = ref<Record<string, number>>({})
-const questionActivity = ref<Record<string, string>>({})
-const commandActivity = ref<Record<string, string>>({})
-const pluginActivity = ref<Record<string, string>>({})
-const activityLabel = (run: Run) => run.status === 'RUNNING' ? questionActivity.value[run.id] || pluginActivity.value[run.id] || commandActivity.value[run.id] || labels[run.status] : labels[run.status]
-// 上下文字符数随每个新步骤变化，SSE 静默失效时快照轮询仍能触发时间线刷新。
-const timelineRevision = (run: Run) => `${run.status}:${run.context?.characters ?? 0}:${toolRevisions.value[run.id] ?? 0}:${stepRevisions.value[run.id] ?? 0}:${connected.value}`
-// 时间线拆分出的最终回答，复制和空回答提示以它为准。
-const answers = ref<Record<string, string>>({})
-const answerOf = (run: Run) => answers.value[run.id] ?? run.output
 // 时间线异步加载会改变高度，跟随最新时重新贴底。
 function timelineLoaded() {
   if (!preferences.value.autoScroll || awayFromLatest.value) return
@@ -450,20 +315,6 @@ function timelineLoaded() {
 }
 // 输入框用量圆环以最近一次带 token 预算的请求为准。
 const latestContext = computed(() => [...(snapshot.value?.runs ?? [])].reverse().find(run => !!run.context?.maxTokens)?.context ?? null)
-// 与输入框模型选择器的显示规则一致；配置已删除时退回运行记录中的模型 ID。
-function runModelLabel(run: Run) {
-  if (run.provider === 'external-acp') return run.model
-  const profile = profiles.value.find(item => item.id === run.modelProfileId)
-  return profile?.displayName || profile?.modelName || run.model
-}
-// 上下文与工作区说明放在模型信息的悬浮提示中。
-function contextTitle(run: Run) {
-  const context = run.context
-  const compacted = context?.compactedTurns ?? 0
-  const parts = context ? [`携带 ${context.includedTurns} 轮历史`, compacted ? `已压缩 ${compacted} 轮为摘要` : '', context.droppedTurns > compacted ? `已裁剪 ${context.droppedTurns - compacted} 轮` : '', context.excludedTurns ? `已跳过 ${context.excludedTurns} 条` : ''] : []
-  if (run.workspace) parts.push(`工作区：${workspaceSummary(run.workspace)}`)
-  return parts.filter(Boolean).join('，')
-}
 const snapshot = ref<Snapshot | null>(null)
 const selectedId = ref('')
 const draftCache = new Map<string, string>()
@@ -488,10 +339,6 @@ function trackTimeline() {
 function goToLatest() {
   timeline.value?.scrollTo({ top: timeline.value.scrollHeight, behavior: 'instant' })
   trackTimeline()
-}
-const labels: Record<RunStatus, string> = {
-  QUEUED: '排队中', RUNNING: '正在执行', CANCELLING: '正在停止', COMPLETED: '已完成',
-  CANCELLED: '已停止', FAILED: '执行失败', TIMED_OUT: '已超时', INTERRUPTED: '已中断',
 }
 let source: EventSource | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -729,11 +576,10 @@ async function selectSession(id: string, keepSnapshot = false) {
   selectedId.value = id
   if (!keepSnapshot) { snapshot.value = null; launching.value = null }
   toolRevisions.value = {}
-  stepRevisions.value = {}; answers.value = {}
+  stepRevisions.value = {}
   changeRevisions.value = {}
   commandRevisions.value = {}
-  commandActivity.value = {}; pluginActivity.value = {}
-  questionRevisions.value = {}; questionActivity.value = {}
+  questionRevisions.value = {}
   error.value = ''
   loading.value = true
   prompt.value = readDraft(id)
@@ -1026,11 +872,6 @@ onMounted(() => {
   void initialize().finally(() => { disconnectTaskActivity = connectTaskActivity(task => { void openTask(task) }) })
   mobileLayout.addEventListener('change', onLayoutChange)
   window.addEventListener('focus', reloadSessions)
-  document.addEventListener('keydown', closeSidebarOnEscape)
-  document.addEventListener('pointerdown', outsideSessionMenu)
-  document.addEventListener('focusin', focusOutsideSessionMenu)
-  document.addEventListener('scroll', scrollSessionMenu, true)
-  window.addEventListener('resize', resizeSessionMenu)
   document.addEventListener('visibilitychange', resumeStream)
   window.addEventListener('online', resumeStream)
 })
@@ -1038,49 +879,44 @@ onUnmounted(() => {
   disconnectTaskActivity()
   revision++
   source?.close()
-  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer); clearTimeout(copyTimer)
+  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer)
   document.removeEventListener('visibilitychange', resumeStream)
   window.removeEventListener('online', resumeStream)
   mobileLayout.removeEventListener('change', onLayoutChange)
   window.removeEventListener('focus', reloadSessions)
-  document.removeEventListener('keydown', closeSidebarOnEscape)
-  document.removeEventListener('pointerdown', outsideSessionMenu)
-  document.removeEventListener('focusin', focusOutsideSessionMenu)
-  document.removeEventListener('scroll', scrollSessionMenu, true)
-  window.removeEventListener('resize', resizeSessionMenu)
 })
 </script>
 
 <template>
   <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <TaskCenter :disabled="taskNavigationBlocked" @open-task="openTask" />
-    <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
-    <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
-      <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="plus" :size="17" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" :size="16" /></button></div>
-      <nav class="sidebar-links" aria-label="功能"><button class="sidebar-link" :aria-current="showAutomations ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openAutomations"><UiIcon name="clock" :size="16" /><span>自动化</span></button><button class="sidebar-link" :aria-current="showMemories ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openMemories()"><UiIcon name="memory" :size="16" /><span>记忆</span></button><button class="sidebar-link" :aria-current="showGroups ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openGroups"><UiIcon name="users" :size="16" /><span>群聊</span></button><button class="sidebar-link" :aria-current="showFlows ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openFlows"><UiIcon name="branch" :size="16" /><span>流水线</span><span v-if="waitingFlowCount" class="sidebar-link-badge" :aria-label="`${waitingFlowCount} 件流水线事项待处理`">{{ waitingFlowCount }}</span></button></nav>
-      <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
-      <nav class="session-navigation" aria-label="会话列表">
-        <div v-if="sessionGroups.length" class="session-section-label">工作区</div>
-        <section v-for="[path, group] in sessionGroups" :key="path" class="session-group" :class="{ collapsed: collapsedGroups.has(path) && !sessionSearch }">
-          <h2 class="workspace-group-heading"><button class="group-toggle" :title="group.directories.join('\n') || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon v-if="path" :name="group.icon" :style="{ color: group.color }" :size="16" /><span>{{ group.label }}</span></button><button v-if="path" class="icon-button workspace-add" :disabled="loading || submitting || workspaceChanging" :aria-label="`在 ${group.label} 新建会话`" title="新建会话" @click="createWorkspaceSession(path)"><UiIcon name="plus" :size="14" /></button></h2>
-          <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId && !showAutomations && !showMemories && !showGroups && !showFlows, 'menu-open': sessionMenuId === session.id }">
-            <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId && !showAutomations && !showMemories && !showGroups && !showFlows ? 'page' : undefined" :title="session.title" @click="navigateSession(session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && current" class="activity-dot" aria-label="任务运行中"></span></button>
-            <button class="icon-button session-more" :disabled="loading || workspaceChanging" :aria-label="`更多操作：${session.title}`" title="更多操作" aria-haspopup="menu" :aria-expanded="sessionMenuId === session.id" :aria-controls="sessionMenuId === session.id ? `session-menu-${session.id}` : undefined" @click="toggleSessionMenu(session, $event)"><UiIcon name="more" :size="16" /></button>
-          </div>
-        </section>
-        <div v-if="!sessionGroups.length && sessionSearch" class="sidebar-empty"><UiIcon name="search" :size="22" /><p>没有匹配的会话</p></div>
-      </nav>
-      <div class="sidebar-footer"><button class="settings-entry" :disabled="settingsBusy || workspaceChanging" @click="openSettings()" title="设置与偏好"><img class="sidebar-avatar" src="/harness-icon.svg" width="20" height="20" alt="" /><span>本地工作台</span><UiIcon name="settings" :size="16" /></button></div>
-      <SidebarResize v-if="!isMobile && !sidebarCollapsed && !showSettings" v-model:width="sidebarWidth" />
-    </aside>
-    <Teleport to="body">
-      <div v-if="sessionMenuSession" :id="`session-menu-${sessionMenuSession.id}`" ref="sessionMenuElement" class="session-menu" :style="sessionMenuPosition" role="menu" :aria-label="`${sessionMenuSession.title} 的操作`" @keydown="navigateSessionMenu">
-        <button type="button" role="menuitem" tabindex="-1" :disabled="loading || workspaceChanging" @click="openRename(sessionMenuSession, $event)"><UiIcon name="edit" :size="13" /><span>重命名</span></button>
-        <button type="button" class="danger" role="menuitem" tabindex="-1" :disabled="loading || workspaceChanging || submitting || (sessionMenuSession.id === selectedId && (!!current || !!pending))" @click="openDelete(sessionMenuSession, $event)"><UiIcon name="trash" :size="15" /><span>删除</span></button>
-      </div>
-    </Teleport>
-    <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="sessionRenamed" @close="closeRename" />
-    <SessionDeleteDialog v-if="deletingSession" :session="deletingSession" @deleted="sessionDeleted" @close="closeDelete" />
+    <AppSidebar
+      :sessions="sessions"
+      :workspaces="workspaces"
+      :selected-id="selectedId"
+      :active-page="activePage"
+      :waiting-flow-count="waitingFlowCount"
+      v-model:collapsed="sidebarCollapsed"
+      v-model:width="sidebarWidth"
+      :is-mobile="isMobile"
+      :show-settings="showSettings"
+      :loading="loading"
+      :submitting="submitting"
+      :settings-busy="settingsBusy"
+      :workspace-changing="workspaceChanging"
+      :current-running="!!current"
+      :has-pending="!!pending"
+      @create-session="createSession"
+      @create-workspace-session="createWorkspaceSession"
+      @select-session="navigateSession"
+      @open-automations="openAutomations"
+      @open-memories="openMemories()"
+      @open-groups="openGroups"
+      @open-flows="openFlows"
+      @open-settings="openSettings()"
+      @session-renamed="sessionRenamed"
+      @session-deleted="sessionDeleted"
+    />
     <main v-show="!showSettings && !showAutomations && !showMemories && !showGroups && !showFlows" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length && !launching, 'is-launching': launching }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
@@ -1098,28 +934,27 @@ onUnmounted(() => {
         </div>
         <article v-if="launching && !snapshot?.runs.length" class="run-card">
           <div class="user-message-wrap"><p class="user-message">{{ launching.text }}</p><ul v-if="launching.attachments.length" class="message-attachments" aria-label="消息附件"><li v-for="item in launching.attachments" :key="item.key"><a :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
-          <section class="response" aria-label="等待回答"><div class="assistant-heading"><UiIcon v-if="launching.agentName" name="puzzle" :size="22" /><img v-else class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>{{ launching.agentName || 'Harness' }}</strong><span class="working-label"><span class="activity-dot"></span>{{ labels.QUEUED }}</span></div></section>
+          <section class="response" aria-label="等待回答"><div class="assistant-heading"><UiIcon v-if="launching.agentName" name="puzzle" :size="22" /><img v-else class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>{{ launching.agentName || 'Harness' }}</strong><span class="working-label"><span class="activity-dot"></span>排队中</span></div></section>
         </article>
-        <article v-for="run in snapshot?.runs" :key="run.id" class="run-card" :class="{ 'is-fresh': run.id === freshRunId }">
-          <div class="user-message-wrap" @animationend="freshRunId = ''"><p class="user-message">{{ run.prompt }}</p><ul v-if="attachmentsOf(run.id).length" class="message-attachments" aria-label="消息附件"><li v-for="item in attachmentsOf(run.id)" :key="item.id"><a :href="`/api/attachments/${item.id}/content`" target="_blank" rel="noopener" :title="item.name"><img v-if="isImage(item.mediaType)" :src="`/api/attachments/${item.id}/content`" :alt="item.name" loading="lazy" /><template v-else><UiIcon name="file" :size="15" /><span>{{ item.name }}</span></template></a></li></ul></div>
-          <section class="response" :aria-label="run.model + ' 的回答'">
-            <div class="assistant-heading"><UiIcon v-if="run.provider === 'external-acp'" name="puzzle" :size="22" /><img v-else class="brand-icon" src="/harness-icon.svg" width="22" height="22" alt="" /><strong>{{ run.provider === 'external-acp' ? run.model : 'Harness' }}</strong><span v-if="isActive(run)" class="working-label"><span class="activity-dot"></span>{{ activityLabel(run) }}</span></div>
-            <RunTimeline :key="run.id" :run="run" :revision="timelineRevision(run)" :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)" @answer="answers[run.id] = $event" @loaded="timelineLoaded" />
-            <MemoryUsage v-if="run.provider !== 'external-acp'" :run-id="run.id" :revision="`${run.status}:${run.context ? 'prepared' : 'pending'}`" />
-            <p v-if="isActive(run) ? !run.output && (questionActivity[run.id] || pluginActivity[run.id] || commandActivity[run.id]) : !answerOf(run)" class="output-placeholder">{{ isActive(run) ? `${activityLabel(run)}，请查看下方操作卡片。` : '本次没有生成回答。' }}</p>
-            <p v-if="run.detail" class="run-notice" :class="{ 'has-error': ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(run.status) }">{{ run.detail }}</p>
-            <ExternalAgentRequests v-if="run.provider === 'external-acp'" :run-id="run.id" :revision="`${run.status}:${questionRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="questionActivity[run.id] = $event" />
-            <template v-else>
-              <ArtifactCards v-if="run.workspace" :run-id="run.id" :workspace="run.workspace" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" />
-              <FileChanges v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${changeRevisions[run.id] || 0}:${connected}`" :can-apply="run.status === 'COMPLETED' && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" :can-revert="!isActive(run) && !current && !submitting && !pending && snapshot?.session.workspace === run.workspace" />
-              <Questions :run-id="run.id" :revision="`${run.status}:${questionRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="questionActivity[run.id] = $event" />
-              <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="commandActivity[run.id] = $event" />
-              <PluginRunDetails :key="run.id" :run-id="run.id" :revision="`${run.status}:${commandRevisions[run.id] || 0}:${connected}`" :active="run.status === 'RUNNING'" @activity="pluginActivity[run.id] = $event" />
-            </template>
-            <div v-if="!isActive(run)" class="response-footer"><button class="icon-button" :disabled="!answerOf(run)" :aria-label="copiedRun === run.id ? '已复制回答' : '复制回答'" :title="copiedRun === run.id ? '已复制' : '复制回答'" @click="copyAnswer(run)"><UiIcon :name="copiedRun === run.id ? 'check' : 'copy'" :size="15" /></button><span :title="contextTitle(run) || undefined">{{ runModelLabel(run) }}<template v-if="run.provider !== 'external-acp'"> · {{ effortShortLabel(run.reasoningEffort) }}</template></span><time>{{ new Date(run.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time></div>
-          </section>
-        </article>
-        <p v-if="copyError" role="status" class="run-notice">{{ copyError }}</p>
+        <ChatRunCard
+          v-for="run in snapshot?.runs"
+          :key="run.id"
+          :run="run"
+          :fresh="run.id === freshRunId"
+          :attachments="attachmentsOf(run.id)"
+          :subagents="snapshot?.subagents?.filter(value => value.parentRunId === run.id)"
+          :profiles="profiles"
+          :connected="connected"
+          :session-workspace="snapshot?.session.workspace || ''"
+          :session-locked="!!current || submitting || !!pending"
+          :tool-revision="toolRevisions[run.id] ?? 0"
+          :step-revision="stepRevisions[run.id] ?? 0"
+          :change-revision="changeRevisions[run.id] ?? 0"
+          :command-revision="commandRevisions[run.id] ?? 0"
+          :question-revision="questionRevisions[run.id] ?? 0"
+          @fresh-end="freshRunId = ''"
+          @timeline-loaded="timelineLoaded"
+        />
       </div>
       <div class="composer-dock">
         <button v-if="awayFromLatest && snapshot?.runs.length" type="button" class="latest-message" @click="goToLatest"><UiIcon name="down" :size="14" />回到最新</button>

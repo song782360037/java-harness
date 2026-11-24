@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.workspace.WorkspaceRoots;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ContextSummary;
-import dev.javaharness.spi.model.ModelImage;
 import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelRequest;
@@ -14,14 +13,12 @@ import dev.javaharness.spi.model.ModelUsage;
 import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunEvent;
-import dev.javaharness.spi.run.RunInput;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
 import dev.javaharness.spi.run.SubagentRun;
 import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionSnapshot;
 import dev.javaharness.spi.session.SessionStore;
-import dev.javaharness.spi.session.SessionUsage;
 import dev.javaharness.spi.session.UsageEntry;
 import dev.javaharness.spi.tool.ToolCall;
 import dev.javaharness.spi.tool.ToolExecution;
@@ -44,6 +41,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 public final class JdbcSessionStore implements SessionStore {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
+    private final JdbcWorkspaceStore workspaces;
+    private final JdbcRunRecordStore records;
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final RowMapper<Run> RUN_MAPPER = (rs, row) -> new Run(
             rs.getString("id"),
@@ -80,56 +79,52 @@ public final class JdbcSessionStore implements SessionStore {
             rs.getString("reasoning_effort"),
             rs.getString("workspace_id") == null ? "" : rs.getString("workspace_id"),
             rs.getString("approval_mode"));
-    private static final RowMapper<Workspace> WORKSPACE_MAPPER = (rs, row) -> new Workspace(
-            rs.getString("id"),
-            rs.getString("name"),
-            WorkspaceRoots.directories(rs.getString("roots")),
-            rs.getString("icon"),
-            rs.getString("color"),
-            rs.getLong("revision"));
-    private static final List<String> ICONS = List.of(
-            "folder",
-            "code",
-            "branch",
-            "cube",
-            "reasoning",
-            "coffee",
-            "flask",
-            "rocket",
-            "bug",
-            "star",
-            "music",
-            "heart",
-            "globe",
-            "terminal",
-            "gamepad");
 
     public JdbcSessionStore(JdbcTemplate jdbc, TransactionTemplate tx) {
         this.jdbc = jdbc;
         this.tx = tx;
+        this.workspaces = new JdbcWorkspaceStore(jdbc, tx);
+        this.records = new JdbcRunRecordStore(jdbc, tx);
         // Link existing sessions without rewriting their run snapshots or requiring directories online.
         tx.executeWithoutResult(status -> {
             for (Session session : allSessions()) {
                 if (!session.workspace().isEmpty() && session.workspaceId().isEmpty())
                     jdbc.update(
                             "UPDATE harness_session SET workspace_id=? WHERE id=?",
-                            legacyWorkspace(session.workspace()),
+                            workspaces.legacyWorkspace(session.workspace()),
                             session.id());
             }
         });
     }
 
-    private static Instant instant(ResultSet rs, String name) throws SQLException {
+    static Instant instant(ResultSet rs, String name) throws SQLException {
         return rs.getObject(name, OffsetDateTime.class).toInstant();
     }
 
-    private static Instant optionalInstant(ResultSet rs, String name) throws SQLException {
+    static Instant optionalInstant(ResultSet rs, String name) throws SQLException {
         OffsetDateTime value = rs.getObject(name, OffsetDateTime.class);
         return value == null ? null : value.toInstant();
     }
 
-    private static OffsetDateTime now() {
+    static OffsetDateTime now() {
         return OffsetDateTime.now(ZoneOffset.UTC);
+    }
+
+    static <T> T decode(String value, Class<T> type) {
+        if (value == null) return null;
+        try {
+            return JSON.readValue(value, type);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Invalid stored context data");
+        }
+    }
+
+    static String encode(Object value) {
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Cannot encode context data");
+        }
     }
 
     @Override
@@ -144,9 +139,9 @@ public final class JdbcSessionStore implements SessionStore {
         }
         String id = UUID.randomUUID().toString();
         OffsetDateTime created = now();
-        checkWorkspace(workspace);
+        JdbcWorkspaceStore.checkWorkspace(workspace);
         return tx.execute(status -> {
-            String workspaceId = workspace.isEmpty() ? null : legacyWorkspace(workspace);
+            String workspaceId = workspace.isEmpty() ? null : workspaces.legacyWorkspace(workspace);
             jdbc.update(
                     "INSERT INTO harness_session(id,title,created_at,workspace,workspace_id) VALUES (?,?,?,?,?)",
                     id,
@@ -214,13 +209,9 @@ public final class JdbcSessionStore implements SessionStore {
         });
     }
 
-    private static void checkWorkspace(String workspace) {
-        if (workspace == null || workspace.length() > 131072) throw new HarnessException("INVALID", "无效工作区路径");
-    }
-
     @Override
     public synchronized Session updateWorkspace(String sessionId, String workspace) {
-        checkWorkspace(workspace);
+        JdbcWorkspaceStore.checkWorkspace(workspace);
         return tx.execute(status -> {
             session(sessionId);
             String active = jdbc.queryForObject(
@@ -229,93 +220,29 @@ public final class JdbcSessionStore implements SessionStore {
             jdbc.update(
                     "UPDATE harness_session SET workspace=?,workspace_id=? WHERE id=?",
                     workspace,
-                    workspace.isEmpty() ? null : legacyWorkspace(workspace),
+                    workspace.isEmpty() ? null : workspaces.legacyWorkspace(workspace),
                     sessionId);
             appendEvent(sessionId, null, "WORKSPACE", null, "会话工作区已更新");
             return session(sessionId);
         });
     }
 
-    /** Reuse migrated directory groups, keeping old single-root tool paths valid. */
-    private String legacyWorkspace(String roots) {
-        var existing = jdbc.query("SELECT * FROM harness_workspace WHERE roots=? ORDER BY id", WORKSPACE_MAPPER, roots);
-        if (!existing.isEmpty()) return existing.getFirst().id();
-        List<String> directories = WorkspaceRoots.directories(roots);
-        String first = directories.getFirst();
-        String[] parts = first.split("[\\\\/]");
-        String name = parts.length == 0 ? first : parts[parts.length - 1];
-        if (name.length() > 100) name = name.substring(0, 100);
-        String id = UUID.randomUUID().toString();
-        // Historical snapshots are preserved verbatim; only new/edited directories are validated.
-        jdbc.update(
-                "INSERT INTO harness_workspace(id,name,roots,icon,color,revision) VALUES (?,?,?,'folder','#4b705b',1)",
-                id,
-                name,
-                roots);
-        return id;
-    }
-
     @Override
     public synchronized List<Workspace> workspaces() {
-        return jdbc.query("SELECT * FROM harness_workspace ORDER BY name,id", WORKSPACE_MAPPER);
+        return workspaces.workspaces();
     }
 
     @Override
     public synchronized Workspace workspace(String id) {
-        var rows = jdbc.query("SELECT * FROM harness_workspace WHERE id=?", WORKSPACE_MAPPER, id);
-        if (rows.isEmpty()) throw new HarnessException("NOT_FOUND", "工作区不存在");
-        return rows.getFirst();
+        return workspaces.workspace(id);
     }
 
     /** Persist workspace metadata and update every bound session atomically under the session lock. */
     @Override
     public synchronized Workspace saveWorkspace(
             String id, String name, List<String> directories, String icon, String color, long revision) {
-        String normalized = name == null ? "" : name.strip();
-        if (normalized.isEmpty() || normalized.length() > 100)
-            throw new HarnessException("INVALID", "工作区名称需为 1–100 个字符");
-        if (icon == null || !ICONS.contains(icon) || color == null || !color.matches("#[0-9a-fA-F]{6}"))
-            throw new HarnessException("INVALID", "请选择有效的工作区图标和颜色");
-        String roots = WorkspaceRoots.encode(directories);
-        return tx.execute(status -> {
-            String key = id == null || id.isEmpty() ? UUID.randomUUID().toString() : id;
-            if (id == null || id.isEmpty()) {
-                jdbc.update(
-                        "INSERT INTO harness_workspace(id,name,roots,icon,color,revision) VALUES (?,?,?,?,?,1)",
-                        key,
-                        normalized,
-                        roots,
-                        icon,
-                        color);
-            } else {
-                Workspace current = workspace(key);
-                if (current.revision() != revision) throw new HarnessException("CONFLICT", "工作区已被更新，请重新打开后再保存");
-                if (!WorkspaceRoots.encode(current.directories()).equals(roots)) {
-                    Integer active = jdbc.queryForObject(
-                            "SELECT COUNT(*) FROM harness_session WHERE workspace_id=? AND active_run_id IS NOT NULL",
-                            Integer.class,
-                            key);
-                    Integer pending = jdbc.queryForObject(
-                            "SELECT COUNT(*) FROM harness_file_change c JOIN harness_run r ON r.id=c.run_id WHERE r.workspace=? AND c.status IN ('PENDING','APPLYING')",
-                            Integer.class,
-                            WorkspaceRoots.encode(current.directories()));
-                    if (active > 0 || pending > 0) throw new HarnessException("BUSY", "工作区有运行中的任务或待审核修改，请处理完成后再调整目录");
-                }
-                jdbc.update(
-                        "UPDATE harness_workspace SET name=?,roots=?,icon=?,color=?,revision=revision+1 WHERE id=?",
-                        normalized,
-                        roots,
-                        icon,
-                        color,
-                        key);
-                for (Session session : allSessions()) {
-                    if (!session.workspaceId().equals(key)) continue;
-                    jdbc.update("UPDATE harness_session SET workspace=? WHERE id=?", roots, session.id());
-                    appendEvent(session.id(), null, "WORKSPACE", null, "工作区已更新");
-                }
-            }
-            return workspace(key);
-        });
+        return workspaces.saveWorkspace(
+                id, name, directories, icon, color, revision, this::allSessions, this::appendEvent);
     }
 
     @Override
@@ -325,8 +252,9 @@ public final class JdbcSessionStore implements SessionStore {
             if (jdbc.queryForObject("SELECT active_run_id FROM harness_session WHERE id=?", String.class, sessionId)
                     != null) throw new HarnessException("BUSY", "请先停止当前任务，再切换工作区");
             String key = workspaceId == null || workspaceId.isEmpty() ? null : workspaceId;
-            String roots =
-                    key == null ? "" : WorkspaceRoots.encode(workspace(key).directories());
+            String roots = key == null
+                    ? ""
+                    : WorkspaceRoots.encode(workspaces.workspace(key).directories());
             jdbc.update("UPDATE harness_session SET workspace=?,workspace_id=? WHERE id=?", roots, key, sessionId);
             appendEvent(sessionId, null, "WORKSPACE", null, "会话工作区已更新");
             return session(sessionId);
@@ -336,7 +264,7 @@ public final class JdbcSessionStore implements SessionStore {
     @Override
     public synchronized Session createSessionInWorkspace(String title, String workspaceId) {
         return tx.execute(status -> {
-            if (workspaceId != null && !workspaceId.isEmpty()) workspace(workspaceId);
+            if (workspaceId != null && !workspaceId.isEmpty()) workspaces.workspace(workspaceId);
             Session session = createSession(title);
             return selectWorkspace(session.id(), workspaceId);
         });
@@ -372,7 +300,7 @@ public final class JdbcSessionStore implements SessionStore {
                 SUBAGENT_MAPPER,
                 sessionId);
         long seq = jdbc.queryForObject("SELECT last_seq FROM harness_session WHERE id=?", Long.class, sessionId);
-        return new SessionSnapshot(session, runs, seq, usage(sessionId), subagents);
+        return new SessionSnapshot(session, runs, seq, records.usage(sessionId), subagents);
     }
 
     @Override
@@ -401,27 +329,6 @@ public final class JdbcSessionStore implements SessionStore {
         return jdbc.query("SELECT * FROM harness_run WHERE parent_run_id=? " + BY_QUEUED, SUBAGENT_MAPPER, runId);
     }
 
-    /** Sum reported step usage across the session; steps without a report are skipped. */
-    private SessionUsage usage(String sessionId) {
-        var totals = jdbc.queryForObject(
-                """
-                SELECT COALESCE(SUM(s.input_tokens),0) i, COALESCE(SUM(s.output_tokens),0) o,
-                       COALESCE(SUM(s.cached_tokens),0) c, COALESCE(SUM(s.generation_millis),0) d
-                FROM harness_step s JOIN harness_run r ON r.id=s.run_id
-                WHERE r.session_id=? AND s.input_tokens IS NOT NULL
-                """,
-                (rs, row) -> new long[] {rs.getLong("i"), rs.getLong("o"), rs.getLong("c"), rs.getLong("d")},
-                sessionId);
-        var last = jdbc.queryForList("""
-                SELECT input_tokens FROM harness_step
-                WHERE run_id=(SELECT id FROM harness_run WHERE session_id=? AND parent_run_id IS NULL
-                              ORDER BY created_at DESC, id DESC LIMIT 1)
-                  AND input_tokens IS NOT NULL
-                ORDER BY step DESC LIMIT 1
-                """, Integer.class, sessionId);
-        return new SessionUsage(totals[0], totals[1], totals[2], totals[3], last.isEmpty() ? 0 : last.getFirst());
-    }
-
     @Override
     public synchronized Run run(String runId) {
         var rows = jdbc.query("SELECT * FROM harness_run WHERE id=?", RUN_MAPPER, runId);
@@ -429,162 +336,35 @@ public final class JdbcSessionStore implements SessionStore {
         return rows.getFirst();
     }
 
-    private static <T> T decode(String value, Class<T> type) {
-        if (value == null) return null;
-        try {
-            return JSON.readValue(value, type);
-        } catch (JsonProcessingException error) {
-            throw new IllegalStateException("Invalid stored context data");
-        }
-    }
-
-    private static String encode(Object value) {
-        try {
-            return JSON.writeValueAsString(value);
-        } catch (JsonProcessingException error) {
-            throw new IllegalStateException("Cannot encode context data");
-        }
-    }
-
     @Override
     public synchronized List<Run> contextHistory(String runId) {
-        Run current = run(runId);
-        return jdbc.query("""
-                SELECT r.* FROM harness_run r
-                JOIN harness_event e ON e.run_id=r.id AND e.event_type='STATE' AND e.status='QUEUED'
-                WHERE r.session_id=? AND r.parent_run_id IS NULL AND r.scenario <> 'ACP' AND e.seq < (
-                    SELECT seq FROM harness_event WHERE run_id=? AND event_type='STATE' AND status='QUEUED')
-                ORDER BY e.seq
-                """, RUN_MAPPER, current.sessionId(), runId);
-    }
-
-    /** 首个请求的用户消息须为原始提问，或群聊上下文/召回记忆/附带内容块加原始提问。 */
-    private static boolean prompted(String content, String prompt) {
-        return content.equals(prompt)
-                || (content.startsWith("<retrieved_memory>")
-                                || content.startsWith("<group_chat>")
-                                || content.startsWith(RunInput.TAG))
-                        && content.endsWith(prompt);
-    }
-
-    /** 会话记录中的用户消息须为原始提问，或附带内容块加原始提问；召回记忆和群聊上下文不进入会话记录。 */
-    private static boolean attached(String content, String prompt) {
-        return content.equals(prompt) || content.startsWith(RunInput.TAG) && content.endsWith(prompt);
-    }
-
-    /** Snapshots keep image names and types only; the image bytes are already kept with the attachments. */
-    private static ModelRequest withoutImageData(ModelRequest request) {
-        if (request.messages().stream().allMatch(message -> message.images().isEmpty())) return request;
-        var messages = request.messages().stream()
-                .map(message -> message.images().isEmpty()
-                        ? message
-                        : new ModelMessage(
-                                message.role(),
-                                message.content(),
-                                message.toolCalls(),
-                                message.toolCallId(),
-                                message.images().stream()
-                                        .map(ModelImage::withoutData)
-                                        .toList()))
-                .toList();
-        return new ModelRequest(
-                request.runId(),
-                request.model(),
-                request.scenario(),
-                messages,
-                request.context(),
-                request.step(),
-                request.workspace(),
-                request.tools(),
-                request.instructions(),
-                request.finalAnswerOnly(),
-                request.reasoningEffort());
+        return records.contextHistory(run(runId), RUN_MAPPER);
     }
 
     @Override
     public synchronized void saveModelRequest(ModelRequest request) {
-        tx.executeWithoutResult(status -> {
-            Run run = run(request.runId());
-            if (run.status() != RunStatus.RUNNING
-                    || !run.model().equals(request.model())
-                    || !run.scenario().equals(request.scenario())
-                    || !run.workspace().equals(request.workspace())
-                    || (request.step() == 1
-                            && !prompted(request.messages().getLast().content(), run.prompt()))) {
-                throw new HarnessException("CONFLICT", "请求快照与当前任务不匹配");
-            }
-            if (request.step() == 1) {
-                jdbc.update(
-                        "INSERT INTO harness_model_request(run_id,request_json) VALUES (?,?)",
-                        run.id(),
-                        encode(withoutImageData(request)));
-            } else {
-                var prior = modelRequests(run.id());
-                if (prior.size() != request.step() - 1) throw new HarnessException("CONFLICT", "模型步骤不连续");
-                jdbc.update(
-                        "INSERT INTO harness_model_step(run_id,step,request_json) VALUES (?,?,?)",
-                        run.id(),
-                        request.step(),
-                        encode(withoutImageData(request)));
-            }
-            // A request snapshot starts the step; later text belongs to it until the next snapshot.
-            OffsetDateTime started = now();
-            jdbc.update(
-                    "UPDATE harness_step SET finished_at=? WHERE run_id=? AND finished_at IS NULL", started, run.id());
-            jdbc.update(
-                    "INSERT INTO harness_step(run_id,step,output_start,started_at) VALUES (?,?,?,?)",
-                    run.id(),
-                    request.step(),
-                    run.output().length(),
-                    started);
-            jdbc.update("UPDATE harness_run SET context_summary=? WHERE id=?", encode(request.context()), run.id());
-            appendEvent(run.sessionId(), run.id(), "CONTEXT", null, encode(request.context()));
-        });
+        records.saveModelRequest(request, this::run, this::appendEvent);
     }
 
     @Override
     public synchronized CompactedHistory compactedHistory(String sessionId, String workspace) {
-        var rows = jdbc.query(
-                "SELECT through_run_id,covered_turns,summary FROM harness_context_summary WHERE session_id=? AND workspace=?",
-                (rs, row) -> new CompactedHistory(rs.getString(1), rs.getInt(2), rs.getString(3)),
-                sessionId,
-                workspace);
-        return rows.isEmpty() ? null : rows.getFirst();
+        return records.compactedHistory(sessionId, workspace);
     }
 
     @Override
     public synchronized void saveCompactedHistory(String sessionId, String workspace, CompactedHistory history) {
         session(sessionId);
-        jdbc.update(
-                "MERGE INTO harness_context_summary KEY(session_id) VALUES (?,?,?,?,?,?)",
-                sessionId,
-                workspace,
-                history.throughRunId(),
-                history.coveredTurns(),
-                history.summary(),
-                now());
+        records.saveCompactedHistory(sessionId, workspace, history);
     }
 
     @Override
     public synchronized ModelRequest modelRequest(String runId) {
-        run(runId);
-        var rows = jdbc.query(
-                "SELECT request_json FROM harness_model_request WHERE run_id=?",
-                (rs, row) -> decode(rs.getString(1), ModelRequest.class),
-                runId);
-        return rows.isEmpty() ? null : rows.getFirst();
+        return records.modelRequest(runId, this::run);
     }
 
     @Override
     public synchronized List<ModelRequest> modelRequests(String runId) {
-        var result = new java.util.ArrayList<ModelRequest>();
-        var first = modelRequest(runId);
-        if (first != null) result.add(first);
-        result.addAll(jdbc.query(
-                "SELECT request_json FROM harness_model_step WHERE run_id=? ORDER BY step",
-                (rs, row) -> decode(rs.getString(1), ModelRequest.class),
-                runId));
-        return List.copyOf(result);
+        return records.modelRequests(runId, this::run);
     }
 
     @Override
@@ -597,14 +377,7 @@ public final class JdbcSessionStore implements SessionStore {
 
     @Override
     public synchronized List<ModelMessage> conversation(String runId) {
-        Run run = run(runId);
-        var rows = jdbc.query(
-                "SELECT messages_json FROM harness_conversation WHERE run_id=?",
-                (rs, row) -> List.of(decode(rs.getString(1), ModelMessage[].class)),
-                runId);
-        return rows.isEmpty()
-                ? List.of(new ModelMessage("user", run.prompt()), new ModelMessage("assistant", run.output()))
-                : rows.getFirst();
+        return records.conversation(run(runId));
     }
 
     @Override
@@ -616,171 +389,46 @@ public final class JdbcSessionStore implements SessionStore {
     public synchronized void completeRun(String runId, List<ModelMessage> messages, String detail) {
         ModelMessage.validate(messages, false);
         tx.executeWithoutResult(status -> {
-            Run current = run(runId);
-            if (current.status() != RunStatus.RUNNING
-                    || !attached(messages.getFirst().content(), current.prompt())) {
-                throw new HarnessException("CONFLICT", "完成记录与任务不匹配");
-            }
-            jdbc.update("INSERT INTO harness_conversation(run_id,messages_json) VALUES (?,?)", runId, encode(messages));
+            records.saveCompletedConversation(run(runId), messages);
             transition(runId, RunStatus.COMPLETED, detail);
         });
     }
 
     @Override
     public synchronized void beginTools(String runId, int step, List<ToolCall> calls) {
-        tx.executeWithoutResult(status -> {
-            Run run = run(runId);
-            if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止");
-            int ordinal = 0;
-            for (ToolCall call : calls) {
-                jdbc.update(
-                        "INSERT INTO harness_tool(run_id,step,call_id,name,arguments,status,output,ordinal) VALUES (?,?,?,?,?,'PENDING','',?)",
-                        runId,
-                        step,
-                        call.id(),
-                        call.name(),
-                        call.arguments(),
-                        ordinal++);
-            }
-            appendEvent(run.sessionId(), runId, "TOOL", null, "工具调用已保存");
-        });
+        records.beginTools(runId, step, calls, this::run, this::appendEvent);
     }
 
     @Override
     public synchronized void updateTool(String runId, String callId, String next, String output) {
-        // Full results are kept for read_tool_output; command and MCP output is capped near 32000 at the source.
-        if (output.length() > 64_000) throw new IllegalArgumentException("Tool output exceeds budget");
-        tx.executeWithoutResult(status -> {
-            Run run = run(runId);
-            if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止");
-            String expected = next.equals("RUNNING") || next.equals("SKIPPED") ? "PENDING" : "RUNNING";
-            if (!List.of("RUNNING", "COMPLETED", "FAILED", "SKIPPED").contains(next))
-                throw new IllegalArgumentException("Invalid tool status");
-            String time = next.equals("RUNNING") ? "started_at" : "finished_at";
-            int updated = jdbc.update(
-                    "UPDATE harness_tool SET status=?,output=?," + time
-                            + "=? WHERE run_id=? AND call_id=? AND status=?",
-                    next,
-                    output,
-                    now(),
-                    runId,
-                    callId,
-                    expected);
-            if (updated != 1) throw new HarnessException("CONFLICT", "工具状态不匹配");
-            appendEvent(run.sessionId(), runId, "TOOL", null, "工具状态已更新");
-        });
+        records.updateTool(runId, callId, next, output, this::run, this::appendEvent);
     }
 
     @Override
     public synchronized List<ToolExecution> tools(String runId) {
         run(runId);
-        return jdbc.query(
-                "SELECT * FROM harness_tool WHERE run_id=? ORDER BY step,ordinal",
-                (rs, row) -> new ToolExecution(
-                        runId,
-                        rs.getInt("step"),
-                        rs.getString("call_id"),
-                        rs.getString("name"),
-                        rs.getString("arguments"),
-                        rs.getString("status"),
-                        rs.getString("output"),
-                        optionalInstant(rs, "started_at"),
-                        optionalInstant(rs, "finished_at")),
-                runId);
+        return records.tools(runId);
     }
 
     @Override
     public synchronized void appendReasoning(String runId, int step, String text) {
-        if (text == null || text.length() > 4096) throw new IllegalArgumentException("Invalid reasoning chunk");
-        if (text.isEmpty()) return;
-        tx.executeWithoutResult(status -> {
-            Run run = run(runId);
-            if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止接收输出");
-            var stored = jdbc.queryForList(
-                    "SELECT reasoning FROM harness_step WHERE run_id=? AND step=?", String.class, runId, step);
-            if (stored.isEmpty()) throw new HarnessException("CONFLICT", "模型步骤不存在");
-            // Reasoning is display-only: an over-long trace is cut at the budget and later chunks are ignored.
-            int remaining = 100_000 - stored.getFirst().length();
-            if (remaining <= 0) return;
-            int end = Math.min(remaining, text.length());
-            if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) end--;
-            String kept = text.substring(0, end) + (end < text.length() ? "…" : "");
-            jdbc.update(
-                    "UPDATE harness_step SET reasoning=?,reasoning_at=? WHERE run_id=? AND step=?",
-                    stored.getFirst() + kept,
-                    now(),
-                    runId,
-                    step);
-            // Clients refetch steps; the event only signals a change.
-            appendEvent(run.sessionId(), runId, "REASONING", null, "");
-        });
+        records.appendReasoning(runId, step, text, this::run, this::appendEvent);
     }
 
     @Override
     public synchronized void recordUsage(String runId, int step, ModelUsage usage) {
-        tx.executeWithoutResult(status -> {
-            Run run = run(runId);
-            if (run.status() != RunStatus.RUNNING) throw new HarnessException("CONFLICT", "任务已停止接收输出");
-            int updated = jdbc.update(
-                    """
-                    UPDATE harness_step SET input_tokens=?,output_tokens=?,cached_tokens=?,generation_millis=?
-                    WHERE run_id=? AND step=?
-                    """,
-                    usage.inputTokens(),
-                    usage.outputTokens(),
-                    usage.cachedTokens(),
-                    usage.durationMillis(),
-                    runId,
-                    step);
-            if (updated == 0) throw new HarnessException("CONFLICT", "模型步骤不存在");
-            jdbc.update(
-                    """
-                    MERGE INTO harness_usage_ledger(run_id,step,provider,model,input_tokens,output_tokens,cached_tokens,recorded_at)
-                    KEY(run_id,step) VALUES (?,?,?,?,?,?,?,?)
-                    """,
-                    runId,
-                    step,
-                    run.provider(),
-                    run.model(),
-                    usage.inputTokens(),
-                    usage.outputTokens(),
-                    usage.cachedTokens(),
-                    now());
-            // Clients refetch the snapshot; the event only signals a change.
-            appendEvent(run.sessionId(), runId, "USAGE", null, "");
-        });
+        records.recordUsage(runId, step, usage, this::run, this::appendEvent);
     }
 
     @Override
     public synchronized List<UsageEntry> usageSince(Instant from) {
-        return jdbc.query(
-                """
-                SELECT recorded_at,provider,model,input_tokens,output_tokens,cached_tokens
-                FROM harness_usage_ledger WHERE recorded_at>=? ORDER BY recorded_at
-                """,
-                (rs, row) -> new UsageEntry(
-                        instant(rs, "recorded_at"),
-                        rs.getString("provider"),
-                        rs.getString("model"),
-                        rs.getInt("input_tokens"),
-                        rs.getInt("output_tokens"),
-                        rs.getInt("cached_tokens")),
-                from.atOffset(ZoneOffset.UTC));
+        return records.usageSince(from);
     }
 
     @Override
     public synchronized List<RunStep> steps(String runId) {
         run(runId);
-        return jdbc.query(
-                "SELECT * FROM harness_step WHERE run_id=? ORDER BY step",
-                (rs, row) -> new RunStep(
-                        rs.getInt("step"),
-                        rs.getInt("output_start"),
-                        rs.getString("reasoning"),
-                        instant(rs, "started_at"),
-                        optionalInstant(rs, "reasoning_at"),
-                        optionalInstant(rs, "finished_at")),
-                runId);
+        return records.steps(runId);
     }
 
     @Override
