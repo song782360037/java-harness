@@ -15,6 +15,9 @@
     "start": "electron .",
     "prepare:backend": "node scripts/prepare-backend.mjs",
     "dist": "node scripts/prepare-backend.mjs && electron-builder --win nsis --x64",
+    "dist:win": "node scripts/prepare-backend.mjs && electron-builder --win nsis --x64",
+    "dist:mac": "node scripts/prepare-backend.mjs && electron-builder --mac dmg",
+    "dist:linux": "node scripts/prepare-backend.mjs && electron-builder --linux AppImage deb --x64",
     "dist:dir": "node scripts/prepare-backend.mjs && electron-builder --win dir --x64"
   },
   "devDependencies": {
@@ -42,6 +45,27 @@
     "win": {
       "icon": "build/icon.ico",
       "artifactName": "Java-Harness-Setup-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg"
+      ],
+      "artifactName": "Java-Harness-${version}-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "sign": false,
+      "writeUpdateInfo": false
+    },
+    "linux": {
+      "icon": "build/icons",
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "Java-Harness-${version}-linux-${arch}.${ext}"
     },
     "publish": {
       "provider": "github",

@@ -38,12 +38,23 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => {
     showWindow()
   })
+  app.on('activate', () => {
+    showWindow()
+  })
   app.whenReady().then(start)
 }
 
 /** 启动顺序：先显示加载页，再启动（或连接开发用）后端，就绪后切到工作台。 */
 async function start() {
-  Menu.setApplicationMenu(null)
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'windowMenu' },
+    ]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
   if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'dev.javaharness.desktop' : process.execPath)
   mainWindow = createWindow()
   try {
@@ -111,7 +122,10 @@ function createWindow() {
   })
   window.on('close', event => {
     if (updates?.snapshot().phase === 'installing' && !installReady) { event.preventDefault(); return }
-    if (taskActivity && !exitRequested && !quitting && !installReady) { event.preventDefault(); window.hide() }
+    if ((taskActivity?.hasTray || process.platform === 'darwin') && !exitRequested && !quitting && !installReady) {
+      event.preventDefault()
+      window.hide()
+    }
   })
   return window
 }
@@ -214,7 +228,13 @@ function initializeUpdates() {
   updates = new DesktopUpdates({
     updater: electronUpdater.autoUpdater,
     version: app.getVersion(),
-    ...readUpdatePolicy(process.resourcesPath, { packaged: app.isPackaged, platform: process.platform, arch: process.arch, externalBackend: !!process.env.HARNESS_DESKTOP_BACKEND_URL }),
+    ...readUpdatePolicy(process.resourcesPath, {
+      packaged: app.isPackaged,
+      platform: process.platform,
+      arch: process.arch,
+      externalBackend: !!process.env.HARNESS_DESKTOP_BACKEND_URL,
+      appImage: !!process.env.APPIMAGE,
+    }),
     logger,
     prepareInstall: prepareUpdate,
     onState: state => {

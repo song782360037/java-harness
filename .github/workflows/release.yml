@@ -1,6 +1,7 @@
 name: Release
 
-# 推送 v* 标签时构建 Windows 安装包与后端 JAR，并发布到 GitHub Release；手动触发时只构建并上传为 Actions 产物。
+# 推送 v* 标签时构建 Windows / macOS / Linux 安装包与后端 JAR，并汇总发布到 GitHub Release；
+# 手动触发时仅构建并上传为 Actions 产物。
 on:
   push:
     tags:
@@ -11,8 +12,10 @@ permissions:
   contents: write
 
 jobs:
-  package:
-    runs-on: windows-latest
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -27,54 +30,200 @@ jobs:
           cache-dependency-path: |
             harness-web/package-lock.json
             harness-desktop/package-lock.json
-      - name: Check tag matches project version
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
+      - name: Check version and tag
+        id: meta
+        shell: bash
         run: |
-          $version = ([xml](Get-Content pom.xml -Raw -Encoding utf8)).project.version
-          $desktop = (Get-Content harness-desktop/package.json -Raw -Encoding utf8 | ConvertFrom-Json).version
-          $tag = '${{ github.ref_name }}'.TrimStart('v')
-          if ($tag -notmatch '^\d+\.\d+\.\d+$') { throw '首期自动更新只发布正式版本，例如 v1.2.3' }
-          if ($tag -ne $version -or $tag -ne $desktop) {
-            throw "标签版本 $tag 与 pom.xml ($version) 或 harness-desktop/package.json ($desktop) 不一致"
-          }
-      # 用 bash（默认 -e）保证任一 npm 命令失败都会让步骤失败；pwsh 不检查外部命令的退出码
+          VERSION=$(node -e "const fs=require('fs'); console.log(JSON.parse(fs.readFileSync('harness-desktop/package.json','utf8')).version)")
+          POM_VERSION=$(node -e "const fs=require('fs'); const m=fs.readFileSync('pom.xml','utf8').match(/<artifactId>java-harness<\/artifactId>[\s\S]*?<version>([^<]+)<\/version>/); if(!m) process.exit(1); console.log(m[1])")
+          if [[ "$VERSION" != "$POM_VERSION" ]]; then
+            echo "pom.xml ($POM_VERSION) 与 harness-desktop/package.json ($VERSION) 版本不一致" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "自动更新只发布正式版本，例如 v1.2.3" >&2
+              exit 1
+            fi
+            if [[ "$TAG" != "$VERSION" ]]; then
+              echo "标签版本 $TAG 与项目版本 $VERSION 不一致" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Install dependencies
         shell: bash
         run: |
           npm --prefix harness-web ci
-          npm --prefix harness-desktop ci
-      - name: Verify frontend and backend
-        shell: pwsh
+          npm --prefix harness-desktop ci --ignore-scripts
+      - name: Verify frontend, desktop logic and backend
+        shell: bash
         run: |
+          npm --prefix harness-web run build
           npm --prefix harness-web test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          .\mvnw.cmd -B -ntp verify
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build desktop installer
-        # 发布统一由下方 gh 完成，禁止 electron-builder 在 CI 检测到标签时自行发布
+          npm --prefix harness-desktop test
+          sh ./mvnw -B -ntp -Pweb verify
+      - name: Collect backend JAR
+        shell: bash
+        run: |
+          mkdir -p prebuilt
+          cp "harness-server/target/harness-server-${{ steps.meta.outputs.version }}.jar" "prebuilt/harness-server-${{ steps.meta.outputs.version }}.jar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: prebuilt/harness-server-${{ steps.meta.outputs.version }}.jar
+          if-no-files-found: error
+
+  package:
+    needs: verify
+    fail-fast: false
+    strategy:
+      matrix:
+        include:
+          - id: win-x64
+            os: windows-latest
+            platform: win
+            arch: x64
+          - id: mac-arm64
+            os: macos-15
+            platform: mac
+            arch: arm64
+          - id: mac-x64
+            os: macos-15-intel
+            platform: mac
+            arch: x64
+          - id: linux-x64
+            os: ubuntu-latest
+            platform: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: harness-desktop/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-jar
+          path: prebuilt
+      - name: Install desktop dependencies and test
+        shell: bash
+        run: |
+          npm --prefix harness-desktop ci
+          npm --prefix harness-desktop test
+      - name: Prepare platform runtime and icons
+        shell: bash
+        run: |
+          node harness-desktop/scripts/prepare-backend.mjs --jar "prebuilt/harness-server-${{ needs.verify.outputs.version }}.jar"
+      - name: Build Windows installer
+        if: matrix.platform == 'win'
+        working-directory: harness-desktop
         shell: bash
         env:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: |
-          npm --prefix harness-desktop test
           if [[ -n "$CSC_LINK" ]]; then
-            npm --prefix harness-desktop run dist -- --publish never --config.forceCodeSigning=true
-            node harness-desktop/scripts/verify-update.mjs --require-signature
+            npx electron-builder --win nsis --x64 --publish never --config.forceCodeSigning=true
+            node scripts/verify-update.mjs --platform win --require-signature
           else
-            npm --prefix harness-desktop run dist -- --publish never
-            node harness-desktop/scripts/verify-update.mjs
+            npx electron-builder --win nsis --x64 --publish never
+            node scripts/verify-update.mjs --platform win
           fi
-      - name: Collect artifacts
-        shell: pwsh
+      - name: Build macOS DMG
+        if: matrix.platform == 'mac'
+        working-directory: harness-desktop
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
         run: |
-          New-Item -ItemType Directory -Force release | Out-Null
-          Copy-Item 'harness-desktop/dist/*-Setup-*.exe' release/
-          Copy-Item 'harness-desktop/dist/*-Setup-*.exe.blockmap' release/
-          Copy-Item harness-desktop/dist/latest.yml release/
-          Copy-Item harness-desktop/build/backend/harness-server.jar "release/harness-server-$((Get-Content harness-desktop/package.json -Raw -Encoding utf8 | ConvertFrom-Json).version).jar"
-          Get-ChildItem release
+          if [[ -n "$CSC_LINK" ]]; then
+            npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+          else
+            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+          fi
+          test -f "dist/Java-Harness-${{ needs.verify.outputs.version }}-mac-${{ matrix.arch }}.dmg"
+      - name: Build Linux AppImage and DEB
+        if: matrix.platform == 'linux'
+        working-directory: harness-desktop
+        shell: bash
+        run: |
+          npx electron-builder --linux AppImage deb --x64 --publish never
+          node scripts/verify-update.mjs --platform linux
+      - name: Collect platform artifacts
+        shell: bash
+        run: |
+          mkdir -p release
+          VERSION="${{ needs.verify.outputs.version }}"
+          case "${{ matrix.platform }}" in
+            win)
+              cp "harness-desktop/dist/Java-Harness-Setup-${VERSION}-x64.exe" release/
+              cp "harness-desktop/dist/Java-Harness-Setup-${VERSION}-x64.exe.blockmap" release/
+              cp "harness-desktop/dist/latest.yml" release/
+              ;;
+            mac)
+              cp "harness-desktop/dist/Java-Harness-${VERSION}-mac-${{ matrix.arch }}.dmg" release/
+              ;;
+            linux)
+              cp "harness-desktop/dist/Java-Harness-${VERSION}-linux-x64.AppImage" release/
+              cp "harness-desktop/dist/Java-Harness-${VERSION}-linux-x64.deb" release/
+              cp "harness-desktop/dist/latest-linux.yml" release/
+              ;;
+          esac
+          ls -la release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.id }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    needs: [verify, package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-jar
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: Verify complete release bundle
+        shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          ls -la release
+          for file in \
+            "harness-server-${VERSION}.jar" \
+            "Java-Harness-Setup-${VERSION}-x64.exe" \
+            "Java-Harness-Setup-${VERSION}-x64.exe.blockmap" \
+            "latest.yml" \
+            "Java-Harness-${VERSION}-mac-arm64.dmg" \
+            "Java-Harness-${VERSION}-mac-x64.dmg" \
+            "Java-Harness-${VERSION}-linux-x64.AppImage" \
+            "Java-Harness-${VERSION}-linux-x64.deb" \
+            "latest-linux.yml"
+          do
+            if [[ ! -f "release/${file}" ]]; then
+              echo "发布产物缺失：${file}" >&2
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           # 手动触发时 ref_name 是分支名，可能含 "/"，不能用作产物名
@@ -82,25 +231,30 @@ jobs:
           path: release/*
       - name: Publish GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $notesFile = "docs/releases/$($env:RELEASE_TAG).md"
-          $notesArgs = @('--generate-notes')
-          if (Test-Path -LiteralPath $notesFile -PathType Leaf) {
-            $notesArgs = @('--notes-file', $notesFile)
-          }
-          gh release create $env:RELEASE_TAG --draft --title $env:RELEASE_TAG @notesArgs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          gh release upload $env:RELEASE_TAG (Get-ChildItem release).FullName
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $published = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($file in Get-ChildItem release) {
-            $asset = @($published.assets | Where-Object name -eq $file.Name)
-            if ($asset.Count -ne 1 -or $asset[0].size -ne $file.Length) { throw "Release 附件缺失或大小不一致：$($file.Name)" }
-          }
-          gh release edit $env:RELEASE_TAG --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          notes_args=(--generate-notes)
+          notes_file="docs/releases/${RELEASE_TAG}.md"
+          if [[ -f "$notes_file" ]]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
+          gh release create "$RELEASE_TAG" --draft --title "$RELEASE_TAG" "${notes_args[@]}"
+          gh release upload "$RELEASE_TAG" release/*
+          gh release view "$RELEASE_TAG" --json assets > assets.json
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const published = JSON.parse(fs.readFileSync("assets.json", "utf8")).assets;
+            for (const name of fs.readdirSync("release")) {
+              const size = fs.statSync(path.join("release", name)).size;
+              const matches = published.filter(a => a.name === name);
+              if (matches.length !== 1 || matches[0].size !== size) {
+                console.error("Release 附件缺失或大小不一致：" + name);
+                process.exit(1);
+              }
+            }
+          '
+          gh release edit "$RELEASE_TAG" --draft=false --latest

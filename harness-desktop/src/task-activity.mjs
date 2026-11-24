@@ -9,7 +9,12 @@ export function createTaskActivity({ app, ipcMain, url, getWindow, openTask, sho
   let enabled = true
   try { enabled = JSON.parse(fs.readFileSync(file, 'utf8')).enabled !== false } catch { /* 首次启动使用默认值。 */ }
   const notifications = new Set()
-  const tray = new Tray(trayImage())
+  let tray = null
+  try {
+    tray = new Tray(trayImage())
+  } catch {
+    // 精简 Linux 桌面环境可能缺少托盘扩展；降级为仅保留通知与窗口控制。
+  }
   const monitor = new TaskMonitor({
     enabled,
     read: async () => {
@@ -30,6 +35,7 @@ export function createTaskActivity({ app, ipcMain, url, getWindow, openTask, sho
     publish: state => {
       const window = getWindow()
       if (window && !window.isDestroyed()) window.webContents.send('tasks:changed', state)
+      if (!tray) return
       const waiting = state.active.filter(task => task.status.startsWith('WAITING_')).length
       tray.setImage(trayImage(state.error ? 'error' : waiting ? 'waiting' : state.active.length ? 'active' : 'idle'))
       tray.setToolTip(state.error ? `Java Harness：${state.error}` : `Java Harness：活动中 ${state.active.length}，待处理 ${waiting}`)
@@ -58,11 +64,12 @@ export function createTaskActivity({ app, ipcMain, url, getWindow, openTask, sho
       return operation(value)
     })
   }
-  tray.on('click', showWindow)
+  if (tray && process.platform !== 'darwin') tray.on('click', showWindow)
   monitor.setEnabled(enabled)
   monitor.start()
   return {
-    stop() { monitor.stop(); notifications.forEach(item => item.close()); tray.destroy() },
+    hasTray: !!tray,
+    stop() { monitor.stop(); notifications.forEach(item => item.close()); tray?.destroy() },
   }
 }
 
@@ -80,5 +87,6 @@ function trayImage(state = 'idle') {
     const offset = (y * size + x) * 4
     pixels[offset] = color[0]; pixels[offset + 1] = color[1]; pixels[offset + 2] = color[2]; pixels[offset + 3] = 255
   }
-  return nativeImage.createFromBitmap(pixels, { width: size, height: size, scaleFactor: 1 })
+  const image = nativeImage.createFromBitmap(pixels, { width: size, height: size, scaleFactor: 1 })
+  return process.platform === 'darwin' ? image.resize({ width: 18, height: 18 }) : image
 }

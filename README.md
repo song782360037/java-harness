@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white" alt="Spring Boot 3.5" />
   <img src="https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3" />
   <img src="https://img.shields.io/badge/Electron-Desktop-47848F?logo=electron&logoColor=white" alt="Electron" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
 </p>
 
 <p>
@@ -41,7 +41,7 @@ https://github.com/user-attachments/assets/a317988a-7835-4c3c-b035-16fcd6ec3453
 
 ## 核心亮点
 
-Java Harness 是一个运行在本机的开源 AI 编程工作台，提供 **Windows 桌面客户端**（内置精简 JRE，无需预装 JDK），也可作为单个可运行 JAR 在任意 JDK 21 环境中启动。
+Java Harness 是一个运行在本机的开源 AI 编程工作台，提供 **Windows / macOS / Linux 跨平台桌面客户端**（内置精简 JRE，无需预装 JDK），也可作为单个可运行 JAR 在任意 JDK 21 环境中启动。
 
 - **多模型自由切换**：接入任意兼容 OpenAI Chat Completions 接口的服务或本地模型网关，在对话中随时热切换模型与思考强度。
 - **像素协作工坊与多智能体**：支持并行子智能体（`explore` / `general`）在独立上下文中完成探索与实现；也可建立多角色 AI 群聊，在可视化像素协作办公室中由隐藏主持人拆解依赖任务、互相 `@` 接力推进。
@@ -91,12 +91,16 @@ Java Harness 是一个运行在本机的开源 AI 编程工作台，提供 **Win
 
 ## 快速开始
 
-### 方式一：下载 Windows 桌面客户端（推荐）
+### 方式一：下载桌面客户端（推荐）
 
-前往 [Releases](https://github.com/song782360037/java-harness/releases) 下载 `Java-Harness-Setup-<版本>-x64.exe`，安装后即可使用。安装包内置精简运行时，支持应用内自动更新，数据默认保存在 `%APPDATA%\Java Harness\`。
+前往 [Releases](https://github.com/song782360037/java-harness/releases) 选择对应平台安装包（均内置精简 JRE，无需预装 JDK）：
+
+- **Windows (x64)**：`Java-Harness-Setup-<版本>-x64.exe`（支持应用内自动更新，数据保存在 `%APPDATA%\Java Harness\`）
+- **macOS (Apple Silicon / Intel)**：`Java-Harness-<版本>-mac-arm64.dmg` 或 `Java-Harness-<版本>-mac-x64.dmg`（数据保存在 `~/Library/Application Support/Java Harness/`）
+- **Linux (x64)**：`Java-Harness-<版本>-linux-x64.AppImage`（支持应用内自动更新）或 `Java-Harness-<版本>-linux-x64.deb`（数据保存在 `~/.config/Java Harness/`）
 
 > [!NOTE]
-> 安装包若未做代码签名，首次运行时 Windows SmartScreen 可能弹出提示，确认来源后选择「仍要运行」即可。
+> 安装包若未做代码签名：Windows 首次运行 SmartScreen 选择「仍要运行」；macOS 拖入应用程序后若提示无法验证，可在终端执行 `xattr -rd com.apple.quarantine "/Applications/Java Harness.app"`。
 
 ### 方式二：从源码构建运行
 

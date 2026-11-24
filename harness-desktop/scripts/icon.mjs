@@ -1,9 +1,8 @@
-// 按 harness-web/public/harness-icon.svg 的图形栅格化出 256px Windows 图标（内嵌 PNG 的 .ico）；无第三方依赖。
+// 按 harness-web/public/harness-icon.svg 的图形栅格化出跨平台应用图标（Windows .ico、macOS .icns、Linux PNG 图标集）；无第三方依赖。
 import fs from 'node:fs'
+import path from 'node:path'
 import zlib from 'node:zlib'
 
-const SIZE = 256
-const SCALE = SIZE / 32
 const SAMPLES = 4
 const BACKGROUND = [0x25, 0x2a, 0x28]
 const LIGHT = [0xf5, 0xf4, 0xee]
@@ -19,15 +18,34 @@ const STROKES = [
 
 /** 写出 Windows 图标：单个 256px PNG 帧的 ICO 文件。 */
 export function writeIcon(file) {
-  const pixels = Buffer.alloc(SIZE * (SIZE * 4 + 1))
-  for (let y = 0; y < SIZE; y++) {
-    const row = y * (SIZE * 4 + 1)
-    for (let x = 0; x < SIZE; x++) {
+  fs.writeFileSync(file, ico(renderPng(256)))
+}
+
+/** 一次渲染并写出全平台图标资源：icon.ico、icon.icns 及 Linux icons/{256x256,512x512}.png。 */
+export function writeIcons(buildDir) {
+  const png256 = renderPng(256)
+  const png512 = renderPng(512)
+  fs.mkdirSync(path.join(buildDir, 'icons'), { recursive: true })
+  fs.writeFileSync(path.join(buildDir, 'icon.ico'), ico(png256))
+  fs.writeFileSync(path.join(buildDir, 'icon.icns'), icns([
+    ['ic08', png256],
+    ['ic09', png512],
+  ]))
+  fs.writeFileSync(path.join(buildDir, 'icons', '256x256.png'), png256)
+  fs.writeFileSync(path.join(buildDir, 'icons', '512x512.png'), png512)
+}
+
+function renderPng(size) {
+  const scale = size / 32
+  const pixels = Buffer.alloc(size * (size * 4 + 1))
+  for (let y = 0; y < size; y++) {
+    const row = y * (size * 4 + 1)
+    for (let x = 0; x < size; x++) {
       let r = 0, g = 0, b = 0, a = 0
       for (let sy = 0; sy < SAMPLES; sy++) {
         for (let sx = 0; sx < SAMPLES; sx++) {
-          const px = (x + (sx + 0.5) / SAMPLES) / SCALE
-          const py = (y + (sy + 0.5) / SAMPLES) / SCALE
+          const px = (x + (sx + 0.5) / SAMPLES) / scale
+          const py = (y + (sy + 0.5) / SAMPLES) / scale
           if (!insideRoundedSquare(px, py)) continue
           const color = colorAt(px, py)
           r += color[0]; g += color[1]; b += color[2]; a += 255
@@ -42,7 +60,7 @@ export function writeIcon(file) {
       pixels[offset + 3] = Math.round(a / count)
     }
   }
-  fs.writeFileSync(file, ico(png(pixels)))
+  return png(pixels, size)
 }
 
 function insideRoundedSquare(x, y) {
@@ -80,10 +98,25 @@ function ico(image) {
   return Buffer.concat([header, image])
 }
 
-function png(raw) {
+/** Apple ICNS 容器：封装标准 PNG 块（ic08 = 256px，ic09 = 512px）。 */
+function icns(entries) {
+  const blocks = entries.map(([type, data]) => {
+    const header = Buffer.alloc(8)
+    header.write(type, 0, 4, 'ascii')
+    header.writeUInt32BE(8 + data.length, 4)
+    return Buffer.concat([header, data])
+  })
+  const total = 8 + blocks.reduce((sum, block) => sum + block.length, 0)
+  const fileHeader = Buffer.alloc(8)
+  fileHeader.write('icns', 0, 4, 'ascii')
+  fileHeader.writeUInt32BE(total, 4)
+  return Buffer.concat([fileHeader, ...blocks])
+}
+
+function png(raw, size) {
   const header = Buffer.alloc(13)
-  header.writeUInt32BE(SIZE, 0)
-  header.writeUInt32BE(SIZE, 4)
+  header.writeUInt32BE(size, 0)
+  header.writeUInt32BE(size, 4)
   header.set([8, 6, 0, 0, 0], 8)
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
