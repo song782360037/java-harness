@@ -159,15 +159,9 @@ java -jar harness-server/target/harness-server-0.2.2.jar
 
 ## 系统架构
 
-```mermaid
-graph TD
-  Desktop["harness-desktop · Electron 桌面壳 · 内置精简 JRE"] --> Web["harness-web · Vue 3 · TypeScript · Vite"]
-  Web -->|"REST + SSE · 127.0.0.1"| Server["harness-server · Spring Boot 3.5 · Flyway · H2"]
-  Server --> Adapters["harness-adapters · OpenAI HTTP · 工作区工具 · JDBC"]
-  Server --> Core["harness-core · 纯 Java 21 · 执行调度 · 上下文预算"]
-  Adapters --> SPI["harness-spi · 纯 Java 21 · Session · Run · Event 契约"]
-  Core --> SPI
-```
+<p align="center">
+  <img src="docs/assets/architecture.svg" alt="Java Harness 系统架构图" width="100%" />
+</p>
 
 ```text
 java-harness/

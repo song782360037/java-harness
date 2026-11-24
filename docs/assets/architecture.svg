@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="440" viewBox="0 0 960 440" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="960" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#131815"/>
+      <stop offset="100%" stop-color="#1B231E"/>
+    </linearGradient>
+    <linearGradient id="pureCard" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1E382B"/>
+      <stop offset="100%" stop-color="#162A20"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#8DD9B6"/>
+    </marker>
+    <marker id="arrowMuted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#7D9186"/>
+    </marker>
+  </defs>
+
+  <!-- Canvas background -->
+  <rect width="960" height="440" rx="18" fill="url(#bg)"/>
+  <rect x="0.75" y="0.75" width="958.5" height="438.5" rx="17.25" stroke="#2D3A33" stroke-width="1.5"/>
+
+  <!-- Subtle architectural header -->
+  <text x="32" y="34" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700" letter-spacing="1.4">JAVA HARNESS ARCHITECTURE</text>
+  <text x="928" y="34" text-anchor="end" fill="#8A9B91" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">127.0.0.1 LOCAL-FIRST · PURE JAVA 21 CORE</text>
+  <line x1="32" y1="48" x2="928" y2="48" stroke="#28342D" stroke-width="1"/>
+
+  <!-- Layer 1: Presentation (Desktop & Web) -->
+  <rect x="44" y="70" width="406" height="72" rx="12" fill="#202823" stroke="#36463D" stroke-width="1.2"/>
+  <text x="66" y="100" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-desktop</text>
+  <text x="430" y="99" text-anchor="end" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">ELECTRON</text>
+  <text x="66" y="124" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">Windows 桌面客户端 · 内置精简 JRE · 托盘常驻与自动更新</text>
+
+  <rect x="510" y="70" width="406" height="72" rx="12" fill="#202823" stroke="#36463D" stroke-width="1.2"/>
+  <text x="532" y="100" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-web</text>
+  <text x="896" y="99" text-anchor="end" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">VUE 3 + TS</text>
+  <text x="532" y="124" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">前端工作台 · 像素协作工坊 · 流水线 · 长期记忆图谱</text>
+
+  <!-- Desktop -> Web connector -->
+  <line x1="450" y1="106" x2="504" y2="106" stroke="#7D9186" stroke-width="1.8" marker-end="url(#arrowMuted)"/>
+
+  <!-- Web -> Server connector with REST/SSE pill -->
+  <line x1="713" y1="142" x2="713" y2="184" stroke="#8DD9B6" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="594" y="150" width="238" height="24" rx="12" fill="#131815" stroke="#2D6A4D" stroke-width="1.2"/>
+  <text x="713" y="166" text-anchor="middle" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11.5" font-weight="700">REST / SSE · 127.0.0.1</text>
+
+  <!-- Layer 2: Server -->
+  <rect x="44" y="190" width="872" height="68" rx="12" fill="#202823" stroke="#3D5246" stroke-width="1.3"/>
+  <text x="68" y="219" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="17" font-weight="700">harness-server</text>
+  <text x="894" y="218" text-anchor="end" fill="#A2D9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11.5" font-weight="700">SPRING BOOT 3.5 · H2 · FLYWAY</text>
+  <text x="68" y="242" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">应用装配、REST / SSE 流式接口、本地 H2 数据库迁移与加密凭据管理</text>
+
+  <!-- Server -> Adapters & Core connectors -->
+  <line x1="252" y1="258" x2="252" y2="286" stroke="#7D9186" stroke-width="1.8" marker-end="url(#arrowMuted)"/>
+  <line x1="708" y1="258" x2="708" y2="286" stroke="#8DD9B6" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Layer 3: Adapters & Pure Core -->
+  <rect x="44" y="292" width="416" height="64" rx="12" fill="#202823" stroke="#36463D" stroke-width="1.2"/>
+  <text x="66" y="319" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-adapters</text>
+  <text x="440" y="318" text-anchor="end" fill="#9EB0A6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">JDK HTTP + JDBC</text>
+  <text x="66" y="341" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="12.5">OpenAI 兼容适配 · 工作区工具 · MCP / ACP · JDBC 存储</text>
+
+  <rect x="500" y="292" width="416" height="64" rx="12" fill="url(#pureCard)" stroke="#499870" stroke-width="1.5"/>
+  <text x="522" y="319" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-core</text>
+  <text x="896" y="318" text-anchor="end" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">PURE JAVA 21</text>
+  <text x="522" y="341" fill="#C9DDD1" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="12.5">零框架依赖 · 执行调度、上下文预算、状态仲裁与取消</text>
+
+  <!-- Adapters & Core -> SPI connectors -->
+  <line x1="252" y1="356" x2="252" y2="372" stroke="#499870" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <line x1="708" y1="356" x2="708" y2="372" stroke="#499870" stroke-width="1.8" marker-end="url(#arrow)"/>
+
+  <!-- Layer 4: Pure SPI -->
+  <rect x="44" y="376" width="872" height="46" rx="11" fill="url(#pureCard)" stroke="#499870" stroke-width="1.5"/>
+  <text x="68" y="404" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="15.5" font-weight="700">harness-spi</text>
+  <text x="206" y="404" fill="#D4E5DB" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">Session / Run / Event 契约与引擎、模型、存储扩展接口</text>
+  <text x="894" y="404" text-anchor="end" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">PURE JAVA 21 · ZERO FRAMEWORK DEPS</text>
+</svg>
