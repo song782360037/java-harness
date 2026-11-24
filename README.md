@@ -37,16 +37,7 @@
 
 ## 演示视频
 
-<div align="center">
-
-<img src="docs/assets/promo-preview.gif" alt="Java Harness 产品演示动图" width="100%" />
-
-<sub>
-  完整 1080p 有声高清版（36s MP4）：
-  <a href="docs/assets/java-harness-promo.mp4"><code>docs/assets/java-harness-promo.mp4</code></a>
-</sub>
-
-</div>
+https://github.com/user-attachments/assets/a317988a-7835-4c3c-b035-16fcd6ec3453
 
 ## 核心亮点
 
