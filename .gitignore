@@ -31,6 +31,9 @@ pnpm-debug.log*
 # AI-generated drafts (posters, mockups)
 /generated-images/
 
+# Local video project
+/promo-video/
+
 # Editors, AI assistants, tools and OS
 .idea/
 .setting/
