@@ -77,8 +77,8 @@ jobs:
 
   package:
     needs: verify
-    fail-fast: false
     strategy:
+      fail-fast: false
       matrix:
         include:
           - id: win-x64
