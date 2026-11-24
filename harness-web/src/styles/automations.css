@@ -3,6 +3,7 @@
 .sidebar-link > .ui-icon { color: var(--sidebar-muted); }
 .sidebar-link:hover:not(:disabled) { background: var(--sidebar-hover); }
 .sidebar-link[aria-current] { background: var(--sidebar-selected); font-weight: 550; }
+.sidebar-link-badge { margin-left: auto; flex-shrink: 0; min-width: 18px; padding: 0 6px; border-radius: 999px; font-size: var(--font-caption); font-weight: 600; line-height: 18px; text-align: center; color: var(--warning); background: var(--warning-bg); }
 
 .automations-page .automation-create { display: inline-flex; align-items: center; gap: 6px; }
 .automations-body { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px 24px; padding: 24px; align-content: start; }
@@ -39,6 +40,7 @@
 .automation-history button > .ui-icon { margin-left: auto; color: var(--muted); flex-shrink: 0; }
 .execution-badge { flex-shrink: 0; min-width: 64px; text-align: center; font-size: var(--font-caption); padding: 2px 8px; border-radius: 20px; color: var(--muted); background: var(--subtle); }
 .execution-badge.active { color: var(--info); background: var(--info-bg); }
+.execution-badge.waiting { color: var(--warning); background: var(--warning-bg); }
 .execution-badge.success { color: var(--success); background: var(--success-bg); }
 .execution-badge.danger { color: var(--danger); background: var(--danger-bg); }
 .execution-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

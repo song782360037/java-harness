@@ -19,7 +19,7 @@ export function createTaskActivity({ app, ipcMain, url, getWindow, openTask, sho
     },
     notify: task => {
       if (!Notification.isSupported()) return
-      const labels = { COMPLETED: '任务已完成', FAILED: '任务失败', TIMED_OUT: '任务超时', INTERRUPTED: '任务已中断', WAITING_APPROVAL: '任务需要审批', WAITING_ANSWER: '任务等待回答' }
+      const labels = { COMPLETED: '任务已完成', FAILED: '任务失败', TIMED_OUT: '任务超时', INTERRUPTED: '任务已中断', WAITING_APPROVAL: '任务需要审批', WAITING_ANSWER: '任务等待回答', WAITING_DECISION: '流水线等待处理' }
       const notification = new Notification({ title: labels[task.status], body: task.title, silent: true })
       notifications.add(notification)
       notification.on('click', () => openTask(task))

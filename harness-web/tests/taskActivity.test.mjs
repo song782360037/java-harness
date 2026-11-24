@@ -19,11 +19,14 @@ test('task state labels distinguish waiting, cancellation and failures', () => {
   assert.equal(taskStatusLabel('CANCELLED'), '已取消')
   assert.equal(taskStatusLabel('WAITING_APPROVAL'), '等待审批')
   assert.equal(taskStatusLabel('WAITING_ANSWER'), '等待回答')
+  assert.equal(taskStatusLabel('WAITING_DECISION'), '等待处理')
   assert.equal(taskTone('WAITING_ANSWER'), 'waiting')
+  assert.equal(taskTone('WAITING_DECISION'), 'waiting')
   assert.equal(taskTone('TIMED_OUT'), 'error')
   assert.equal(taskTone('COMPLETED'), 'success')
   assert.equal(taskSourceLabel('GROUP'), '群聊')
   assert.equal(taskSourceLabel('AUTOMATION'), '自动化')
+  assert.equal(taskSourceLabel('FLOW'), '流水线')
 })
 
 test('desktop events win over a slower initial response and unsubscribe cleanly', async () => {

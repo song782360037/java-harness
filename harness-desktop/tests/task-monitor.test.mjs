@@ -71,6 +71,15 @@ test('stopping while a fetch is in flight prevents publication and rescheduling'
   assert.equal(monitor.timer, undefined)
 })
 
+test('flow waiting decision notifies once per step and re-notifies on later pause', () => {
+  const { monitor, notifications } = setup()
+  monitor.accept(snapshot([task('item-1', 'WAITING_DECISION', 'flow:item-1:1:human')]))
+  monitor.accept(snapshot([task('item-1', 'WAITING_DECISION', 'flow:item-1:1:human')]))
+  monitor.accept(snapshot([task('item-1', 'RUNNING')]))
+  monitor.accept(snapshot([task('item-1', 'WAITING_DECISION', 'flow:item-1:3:review')]))
+  assert.equal(notifications.length, 2)
+})
+
 test('read failures preserve the last tasks, then recover without duplicate notices', async () => {
   const { monitor, notifications } = setup()
   monitor.accept(snapshot([task('running', 'RUNNING')]))

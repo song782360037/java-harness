@@ -3,6 +3,7 @@ package dev.javaharness.server;
 import static org.assertj.core.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.javaharness.adapters.flow.FlowStore;
 import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.server.service.TaskActivityService;
 import dev.javaharness.spi.model.ModelInfo;
@@ -66,6 +67,7 @@ class TaskActivityApiIntegrationTest {
     void recover() {
         sessions.recoverInterruptedRuns();
         jdbc.update("UPDATE harness_group_round SET status='STOPPED' WHERE status='RUNNING'");
+        jdbc.update("UPDATE harness_flow_item SET status='STOPPED' WHERE status IN ('RUNNING','WAITING')");
     }
 
     @Test
@@ -136,6 +138,46 @@ class TaskActivityApiIntegrationTest {
         assertThat(activity.snapshot().active())
                 .extracting(TaskActivityService.Task::id)
                 .doesNotContain(member);
+    }
+
+    @Test
+    void flowItemsSurfaceInTaskCenterWithAttentionAndDoNotLeakAsOrdinaryRuns() {
+        var flows = new FlowStore(jdbc);
+        var flow = flows.save(new FlowStore.Flow("", "发布流水线", "test", "", "{}", null, 0));
+        var session = sessions.createSession("隐藏流水线会话");
+        var item = flows.addItem(flow.id(), "发版检查", "", session.id(), "{}", "review");
+        String stepRun = sessions.submit(
+                        session.id(),
+                        UUID.randomUUID().toString(),
+                        "step",
+                        "NORMAL",
+                        new ModelInfo("test", "test", true))
+                .run()
+                .id();
+        sessions.transition(stepRun, RunStatus.RUNNING, "");
+        assertThat(activity.snapshot().active())
+                .extracting(TaskActivityService.Task::id)
+                .contains(item.id())
+                .doesNotContain(stepRun);
+        assertThat(task(item.id()).source()).isEqualTo("FLOW");
+        assertThat(task(item.id()).flowId()).isEqualTo(flow.id());
+        assertThat(task(item.id()).flowItemId()).isEqualTo(item.id());
+        assertThat(task(item.id()).title()).isEqualTo("发布流水线 · 发版检查");
+        String cmd = command(stepRun);
+        assertThat(task(item.id()).status()).isEqualTo("WAITING_APPROVAL");
+        assertThat(task(item.id()).attentionKey()).isEqualTo(cmd);
+        sessions.transition(stepRun, RunStatus.COMPLETED, "");
+        flows.updateItem(item.id(), "WAITING", "approve", "", 2);
+        assertThat(task(item.id()).status()).isEqualTo("WAITING_DECISION");
+        assertThat(task(item.id()).attentionKey()).isEqualTo("flow:" + item.id() + ":2:approve");
+        flows.updateItem(item.id(), "COMPLETED", "done", "完成", 3);
+        assertThat(activity.snapshot().active())
+                .extracting(TaskActivityService.Task::id)
+                .doesNotContain(item.id());
+        assertThat(activity.snapshot().recent())
+                .anyMatch(value -> value.id().equals(item.id())
+                        && value.source().equals("FLOW")
+                        && value.status().equals("COMPLETED"));
     }
 
     @Test

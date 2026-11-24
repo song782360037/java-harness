@@ -38,7 +38,7 @@ function navigate(task: TaskActivity) { if (props.disabled) return; close(); emi
           <span class="task-state-label" :class="taskTone(task.status)">{{ taskStatusLabel(task.status) }}</span><UiIcon name="chevron" :size="14" />
         </button>
       </div>
-      <footer class="task-center-footer">{{ tab === 'active' ? '等待审批和回答的任务优先显示' : '显示最近 50 个结束的任务' }}</footer>
+      <footer class="task-center-footer">{{ tab === 'active' ? '等待审批、回答和人工处理的任务优先显示' : '显示最近 50 个结束的任务' }}</footer>
     </dialog>
   </div>
 </template>

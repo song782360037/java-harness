@@ -18,6 +18,8 @@ public class TaskActivityService {
             String id,
             String sessionId,
             String groupId,
+            String flowId,
+            String flowItemId,
             String title,
             String source,
             String status,
@@ -27,7 +29,7 @@ public class TaskActivityService {
 
     public record Snapshot(List<Task> active, List<Task> recent, OffsetDateTime observedAt) {}
 
-    private record Attention(String rootId, String groupId, String kind, String key) {}
+    private record Attention(String rootId, String sessionId, String groupId, String flowId, String kind, String key) {}
 
     private final JdbcTemplate jdbc;
 
@@ -40,7 +42,7 @@ public class TaskActivityService {
     public Snapshot snapshot() {
         var attention = jdbc.query(
                 """
-                    SELECT COALESCE(r.parent_run_id,r.id) root_id,s.group_id,a.kind,a.id
+                    SELECT COALESCE(r.parent_run_id,r.id) root_id,r.session_id,s.group_id,s.flow_id,a.kind,a.id
                     FROM (
                         SELECT run_id,'APPROVAL' kind,id FROM harness_command WHERE status='PENDING'
                         UNION ALL SELECT run_id,'APPROVAL',id FROM harness_external_approval WHERE status='PENDING'
@@ -52,21 +54,28 @@ public class TaskActivityService {
                     ORDER BY a.id
                     """,
                 (rs, n) -> new Attention(
-                        rs.getString("root_id"), rs.getString("group_id"), rs.getString("kind"), rs.getString("id")));
+                        rs.getString("root_id"),
+                        rs.getString("session_id"),
+                        rs.getString("group_id"),
+                        rs.getString("flow_id"),
+                        rs.getString("kind"),
+                        rs.getString("id")));
         var active = new ArrayList<Task>();
         active.addAll(runs(true));
         active.addAll(rounds(true));
+        active.addAll(flowItems(true));
         active.replaceAll(task -> withAttention(task, attention));
         active.sort(Comparator.comparingInt((Task task) -> task.status().startsWith("WAITING") ? 0 : 1)
                 .thenComparing(Task::createdAt));
         var recent = new ArrayList<Task>();
         recent.addAll(runs(false));
         recent.addAll(rounds(false));
+        recent.addAll(flowItems(false));
         recent.sort(Comparator.comparing(Task::updatedAt).reversed().thenComparing(Task::id));
         return new Snapshot(List.copyOf(active), recent.stream().limit(50).toList(), OffsetDateTime.now());
     }
 
-    /** 子智能体在父任务下汇总；自动化保留其名称与来源。 */
+    /** 子智能体在父任务下汇总；自动化保留其名称与来源；群聊和流水线隐藏会话分别按轮次和事项汇总。 */
     private List<Task> runs(boolean active) {
         return jdbc.query(
                 """
@@ -75,7 +84,7 @@ public class TaskActivityService {
                     (SELECT a.name FROM harness_automation_run ar JOIN harness_automation a ON a.id=ar.automation_id
                         WHERE ar.run_id=r.id LIMIT 1) automation_name
                 FROM harness_run r JOIN harness_session s ON s.id=r.session_id
-                WHERE r.parent_run_id IS NULL AND s.group_id IS NULL AND r.status
+                WHERE r.parent_run_id IS NULL AND s.group_id IS NULL AND s.flow_id IS NULL AND r.status
                 """ + (active ? " IN ('QUEUED','RUNNING','CANCELLING')" : " NOT IN ('QUEUED','RUNNING','CANCELLING')")
                         + " ORDER BY updated_at DESC,r.id" + (active ? "" : " LIMIT 50"),
                 (rs, n) -> {
@@ -83,6 +92,8 @@ public class TaskActivityService {
                     return new Task(
                             rs.getString("id"),
                             rs.getString("session_id"),
+                            "",
+                            "",
                             "",
                             automation == null ? rs.getString("title") : automation,
                             automation == null ? "SESSION" : "AUTOMATION",
@@ -106,6 +117,8 @@ public class TaskActivityService {
                         rs.getString("id"),
                         "",
                         rs.getString("group_id"),
+                        "",
+                        "",
                         rs.getString("name"),
                         "GROUP",
                         rs.getString("status"),
@@ -114,13 +127,46 @@ public class TaskActivityService {
                         time(rs, "updated_at")));
     }
 
+    /** 流水线以事项呈现；人工待处理或岗位失败暂停映射为 WAITING_DECISION，按节点与步数生成稳定提醒键。 */
+    private List<Task> flowItems(boolean active) {
+        return jdbc.query(
+                """
+                SELECT i.id,i.flow_id,i.session_id,f.name flow_name,i.title,i.status,i.node_key,i.steps,
+                    i.created_at,i.updated_at
+                FROM harness_flow_item i JOIN harness_flow f ON f.id=i.flow_id WHERE i.status
+                """ + (active ? " IN ('RUNNING','WAITING')" : " NOT IN ('RUNNING','WAITING')")
+                        + " ORDER BY i.updated_at DESC,i.id" + (active ? "" : " LIMIT 50"),
+                (rs, n) -> {
+                    String id = rs.getString("id");
+                    String status = rs.getString("status");
+                    boolean waiting = status.equals("WAITING");
+                    String title = rs.getString("flow_name") + " · " + rs.getString("title");
+                    String attentionKey =
+                            waiting ? "flow:" + id + ":" + rs.getInt("steps") + ":" + rs.getString("node_key") : "";
+                    return new Task(
+                            id,
+                            rs.getString("session_id"),
+                            "",
+                            rs.getString("flow_id"),
+                            id,
+                            title,
+                            "FLOW",
+                            waiting ? "WAITING_DECISION" : status,
+                            attentionKey,
+                            time(rs, "created_at"),
+                            time(rs, "updated_at"));
+                });
+    }
+
     /** 优先显示需要用户介入的状态，并用不可变操作 ID 防止重复通知。 */
     private Task withAttention(Task task, List<Attention> all) {
-        if (task.status().equals("CANCELLING")) return task;
+        if (task.status().equals("CANCELLING") || task.status().equals("WAITING_DECISION")) return task;
         var pending = all.stream()
-                .filter(value -> task.groupId().isEmpty()
-                        ? task.id().equals(value.rootId())
-                        : task.groupId().equals(value.groupId()))
+                .filter(value -> {
+                    if (!task.groupId().isEmpty()) return task.groupId().equals(value.groupId());
+                    if (!task.flowId().isEmpty()) return task.sessionId().equals(value.sessionId());
+                    return task.id().equals(value.rootId());
+                })
                 .toList();
         if (pending.isEmpty()) return task;
         boolean approval = pending.stream().anyMatch(value -> value.kind().equals("APPROVAL"));
@@ -133,6 +179,8 @@ public class TaskActivityService {
                 task.id(),
                 task.sessionId(),
                 task.groupId(),
+                task.flowId(),
+                task.flowItemId(),
                 task.title(),
                 task.source(),
                 approval ? "WAITING_APPROVAL" : "WAITING_ANSWER",
