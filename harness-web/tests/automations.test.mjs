@@ -18,6 +18,10 @@ test('execution state combines trigger and run status', () => {
   assert.equal(executionState({ status: 'STARTED', runStatus: 'RUNNING' }).label, '运行中')
   assert.equal(executionState({ status: 'STARTED', runStatus: 'COMPLETED' }).tone, 'success')
   assert.equal(executionState({ status: 'STARTED', runStatus: null }).label, '会话已删除')
+  assert.deepEqual(executionState({ status: 'STARTED', runStatus: null, flowItemId: 'i1', flowItemStatus: 'RUNNING' }), { label: '流转中', tone: 'active' })
+  assert.deepEqual(executionState({ status: 'STARTED', runStatus: null, flowItemId: 'i1', flowItemStatus: 'WAITING' }), { label: '待你处理', tone: 'waiting' })
+  assert.deepEqual(executionState({ status: 'STARTED', runStatus: null, flowItemId: 'i1', flowItemStatus: 'COMPLETED' }), { label: '已完成', tone: 'success' })
+  assert.deepEqual(executionState({ status: 'STARTED', runStatus: null, flowItemId: 'i1', flowItemStatus: null }), { label: '事项已删除', tone: 'muted' })
 })
 
 test('new drafts default to a daily morning run without commands', () => {
@@ -27,4 +31,5 @@ test('new drafts default to a daily morning run without commands', () => {
   assert.equal(draft.allowCommands, false)
   assert.equal(draft.workspaceId, 'w1')
   assert.equal(draft.modelProfileId, 'fast')
+  assert.equal(draft.flowId, '')
 })

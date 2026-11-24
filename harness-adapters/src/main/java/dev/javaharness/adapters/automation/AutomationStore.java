@@ -12,8 +12,8 @@ import org.springframework.jdbc.core.RowMapper;
 /** 定时自动化及其触发历史的 JDBC 存储；并发协调由调用方负责。 */
 public final class AutomationStore {
     /**
-     * 一个定时自动化；reasoningEffort 为 null 表示使用模型配置的默认强度，nextRunAt 为 null 表示不会自动触发，
-     * approvalMode 为每次触发的运行所用的审批模式。
+     * 一个定时自动化；flowId 非空时触发对应流水线而非新建普通会话，reasoningEffort 为 null 表示使用模型配置的默认强度，
+     * nextRunAt 为 null 表示不会自动触发，approvalMode 为每次触发的运行所用的审批模式。
      */
     public record Automation(
             String id,
@@ -31,9 +31,10 @@ public final class AutomationStore {
             boolean enabled,
             Instant nextRunAt,
             Instant createdAt,
-            long revision) {}
+            long revision,
+            String flowId) {}
 
-    /** 一次触发记录；runStatus 来自关联运行，会话被删除后为 null。 */
+    /** 一次触发记录；runStatus 来自关联运行，flowItemStatus 来自关联流水线事项，目标被删除后为 null。 */
     public record Execution(
             String id,
             String automationId,
@@ -44,7 +45,10 @@ public final class AutomationStore {
             String detail,
             String sessionId,
             String runId,
-            String runStatus) {}
+            String runStatus,
+            String flowId,
+            String flowItemId,
+            String flowItemStatus) {}
 
     private static final RowMapper<Automation> AUTOMATION = (rs, row) -> new Automation(
             rs.getString("id"),
@@ -62,7 +66,8 @@ public final class AutomationStore {
             rs.getBoolean("enabled"),
             instant(rs.getObject("next_run_at", OffsetDateTime.class)),
             rs.getObject("created_at", OffsetDateTime.class).toInstant(),
-            rs.getLong("revision"));
+            rs.getLong("revision"),
+            rs.getString("flow_id") == null ? "" : rs.getString("flow_id"));
     private static final RowMapper<Execution> EXECUTION = (rs, row) -> new Execution(
             rs.getString("id"),
             rs.getString("automation_id"),
@@ -73,9 +78,14 @@ public final class AutomationStore {
             rs.getString("detail"),
             rs.getString("session_id"),
             rs.getString("run_id"),
-            rs.getString("run_status"));
-    private static final String EXECUTIONS =
-            "SELECT e.*, r.status AS run_status FROM harness_automation_run e LEFT JOIN harness_run r ON r.id=e.run_id ";
+            rs.getString("run_status"),
+            rs.getString("flow_id"),
+            rs.getString("flow_item_id"),
+            rs.getString("flow_item_status"));
+    private static final String EXECUTIONS = "SELECT e.*, r.status AS run_status, fi.status AS flow_item_status "
+            + "FROM harness_automation_run e "
+            + "LEFT JOIN harness_run r ON r.id=e.run_id "
+            + "LEFT JOIN harness_flow_item fi ON fi.id=e.flow_item_id ";
 
     private final JdbcTemplate jdbc;
 
@@ -103,13 +113,14 @@ public final class AutomationStore {
 
     /** Insert when the id is empty, otherwise update when the revision still matches. */
     public Automation save(Automation value) {
+        String flowId = value.flowId() == null ? "" : value.flowId();
         if (value.id().isEmpty()) {
             String id = UUID.randomUUID().toString();
             jdbc.update(
                     """
                     INSERT INTO harness_automation(id,name,prompt,workspace_id,model_profile_id,reasoning_effort,schedule_kind,
-                        schedule_time,schedule_weekday,cron,allow_commands,approval_mode,enabled,next_run_at,created_at,revision)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+                        schedule_time,schedule_weekday,cron,allow_commands,approval_mode,enabled,next_run_at,created_at,revision,flow_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)
                     """,
                     id,
                     value.name(),
@@ -125,14 +136,15 @@ public final class AutomationStore {
                     value.approvalMode(),
                     value.enabled(),
                     time(value.nextRunAt()),
-                    time(value.createdAt()));
+                    time(value.createdAt()),
+                    flowId);
             return get(id);
         }
         int updated = jdbc.update(
                 """
                 UPDATE harness_automation SET name=?,prompt=?,workspace_id=?,model_profile_id=?,reasoning_effort=?,schedule_kind=?,
                     schedule_time=?,schedule_weekday=?,cron=?,allow_commands=?,approval_mode=?,enabled=?,next_run_at=?,
-                    revision=revision+1
+                    flow_id=?,revision=revision+1
                 WHERE id=? AND revision=?
                 """,
                 value.name(),
@@ -148,6 +160,7 @@ public final class AutomationStore {
                 value.approvalMode(),
                 value.enabled(),
                 time(value.nextRunAt()),
+                flowId,
                 value.id(),
                 value.revision());
         if (updated == 0) {
@@ -178,11 +191,24 @@ public final class AutomationStore {
             String status,
             String detail,
             String sessionId) {
+        return record(automationId, trigger, scheduledFor, startedAt, status, detail, sessionId, null, null);
+    }
+
+    public Execution record(
+            String automationId,
+            String trigger,
+            Instant scheduledFor,
+            Instant startedAt,
+            String status,
+            String detail,
+            String sessionId,
+            String flowId,
+            String flowItemId) {
         String id = UUID.randomUUID().toString();
         jdbc.update(
                 """
-                INSERT INTO harness_automation_run(id,automation_id,trigger_kind,scheduled_for,started_at,status,detail,session_id)
-                VALUES (?,?,?,?,?,?,?,?)
+                INSERT INTO harness_automation_run(id,automation_id,trigger_kind,scheduled_for,started_at,status,detail,session_id,flow_id,flow_item_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
                 """,
                 id,
                 automationId,
@@ -191,7 +217,9 @@ public final class AutomationStore {
                 time(startedAt),
                 status,
                 truncate(detail),
-                sessionId);
+                sessionId,
+                flowId,
+                flowItemId);
         return execution(id);
     }
 

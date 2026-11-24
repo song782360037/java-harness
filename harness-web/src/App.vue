@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DesktopUpdateNotice from './DesktopUpdateNotice.vue'
 import TaskCenter from './TaskCenter.vue'
-import { connectTaskActivity } from './taskActivity'
+import { connectTaskActivity, taskActivity } from './taskActivity'
 import type { TaskActivity } from './taskActivityModel'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import RunTimeline from './RunTimeline.vue'
@@ -53,6 +53,8 @@ const showMemories = ref(false)
 const showGroups = ref(false)
 const showFlows = ref(false)
 const groupPage = ref<{ openTask(id: string): Promise<void>; navigationBlocked: boolean }>()
+const flowPage = ref<{ openTask(flowId: string, itemId?: string): Promise<void> }>()
+const waitingFlowCount = computed(() => taskActivity.value.active.filter(task => task.source === 'FLOW' && task.status.startsWith('WAITING_')).length)
 const taskNavigationBlocked = computed(() => submitting.value || loading.value || settingsBusy.value || workspaceChanging.value || !!groupPage.value?.navigationBlocked)
 const queuedTask = ref<TaskActivity>()
 let disconnectTaskActivity = () => {}
@@ -892,6 +894,11 @@ async function openAutomationSession(id: string) {
   await reloadSessions()
   navigateSession(id)
 }
+async function openFlowTask(flowId: string, itemId?: string) {
+  openFlows()
+  await nextTick()
+  await flowPage.value?.openTask(flowId, itemId)
+}
 /** 通知在提交过程中到达时暂存跳转，避免中断提交或丢失群聊草稿。 */
 async function openTask(task: TaskActivity) {
   queuedTask.value = task
@@ -902,6 +909,8 @@ async function openTask(task: TaskActivity) {
     openGroups()
     await nextTick()
     await groupPage.value?.openTask(task.groupId)
+  } else if (task.flowId) {
+    await openFlowTask(task.flowId, task.flowItemId || task.id)
   } else {
     await openAutomationSession(task.sessionId)
   }
@@ -1048,7 +1057,7 @@ onUnmounted(() => {
     <button v-if="!sidebarCollapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="sidebarCollapsed = true"></button>
     <aside v-show="!showSettings" class="sidebar" :inert="sidebarCollapsed || undefined">
       <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="createSession"><UiIcon name="plus" :size="17" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="sidebarCollapsed = true"><UiIcon name="panel" :size="16" /></button></div>
-      <nav class="sidebar-links" aria-label="功能"><button class="sidebar-link" :aria-current="showAutomations ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openAutomations"><UiIcon name="clock" :size="16" /><span>自动化</span></button><button class="sidebar-link" :aria-current="showMemories ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openMemories()"><UiIcon name="memory" :size="16" /><span>记忆</span></button><button class="sidebar-link" :aria-current="showGroups ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openGroups"><UiIcon name="users" :size="16" /><span>群聊</span></button><button class="sidebar-link" :aria-current="showFlows ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openFlows"><UiIcon name="branch" :size="16" /><span>流水线</span></button></nav>
+      <nav class="sidebar-links" aria-label="功能"><button class="sidebar-link" :aria-current="showAutomations ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openAutomations"><UiIcon name="clock" :size="16" /><span>自动化</span></button><button class="sidebar-link" :aria-current="showMemories ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openMemories()"><UiIcon name="memory" :size="16" /><span>记忆</span></button><button class="sidebar-link" :aria-current="showGroups ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openGroups"><UiIcon name="users" :size="16" /><span>群聊</span></button><button class="sidebar-link" :aria-current="showFlows ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="openFlows"><UiIcon name="branch" :size="16" /><span>流水线</span><span v-if="waitingFlowCount" class="sidebar-link-badge" :aria-label="`${waitingFlowCount} 件流水线事项待处理`">{{ waitingFlowCount }}</span></button></nav>
       <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
       <nav class="session-navigation" aria-label="会话列表">
         <div v-if="sessionGroups.length" class="session-section-label">工作区</div>
@@ -1142,10 +1151,10 @@ onUnmounted(() => {
       </div>
       </div>
     </main>
-    <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
+    <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @open-flow="openFlowTask" @expand-sidebar="sidebarCollapsed = false" />
     <MemoriesPage v-if="showMemories" v-show="!showSettings" :workspaces="workspaces" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" @open-settings="openSettings('memory')" />
     <GroupChatsPage v-if="showGroups" ref="groupPage" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" @studio="setGroupStudio" />
-    <FlowsPage v-if="showFlows" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
+    <FlowsPage v-if="showFlows" ref="flowPage" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
     <DesktopUpdateNotice @details="openSettings('updates')" />
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
       <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="20" /></button></header>

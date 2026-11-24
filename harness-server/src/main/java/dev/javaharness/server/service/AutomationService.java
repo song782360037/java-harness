@@ -3,6 +3,7 @@ package dev.javaharness.server.service;
 import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.automation.AutomationStore.Automation;
 import dev.javaharness.adapters.automation.AutomationStore.Execution;
+import dev.javaharness.adapters.flow.FlowStore;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ModelSelection;
 import dev.javaharness.spi.run.AgentEngine;
@@ -40,7 +41,7 @@ public final class AutomationService implements AutoCloseable {
     private static final DateTimeFormatter TITLE_TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm");
     private static final Logger log = LoggerFactory.getLogger(AutomationService.class);
 
-    /** 新建或编辑请求；revision 新建时为 0，reasoningEffort 为 null 表示使用模型配置默认值，approvalMode 为 null 视为手动审批。 */
+    /** 新建或编辑请求；flowId 非空时触发流水线，revision 新建时为 0，reasoningEffort 为 null 表示使用模型配置默认值。 */
     public record Draft(
             long revision,
             String name,
@@ -54,7 +55,39 @@ public final class AutomationService implements AutoCloseable {
             String cron,
             boolean allowCommands,
             String approvalMode,
-            boolean enabled) {}
+            boolean enabled,
+            String flowId) {
+        public Draft(
+                long revision,
+                String name,
+                String prompt,
+                String workspaceId,
+                String modelProfileId,
+                String reasoningEffort,
+                String scheduleKind,
+                String scheduleTime,
+                int scheduleWeekday,
+                String cron,
+                boolean allowCommands,
+                String approvalMode,
+                boolean enabled) {
+            this(
+                    revision,
+                    name,
+                    prompt,
+                    workspaceId,
+                    modelProfileId,
+                    reasoningEffort,
+                    scheduleKind,
+                    scheduleTime,
+                    scheduleWeekday,
+                    cron,
+                    allowCommands,
+                    approvalMode,
+                    enabled,
+                    "");
+        }
+    }
 
     private final AutomationStore store;
     private final SessionStore sessions;
@@ -66,6 +99,8 @@ public final class AutomationService implements AutoCloseable {
     private ScheduledExecutorService scheduler;
     private volatile boolean closed;
     private DesktopUpdateGate updateGate;
+    private FlowStore flows;
+    private FlowOrchestrator flowOrchestrator;
 
     public AutomationService(
             AutomationStore store,
@@ -87,6 +122,12 @@ public final class AutomationService implements AutoCloseable {
     /** 桌面模式下让定时提交与更新准备共享同一个入口锁。 */
     public void useUpdateGate(DesktopUpdateGate gate) {
         updateGate = gate;
+    }
+
+    /** 绑定流水线存储与调度器，支持定时或手动触发流水线事项。 */
+    public void useFlows(FlowStore flows, FlowOrchestrator orchestrator) {
+        this.flows = flows;
+        this.flowOrchestrator = orchestrator;
     }
 
     /** Start checking due automations; the first check also handles runs missed while stopped. */
@@ -126,20 +167,30 @@ public final class AutomationService implements AutoCloseable {
     public synchronized Automation save(String id, Draft draft) {
         String name = draft.name() == null ? "" : draft.name().strip();
         String prompt = draft.prompt() == null ? "" : draft.prompt().strip();
+        String flowId = draft.flowId() == null ? "" : draft.flowId().strip();
         if (name.isEmpty() || name.length() > 100) throw new HarnessException("INVALID", "名称需为 1–100 个字符");
-        if (prompt.isEmpty()) throw new HarnessException("INVALID", "提示词不能为空");
+        if (flowId.isEmpty() && prompt.isEmpty()) throw new HarnessException("INVALID", "提示词不能为空");
+        if (!flowId.isEmpty() && prompt.length() > FlowOrchestrator.MAX_INPUT)
+            throw new HarnessException("INVALID", "事项说明不能超过 " + FlowOrchestrator.MAX_INPUT + " 个字符");
         var existing = id.isEmpty() ? null : store.get(id);
-        String workspaceId = draft.workspaceId() == null ? "" : draft.workspaceId();
+        String workspaceId = flowId.isEmpty() && draft.workspaceId() != null ? draft.workspaceId() : "";
         String profileId =
                 draft.modelProfileId() == null || draft.modelProfileId().isEmpty() ? "default" : draft.modelProfileId();
         // Unchanged references are not revalidated, so an automation can still be paused after they are deleted.
-        if (!workspaceId.isEmpty() && (existing == null || !workspaceId.equals(existing.workspaceId())))
-            sessions.workspace(workspaceId);
-        if (existing == null || !profileId.equals(existing.modelProfileId())) settings.profile(profileId);
-        if (draft.reasoningEffort() != null && !ModelSelection.EFFORTS.contains(draft.reasoningEffort()))
+        if (!flowId.isEmpty()) {
+            if (flows == null) throw new HarnessException("UNAVAILABLE", "流水线服务未启用");
+            if (existing == null || !flowId.equals(existing.flowId())) flows.get(flowId);
+        } else {
+            if (!workspaceId.isEmpty() && (existing == null || !workspaceId.equals(existing.workspaceId())))
+                sessions.workspace(workspaceId);
+            if (existing == null || !profileId.equals(existing.modelProfileId())) settings.profile(profileId);
+        }
+        String reasoningEffort = flowId.isEmpty() ? draft.reasoningEffort() : null;
+        if (reasoningEffort != null && !ModelSelection.EFFORTS.contains(reasoningEffort))
             throw new HarnessException("INVALID", "不支持的思考强度");
-        ApprovalMode approvalMode =
-                draft.approvalMode() == null ? ApprovalMode.MANUAL : ApprovalMode.parse(draft.approvalMode());
+        ApprovalMode approvalMode = !flowId.isEmpty() || draft.approvalMode() == null
+                ? ApprovalMode.MANUAL
+                : ApprovalMode.parse(draft.approvalMode());
         String kind = draft.scheduleKind() == null ? "" : draft.scheduleKind();
         String time = draft.scheduleTime() == null ? "09:00" : draft.scheduleTime();
         String cron = cron(kind, time, draft.scheduleWeekday(), draft.cron());
@@ -150,28 +201,32 @@ public final class AutomationService implements AutoCloseable {
                 name,
                 prompt,
                 workspaceId,
-                profileId,
-                draft.reasoningEffort(),
+                flowId.isEmpty() ? profileId : "default",
+                reasoningEffort,
                 kind,
                 time,
                 draft.scheduleWeekday(),
                 cron,
-                draft.allowCommands(),
+                flowId.isEmpty() && draft.allowCommands(),
                 approvalMode.name(),
                 draft.enabled(),
                 draft.enabled() ? next(cron, now) : null,
                 existing == null ? now : existing.createdAt(),
-                draft.revision()));
+                draft.revision(),
+                flowId));
     }
 
     public synchronized void delete(String id, long revision) {
         store.delete(id, revision);
     }
 
-    /** Trigger immediately without moving the schedule; rejected while the previous run is still active. */
+    /** Trigger immediately without moving the schedule; rejected while the previous run or flow item is still open. */
     public synchronized Execution runNow(String id) {
         var automation = store.get(id);
-        if (running(automation)) throw new HarnessException("CONFLICT", "上一次运行仍在进行，请等待完成或停止后再试");
+        if (running(automation))
+            throw new HarnessException(
+                    "CONFLICT",
+                    automation.flowId().isEmpty() ? "上一次运行仍在进行，请等待完成或停止后再试" : "上一次流水线事项仍在流转或等待处理，请处理完成或停止后再试");
         return trigger(automation, "MANUAL", null);
     }
 
@@ -220,7 +275,14 @@ public final class AutomationService implements AutoCloseable {
                     null);
         if (latest == null) return;
         if (running(automation)) {
-            store.record(automation.id(), "SCHEDULED", latest, now, "SKIPPED", "上一次运行仍在进行，已跳过本次", null);
+            store.record(
+                    automation.id(),
+                    "SCHEDULED",
+                    latest,
+                    now,
+                    "SKIPPED",
+                    automation.flowId().isEmpty() ? "上一次运行仍在进行，已跳过本次" : "上一次流水线事项仍在流转或等待处理，已跳过本次",
+                    null);
             return;
         }
         trigger(automation, latest.isBefore(now.minus(ON_TIME)) ? "CATCH_UP" : "SCHEDULED", latest);
@@ -236,8 +298,11 @@ public final class AutomationService implements AutoCloseable {
 
     private boolean running(Automation automation) {
         var latest = store.latestStarted(automation.id());
-        return latest != null
-                && latest.runStatus() != null
+        if (latest == null) return false;
+        if (latest.flowItemStatus() != null)
+            return latest.flowItemStatus().equals("RUNNING")
+                    || latest.flowItemStatus().equals("WAITING");
+        return latest.runStatus() != null
                 && RunStatus.valueOf(latest.runStatus()).active();
     }
 
@@ -246,6 +311,28 @@ public final class AutomationService implements AutoCloseable {
         String title = automation.name() + " · " + TITLE_TIME.format(now.atZone(zone));
         if (title.length() > 100)
             title = automation.name().substring(0, Math.min(automation.name().length(), 100));
+        if (!automation.flowId().isEmpty()) {
+            if (flowOrchestrator == null)
+                return store.record(automation.id(), trigger, scheduledFor, now, "FAILED", "流水线服务未启用", null);
+            try {
+                var item = flowOrchestrator.start(automation.flowId(), title, automation.prompt());
+                return store.record(
+                        automation.id(),
+                        trigger,
+                        scheduledFor,
+                        now,
+                        "STARTED",
+                        "",
+                        item.sessionId(),
+                        item.flowId(),
+                        item.id());
+            } catch (HarnessException error) {
+                return store.record(automation.id(), trigger, scheduledFor, now, "FAILED", error.getMessage(), null);
+            } catch (RuntimeException error) {
+                log.warn("Automation {} flow trigger failed", automation.id(), error);
+                return store.record(automation.id(), trigger, scheduledFor, now, "FAILED", "触发流水线失败，请查看服务日志", null);
+            }
+        }
         var selection = new ModelSelection(automation.modelProfileId(), automation.reasoningEffort());
         String sessionId;
         try {
@@ -261,14 +348,13 @@ public final class AutomationService implements AutoCloseable {
         var execution = store.record(automation.id(), trigger, scheduledFor, now, "STARTED", "", sessionId);
         SessionStore.Submission submission;
         try {
-            Supplier<SessionStore.Submission> submit = () ->
-                    engine.submit(
-                            sessionId,
-                            UUID.randomUUID().toString(),
-                            automation.prompt(),
-                            "NORMAL",
-                            selection,
-                            ApprovalMode.valueOf(automation.approvalMode()));
+            Supplier<SessionStore.Submission> submit = () -> engine.submit(
+                    sessionId,
+                    UUID.randomUUID().toString(),
+                    automation.prompt(),
+                    "NORMAL",
+                    selection,
+                    ApprovalMode.valueOf(automation.approvalMode()));
             submission = unattended.submit(sessionId, automation.allowCommands(), submit);
         } catch (HarnessException error) {
             return store.fail(execution.id(), error.getMessage());

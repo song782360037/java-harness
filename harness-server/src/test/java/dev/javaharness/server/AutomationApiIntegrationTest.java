@@ -282,15 +282,16 @@ class AutomationApiIntegrationTest {
         assertThat(post("/automations", invalid).statusCode()).isEqualTo(400);
 
         // 未提交审批模式的旧客户端保持手动审批。
-        var legacy = json.readTree(post("/automations", draft("MANUAL", "09:00", "", false)).body());
+        var legacy = json.readTree(
+                post("/automations", draft("MANUAL", "09:00", "", false)).body());
         assertThat(legacy.path("approvalMode").asText()).isEqualTo("MANUAL");
 
         var smart = draft("MANUAL", "09:00", "", true);
         smart.put("approvalMode", "SMART");
         var created = json.readTree(post("/automations", smart).body());
         assertThat(created.path("approvalMode").asText()).isEqualTo("SMART");
-        var execution = json.readTree(
-                post("/automations/" + created.path("id").asText() + "/run", Map.of()).body());
+        var execution = json.readTree(post("/automations/" + created.path("id").asText() + "/run", Map.of())
+                .body());
         String run = execution.path("runId").asText();
         assertThat(jdbc.queryForObject("SELECT approval_mode FROM harness_run WHERE id=?", String.class, run))
                 .isEqualTo("SMART");
@@ -303,8 +304,8 @@ class AutomationApiIntegrationTest {
         var edited = json.readTree(
                 post("/automations/" + created.path("id").asText(), smart).body());
         assertThat(edited.path("approvalMode").asText()).isEqualTo("FULL_ACCESS");
-        String next = json.readTree(
-                        post("/automations/" + created.path("id").asText() + "/run", Map.of()).body())
+        String next = json.readTree(post("/automations/" + created.path("id").asText() + "/run", Map.of())
+                        .body())
                 .path("runId")
                 .asText();
         assertThat(jdbc.queryForObject("SELECT approval_mode FROM harness_run WHERE id=?", String.class, next))
@@ -414,6 +415,54 @@ class AutomationApiIntegrationTest {
         int sessionCount = sessions.sessions().size();
         post("/automations/" + id + "/run", Map.of());
         assertThat(sessions.sessions()).hasSize(sessionCount);
+    }
+
+    @Test
+    void longPromptAutomationCanBePausedAndWaitingFlowItemBlocksDuplicateTrigger() throws Exception {
+        var longDraft = draft("DAILY", "09:00", "", false);
+        longDraft.put("prompt", "长提示词".repeat(1500));
+        var created = post("/automations", longDraft);
+        assertThat(created.statusCode()).isEqualTo(201);
+        var saved = (ObjectNode) json.readTree(created.body());
+        String id = saved.path("id").asText();
+        longDraft.put("revision", saved.path("revision").asLong());
+        longDraft.put("enabled", false);
+        var paused = post("/automations/" + id, longDraft);
+        assertThat(paused.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(paused.body()).path("enabled").asBoolean()).isFalse();
+
+        // 等待人工处理的流水线事项未结束前，自动化不允许重复触发。
+        var definition = Map.of(
+                "nodes",
+                List.of(
+                        Map.of("key", "start", "type", "TRIGGER", "name", "开始", "description", ""),
+                        Map.of("key", "gate", "type", "HUMAN", "name", "人工确认", "description", "确认后再继续"),
+                        Map.of("key", "agent", "type", "AGENT", "name", "执行员", "description", "执行后续步骤"),
+                        Map.of("key", "done", "type", "END", "name", "完成", "description", "")),
+                "edges",
+                List.of(
+                        Map.of("from", "start", "to", "gate", "label", ""),
+                        Map.of("from", "gate", "to", "agent", "label", "继续"),
+                        Map.of("from", "agent", "to", "done", "label", "")));
+        var flowResponse = post(
+                "/flows",
+                Map.of("name", "人工门禁流水线", "description", "测试等待状态防重入", "workspaceId", "", "definition", definition));
+        assertThat(flowResponse.statusCode()).isEqualTo(201);
+        String flowId =
+                json.readTree(flowResponse.body()).path("flow").path("id").asText();
+        var flowDraft = draft("MANUAL", "09:00", "", false);
+        flowDraft.put("flowId", flowId);
+        flowDraft.put("prompt", "说明");
+        var flowAutoResponse = post("/automations", flowDraft);
+        assertThat(flowAutoResponse.statusCode()).isEqualTo(201);
+        String flowAutoId = json.readTree(flowAutoResponse.body()).path("id").asText();
+
+        var first = post("/automations/" + flowAutoId + "/run", Map.of());
+        assertThat(first.statusCode()).isEqualTo(202);
+        assertThat(json.readTree(first.body()).path("flowItemStatus").asText()).isEqualTo("WAITING");
+        var duplicate = post("/automations/" + flowAutoId + "/run", Map.of());
+        assertThat(duplicate.statusCode()).isEqualTo(409);
+        assertThat(duplicate.body()).contains("等待处理");
     }
 
     static final class MutableClock extends Clock {

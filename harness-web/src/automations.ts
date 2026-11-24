@@ -5,10 +5,12 @@ export interface Automation {
   id: string; name: string; prompt: string; workspaceId: string; modelProfileId: string; reasoningEffort: string | null
   scheduleKind: ScheduleKind; scheduleTime: string; scheduleWeekday: number; cron: string
   allowCommands: boolean; approvalMode: ApprovalMode; enabled: boolean; nextRunAt: string | null; createdAt: string; revision: number
+  flowId: string
 }
 export interface AutomationExecution {
   id: string; automationId: string; trigger: 'SCHEDULED' | 'CATCH_UP' | 'MANUAL'; scheduledFor: string | null; startedAt: string
   status: 'STARTED' | 'SKIPPED' | 'FAILED'; detail: string; sessionId: string | null; runId: string | null; runStatus: string | null
+  flowId?: string | null; flowItemId?: string | null; flowItemStatus?: string | null
 }
 export type AutomationDraft = Omit<Automation, 'id' | 'nextRunAt' | 'createdAt'>
 
@@ -20,7 +22,7 @@ export const weekdays = ['周日', '周一', '周二', '周三', '周四', '周�
 
 export function emptyDraft(workspaceId = '', modelProfileId = 'default'): AutomationDraft {
   return { revision: 0, name: '', prompt: '', workspaceId, modelProfileId, reasoningEffort: null, scheduleKind: 'DAILY',
-    scheduleTime: '09:00', scheduleWeekday: 1, cron: '', allowCommands: false, approvalMode: 'MANUAL', enabled: true }
+    scheduleTime: '09:00', scheduleWeekday: 1, cron: '', allowCommands: false, approvalMode: 'MANUAL', enabled: true, flowId: '' }
 }
 
 /** 列表与详情中展示的调度说明。 */
@@ -37,10 +39,22 @@ export function scheduleLabel(value: Pick<Automation, 'scheduleKind' | 'schedule
 
 export const triggerLabel = (trigger: AutomationExecution['trigger']) => ({ SCHEDULED: '按计划', CATCH_UP: '补跑', MANUAL: '手动' })[trigger]
 
-/** 合并触发状态与运行状态，返回展示文案与语气。 */
-export function executionState(value: Pick<AutomationExecution, 'status' | 'runStatus'>): { label: string; tone: 'active' | 'success' | 'muted' | 'danger' } {
+/** 合并触发状态与运行或流水线状态，返回展示文案与语气。 */
+export function executionState(
+  value: Pick<AutomationExecution, 'status' | 'runStatus' | 'flowItemId' | 'flowItemStatus'>,
+): { label: string; tone: 'active' | 'waiting' | 'success' | 'muted' | 'danger' } {
   if (value.status === 'SKIPPED') return { label: '已跳过', tone: 'muted' }
   if (value.status === 'FAILED') return { label: '触发失败', tone: 'danger' }
+  if (value.flowItemId) {
+    switch (value.flowItemStatus) {
+      case 'RUNNING': return { label: '流转中', tone: 'active' }
+      case 'WAITING': return { label: '待你处理', tone: 'waiting' }
+      case 'COMPLETED': return { label: '已完成', tone: 'success' }
+      case 'STOPPED': return { label: '已停止', tone: 'muted' }
+      case 'FAILED': return { label: '流转失败', tone: 'danger' }
+      default: return { label: '事项已删除', tone: 'muted' }
+    }
+  }
   switch (value.runStatus) {
     case 'QUEUED': case 'RUNNING': case 'CANCELLING': return { label: '运行中', tone: 'active' }
     case 'COMPLETED': return { label: '已完成', tone: 'success' }
