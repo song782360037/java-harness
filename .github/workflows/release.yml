@@ -134,6 +134,7 @@ jobs:
             npx electron-builder --win nsis --x64 --publish never --config.forceCodeSigning=true
             node scripts/verify-update.mjs --platform win --require-signature
           else
+            unset CSC_LINK CSC_KEY_PASSWORD
             npx electron-builder --win nsis --x64 --publish never
             node scripts/verify-update.mjs --platform win
           fi
@@ -148,6 +149,7 @@ jobs:
           if [[ -n "$CSC_LINK" ]]; then
             npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
           else
+            unset CSC_LINK CSC_KEY_PASSWORD
             CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
           fi
           test -f "dist/Java-Harness-${{ needs.verify.outputs.version }}-mac-${{ matrix.arch }}.dmg"

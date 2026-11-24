@@ -4,6 +4,7 @@
   "version": "0.3.0",
   "private": true,
   "description": "Java Harness 桌面客户端",
+  "homepage": "https://github.com/song782360037/java-harness",
   "author": "Java Harness",
   "type": "module",
   "main": "src/main.js",
@@ -61,11 +62,12 @@
     "linux": {
       "icon": "build/icons",
       "category": "Development",
+      "maintainer": "Java Harness <noreply@github.com>",
       "target": [
         "AppImage",
         "deb"
       ],
-      "artifactName": "Java-Harness-${version}-linux-${arch}.${ext}"
+      "artifactName": "Java-Harness-${version}-linux-x64.${ext}"
     },
     "publish": {
       "provider": "github",
