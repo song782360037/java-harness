@@ -120,7 +120,7 @@ npm --prefix harness-web run build
 sh ./mvnw -B -ntp -Pweb clean verify
 
 # 3. 启动本地服务
-java -jar harness-server/target/harness-server-0.2.2.jar
+java -jar harness-server/target/harness-server-0.2.3.jar
 ```
 
 启动后在浏览器访问 <http://127.0.0.1:8080/>，数据默认写入启动目录下的 `data/`。
@@ -144,7 +144,7 @@ java -jar harness-server/target/harness-server-0.2.2.jar
 | **连接器（MCP）** | 将外部 MCP 服务提供的工具接入对话，支持 `stdio` 与 Streamable HTTP。 | 配置本地命令行程序或远端 MCP 服务地址。 |
 | **外部智能体（ACP）** | 在对话中直接把任务委派给 Codex、Claude Code 或其他 ACP v1 智能体。 | 配置本地可信的 ACP v1 stdio 适配器。 |
 
-在聊天输入框键入 `/` 可快速唤起插件命令与外部智能体。示例插件位于 [`examples/plugins`](examples/plugins)，详细说明见 [扩展使用与开发](docs/plugins.md)。
+在聊天输入框键入 `/` 可快速唤起插件命令与外部智能体。示例插件位于 [`examples/plugins`](examples/plugins)，详细说明见 [扩展使用与开发](docs/plugins.md) 与 [外部智能体（ACP）](docs/external-agents.md)。
 
 <details>
 <summary><strong>查看外部智能体（/claude、/codex）配置说明</strong></summary>
@@ -190,6 +190,7 @@ java-harness/
 | --- | --- |
 | [使用与开发参考](docs/usage-and-development.md) | 环境准备、源码构建、热启动开发、模型配置与工作区操作 |
 | [扩展使用与开发](docs/plugins.md) | 插件、技能与 MCP 连接器的安装、配置及开发示例 |
+| [外部智能体（ACP）](docs/external-agents.md) | 通过 ACP v1 接入 Codex、Claude Code 与自定义外部智能体、权限模式及续接规则 |
 | [群聊与协作工坊](docs/group-chat.md) | 多角色成员、隐藏主持人调度、`@` 接力与终止条件 |
 | [固定流水线](docs/flows.md) | 流程生成、岗位流转、人工审核节点与接口说明 |
 | [长期记忆](docs/memory.md) | 自动提炼、历史回填、主题图谱与召回规则 |
