@@ -39,12 +39,10 @@
 
 <div align="center">
 
-<a href="https://github.com/song782360037/java-harness/raw/master/docs/assets/java-harness-promo.mp4">
-  <img src="docs/assets/promo-cover.png" alt="Java Harness 产品宣传片（点击观看 1080p MP4）" width="100%" />
-</a>
+<img src="docs/assets/promo-preview.gif" alt="Java Harness 产品演示动图" width="100%" />
 
 <sub>
-  点击封面观看或下载完整 1080p 演示视频（36s）：
+  完整 1080p 有声高清版（36s MP4）：
   <a href="docs/assets/java-harness-promo.mp4"><code>docs/assets/java-harness-promo.mp4</code></a>
 </sub>
 
@@ -171,12 +169,12 @@ java -jar harness-server/target/harness-server-0.2.2.jar
 ## 系统架构
 
 ```mermaid
-flowchart TB
-  Desktop["harness-desktop<br/>Electron 桌面壳 · 内置精简 JRE"] --> Web["harness-web<br/>Vue 3 · TypeScript · Vite"]
-  Web -- "REST / SSE (127.0.0.1)" --> Server["harness-server<br/>Spring Boot 3.5 · Flyway · H2"]
-  Server --> Adapters["harness-adapters<br/>OpenAI HTTP · 工作区工具 · JDBC"]
-  Server --> Core["harness-core<br/>纯 Java 21 · 执行调度 · 上下文预算 · 仲裁"]
-  Adapters --> SPI["harness-spi<br/>纯 Java 21 · Session / Run / Event 契约"]
+graph TD
+  Desktop["harness-desktop · Electron 桌面壳 · 内置精简 JRE"] --> Web["harness-web · Vue 3 · TypeScript · Vite"]
+  Web -->|"REST + SSE · 127.0.0.1"| Server["harness-server · Spring Boot 3.5 · Flyway · H2"]
+  Server --> Adapters["harness-adapters · OpenAI HTTP · 工作区工具 · JDBC"]
+  Server --> Core["harness-core · 纯 Java 21 · 执行调度 · 上下文预算"]
+  Adapters --> SPI["harness-spi · 纯 Java 21 · Session · Run · Event 契约"]
   Core --> SPI
 ```
 
