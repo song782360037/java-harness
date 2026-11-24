@@ -88,6 +88,7 @@ public final class FlowService {
     private final TransactionTemplate tx;
     private final SettingsService settings;
     private final RunConfigurationSource configurations;
+    private ExternalAgentCatalog externalAgents;
 
     public FlowService(
             FlowStore flows,
@@ -100,6 +101,11 @@ public final class FlowService {
         this.tx = tx;
         this.settings = settings;
         this.configurations = configurations;
+    }
+
+    /** 绑定外部智能体目录，校验岗位引用的 ACP 智能体是否存在。 */
+    public void useExternalAgents(ExternalAgentCatalog externalAgents) {
+        this.externalAgents = externalAgents;
     }
 
     public List<Summary> list() {
@@ -193,8 +199,7 @@ public final class FlowService {
     }
 
     public Snapshot create(Draft draft) {
-        if (draft.definition() == null || draft.definition().isNull())
-            throw new HarnessException("INVALID", "请先生成流程");
+        if (draft.definition() == null || draft.definition().isNull()) throw new HarnessException("INVALID", "请先生成流程");
         Flow value = validated("", draft, null);
         String id = write(() -> flows.save(value)).id();
         return snapshot(id);
@@ -209,14 +214,14 @@ public final class FlowService {
 
     /** Item sessions are driven only by their flow; reading them stays allowed. */
     public void requireOrdinary(String sessionId) {
-        if (flows.itemBySession(sessionId) != null)
-            throw new HarnessException("CONFLICT", "这是流水线事项的会话，请在流水线中处理");
+        if (flows.itemBySession(sessionId) != null) throw new HarnessException("CONFLICT", "这是流水线事项的会话，请在流水线中处理");
     }
 
     private Flow validated(String id, Draft draft, Flow existing) {
         String name = draft.name() == null ? "" : draft.name().strip();
         if (name.isEmpty() || name.length() > 100) throw new HarnessException("INVALID", "流水线名称需为 1–100 个字符");
-        String description = draft.description() == null ? "" : draft.description().strip();
+        String description =
+                draft.description() == null ? "" : draft.description().strip();
         if (description.length() > 2000) throw new HarnessException("INVALID", "需求描述不能超过 2000 个字符");
         String workspaceId = draft.workspaceId() == null ? "" : draft.workspaceId();
         if (!workspaceId.isEmpty() && (existing == null || !workspaceId.equals(existing.workspaceId())))
@@ -225,11 +230,17 @@ public final class FlowService {
         if (draft.definition() == null || draft.definition().isNull()) definition = existing.definition();
         else {
             FlowDefinition parsed = parse(draft.definition());
-            parsed.nodes().stream()
-                    .filter(node -> node.type().equals("AGENT"))
-                    .map(Node::modelProfileId)
-                    .distinct()
-                    .forEach(this::profile);
+            FlowDefinition previous = existing == null ? null : FlowDefinition.parse(existing.definition());
+            for (Node node : parsed.nodes()) {
+                if (!node.type().equals("AGENT")) continue;
+                Node old = previous == null ? null : previous.node(node.key());
+                if (!node.externalAgentId().isEmpty()) {
+                    if (old == null || !node.externalAgentId().equals(old.externalAgentId()))
+                        externalAgent(node.externalAgentId());
+                } else {
+                    profile(node.modelProfileId());
+                }
+            }
             definition = parsed.json();
         }
         return new Flow(
@@ -260,19 +271,26 @@ public final class FlowService {
         }
     }
 
+    private void externalAgent(String id) {
+        if (externalAgents == null || externalAgents.get(id) == null)
+            throw new HarnessException("INVALID", "岗位所选的外部智能体不存在，请重新选择");
+    }
+
     /**
      * Ask the model to design a flow for the requirement, or to change the given definition. An invalid answer is
      * sent back once with the reason. Agents of a changed flow keep their settings; new agents use the chosen model.
      */
     public Proposal design(Design request) {
-        String description = request.description() == null ? "" : request.description().strip();
+        String description =
+                request.description() == null ? "" : request.description().strip();
         if (description.isEmpty() || description.length() > 2000)
             throw new HarnessException("INVALID", "需求描述需为 1–2000 个字符");
         boolean change = request.definition() != null && !request.definition().isNull();
         FlowDefinition base = change ? parse(request.definition()) : null;
-        String profile = request.modelProfileId() == null || request.modelProfileId().isBlank()
-                ? "default"
-                : request.modelProfileId();
+        String profile =
+                request.modelProfileId() == null || request.modelProfileId().isBlank()
+                        ? "default"
+                        : request.modelProfileId();
         RunConfiguration configuration =
                 configurations.snapshot(new ModelSelection(profile, request.reasoningEffort()));
         if (!configuration.modelInfo().configured()) throw new HarnessException("INVALID", "所选模型未配置完成，请先在设置中配置模型");
@@ -311,8 +329,11 @@ public final class FlowService {
                                 node.description(),
                                 kept.modelProfileId(),
                                 kept.reasoningEffort(),
-                                kept.approvalMode()));
-                    else nodes.add(new Node(node.key(), "AGENT", node.name(), node.description(), profile, null, "MANUAL"));
+                                kept.approvalMode(),
+                                kept.externalAgentId()));
+                    else
+                        nodes.add(new Node(
+                                node.key(), "AGENT", node.name(), node.description(), profile, null, "MANUAL", ""));
                 }
                 String name = root.path("name").asText("").strip();
                 return new Proposal(

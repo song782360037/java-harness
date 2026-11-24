@@ -206,7 +206,9 @@ class FlowApiIntegrationTest {
 
     @Test
     void designsAFlowAndRetriesAnInvalidAnswerOnce() throws Exception {
-        var answers = new ArrayList<>(List.of("我想想……{\"nodes\":[],\"edges\":[]}", "```json\n{\"name\":\"需求评审\"," + DEFINITION.strip().substring(1) + "\n```"));
+        var answers = new ArrayList<>(List.of(
+                "我想想……{\"nodes\":[],\"edges\":[]}",
+                "```json\n{\"name\":\"需求评审\"," + DEFINITION.strip().substring(1) + "\n```"));
         script = call -> answers.removeFirst();
         int saved = get("/flows").size();
 
@@ -216,7 +218,11 @@ class FlowApiIntegrationTest {
         JsonNode proposal = json.readTree(response.body());
         assertThat(proposal.path("name").asText()).isEqualTo("需求评审");
         assertThat(proposal.path("definition").path("nodes")).hasSize(6);
-        assertThat(proposal.path("definition").path("nodes").path(1).path("modelProfileId").asText())
+        assertThat(proposal.path("definition")
+                        .path("nodes")
+                        .path(1)
+                        .path("modelProfileId")
+                        .asText())
                 .isEqualTo("default");
         assertThat(speakers()).containsExactly("DESIGN", "DESIGN");
         assertThat(calls.get(1).content()).contains("不符合规则").contains("3–12 个节点");
@@ -245,28 +251,35 @@ class FlowApiIntegrationTest {
         assertThat(speakers()).containsExactly("审查员", "修改员", "审查员");
         // The second review sees the route so far.
         assertThat(calls.get(2).content()).contains("1. 审查员 → 打回").contains("2. 修改员");
-        assertThat(get("/flow-items/waiting")).extracting(node -> node.path("id").asText()).contains(item);
+        assertThat(get("/flow-items/waiting"))
+                .extracting(node -> node.path("id").asText())
+                .contains(item);
         JsonNode summary = get("/flows").path(0);
         assertThat(summary.path("waiting").asInt()).isEqualTo(1);
 
         // The item session is hidden and cannot be driven as an ordinary session.
         String session = waiting.path("sessionId").asText();
-        assertThat(get("/sessions")).extracting(node -> node.path("id").asText()).doesNotContain(session);
+        assertThat(get("/sessions"))
+                .extracting(node -> node.path("id").asText())
+                .doesNotContain(session);
         assertThat(post(
                                 "/sessions/" + session + "/runs",
                                 Map.of("requestId", UUID.randomUUID().toString(), "prompt", "插一句"))
                         .statusCode())
                 .isEqualTo(409);
 
-        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "没有这个选项")).statusCode())
+        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "没有这个选项"))
+                        .statusCode())
                 .isEqualTo(400);
-        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "同意", "note", "可以上线")).statusCode())
+        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "同意", "note", "可以上线"))
+                        .statusCode())
                 .isEqualTo(200);
         JsonNode done = until(item, "COMPLETED");
         assertThat(route(done)).endsWith("确认:DONE:同意", "已完成:DONE:");
         assertThat(done.path("item").path("detail").asText()).isEqualTo("已完成");
         assertThat(done.path("steps").path(3).path("summary").asText()).isEqualTo("可以上线");
-        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "同意")).statusCode())
+        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "同意"))
+                        .statusCode())
                 .isEqualTo(409);
     }
 
@@ -285,13 +298,16 @@ class FlowApiIntegrationTest {
 
         // Retrying runs the same node again; a failed run waits as well.
         script = call -> FAIL;
-        assertThat(post("/flow-items/" + item + "/retry", Map.of()).statusCode()).isEqualTo(200);
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(route(get("/flow-items/" + item)))
-                .containsExactly("审查员:FAILED:", "审查员:FAILED:"));
+        assertThat(post("/flow-items/" + item + "/retry", Map.of()).statusCode())
+                .isEqualTo(200);
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() ->
+                        assertThat(route(get("/flow-items/" + item))).containsExactly("审查员:FAILED:", "审查员:FAILED:"));
         assertThat(until(item, "WAITING").path("item").path("detail").asText()).contains("未完成");
 
         // The user decides for the agent.
-        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "驳回", "note", "不做")).statusCode())
+        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "驳回", "note", "不做"))
+                        .statusCode())
                 .isEqualTo(200);
         JsonNode done = until(item, "COMPLETED");
         assertThat(route(done)).containsExactly("审查员:FAILED:", "审查员:DONE:驳回", "已驳回:DONE:");
@@ -304,10 +320,12 @@ class FlowApiIntegrationTest {
         hold = new CountDownLatch(1);
 
         String item = start(flow, "长任务");
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(speakers()).containsExactly("审查员"));
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(speakers()).containsExactly("审查员"));
         assertThat(get("/flows").path(0).path("running").asInt()).isEqualTo(1);
         assertThat(post("/flows/" + flow + "/delete", Map.of()).statusCode()).isEqualTo(409);
-        assertThat(post("/flow-items/" + item + "/delete", Map.of()).statusCode()).isEqualTo(409);
+        assertThat(post("/flow-items/" + item + "/delete", Map.of()).statusCode())
+                .isEqualTo(409);
 
         assertThat(post("/flow-items/" + item + "/stop", Map.of()).statusCode()).isEqualTo(200);
         hold.countDown();
@@ -316,14 +334,22 @@ class FlowApiIntegrationTest {
         String session = stopped.path("sessionId").asText();
         // The cancelled run settles without moving the stopped item.
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(get("/sessions/" + session).path("runs").path(0).path("status").asText())
+                .untilAsserted(() -> assertThat(get("/sessions/" + session)
+                                .path("runs")
+                                .path(0)
+                                .path("status")
+                                .asText())
                         .isEqualTo("CANCELLED"));
         assertThat(until(item, "STOPPED").path("steps")).hasSize(1);
 
         assertThat(post("/flows/" + flow + "/delete", Map.of()).statusCode()).isEqualTo(200);
-        assertThat(get("/flows")).extracting(node -> node.path("flow").path("id").asText()).doesNotContain(flow);
+        assertThat(get("/flows"))
+                .extracting(node -> node.path("flow").path("id").asText())
+                .doesNotContain(flow);
         assertThat(client.send(
-                                HttpRequest.newBuilder(uri("/sessions/" + session)).GET().build(),
+                                HttpRequest.newBuilder(uri("/sessions/" + session))
+                                        .GET()
+                                        .build(),
                                 HttpResponse.BodyHandlers.ofString())
                         .statusCode())
                 .isEqualTo(404);
@@ -334,23 +360,23 @@ class FlowApiIntegrationTest {
         String flow = flow();
         hold = new CountDownLatch(1);
         String item = start(flow, "要审批");
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(speakers()).containsExactly("审查员"));
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(speakers()).containsExactly("审查员"));
         JsonNode running = get("/flow-items/" + item);
         assertThat(running.path("item").path("pending").asText()).isEmpty();
-        assertThat(get("/flow-items/waiting")).extracting(node -> node.path("id").asText()).doesNotContain(item);
+        assertThat(get("/flow-items/waiting"))
+                .extracting(node -> node.path("id").asText())
+                .doesNotContain(item);
         String version = summary(flow).path("version").asText();
         String run = running.path("steps").path(0).path("runId").asText();
 
         String question = UUID.randomUUID().toString();
-        jdbc.update(
-                """
+        jdbc.update("""
                 INSERT INTO harness_question(id,run_id,call_id,question,options,multi_select,status,created_at)
                 VALUES (?,?,?,'选择方案','[]',false,'PENDING',CURRENT_TIMESTAMP)
-                """,
-                question,
-                run,
-                question);
-        assertThat(get("/flow-items/" + item).path("item").path("pending").asText()).isEqualTo("ANSWER");
+                """, question, run, question);
+        assertThat(get("/flow-items/" + item).path("item").path("pending").asText())
+                .isEqualTo("ANSWER");
         assertThat(get("/flow-items/waiting"))
                 .filteredOn(node -> node.path("id").asText().equals(item))
                 .extracting(node -> node.path("pending").asText())
@@ -360,7 +386,8 @@ class FlowApiIntegrationTest {
         assertThat(summary.path("waiting").asInt()).isEqualTo(1);
         // The page rereads the flow although nothing in the flow itself changed.
         assertThat(summary.path("version").asText()).isNotEqualTo(version);
-        assertThat(get("/flows/" + flow).path("version").asText()).isEqualTo(summary.path("version").asText());
+        assertThat(get("/flows/" + flow).path("version").asText())
+                .isEqualTo(summary.path("version").asText());
 
         // An approval outranks a question.
         String command = UUID.randomUUID().toString();
@@ -371,18 +398,25 @@ class FlowApiIntegrationTest {
                 command);
         assertThat(get("/flows/" + flow).path("items").path(0).path("pending").asText())
                 .isEqualTo("APPROVAL");
-        assertThat(summary(flow).path("version").asText()).isNotEqualTo(summary.path("version").asText());
+        assertThat(summary(flow).path("version").asText())
+                .isNotEqualTo(summary.path("version").asText());
 
         // Once handled, or once the item no longer travels, it leaves the inbox.
         jdbc.update("UPDATE harness_command SET status='REJECTED' WHERE id=?", command);
-        assertThat(get("/flow-items/" + item).path("item").path("pending").asText()).isEqualTo("ANSWER");
+        assertThat(get("/flow-items/" + item).path("item").path("pending").asText())
+                .isEqualTo("ANSWER");
         // Answering stays possible in the item session although the session itself cannot be driven.
-        assertThat(post("/questions/" + question + "/skip", Map.of()).statusCode()).isEqualTo(200);
-        assertThat(get("/flow-items/" + item).path("item").path("pending").asText()).isEmpty();
+        assertThat(post("/questions/" + question + "/skip", Map.of()).statusCode())
+                .isEqualTo(200);
+        assertThat(get("/flow-items/" + item).path("item").path("pending").asText())
+                .isEmpty();
         jdbc.update("UPDATE harness_question SET status='PENDING' WHERE id=?", question);
         assertThat(post("/flow-items/" + item + "/stop", Map.of()).statusCode()).isEqualTo(200);
-        assertThat(get("/flow-items/" + item).path("item").path("pending").asText()).isEmpty();
-        assertThat(get("/flow-items/waiting")).extracting(node -> node.path("id").asText()).doesNotContain(item);
+        assertThat(get("/flow-items/" + item).path("item").path("pending").asText())
+                .isEmpty();
+        assertThat(get("/flow-items/waiting"))
+                .extracting(node -> node.path("id").asText())
+                .doesNotContain(item);
         assertThat(summary(flow).path("waiting").asInt()).isZero();
     }
 
@@ -399,17 +433,60 @@ class FlowApiIntegrationTest {
         String item = start(flow, "修复导出乱码");
         JsonNode waiting = until(item, "WAITING");
 
-        assertThat(route(waiting))
-                .containsExactly("门禁检查员:DONE:通过", "代码审查员:DONE:通过", "风险评估员:DONE:高风险", "人工验收:WAITING:");
+        assertThat(route(waiting)).containsExactly("门禁检查员:DONE:通过", "代码审查员:DONE:通过", "风险评估员:DONE:高风险", "人工验收:WAITING:");
         assertThat(waiting.path("options")).extracting(JsonNode::asText).containsExactly("合并", "打回");
-        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "合并")).statusCode())
+        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "合并"))
+                        .statusCode())
                 .isEqualTo(200);
-        assertThat(until(item, "COMPLETED").path("item").path("detail").asText()).isEqualTo("可以合并");
+        assertThat(until(item, "COMPLETED").path("item").path("detail").asText())
+                .isEqualTo("可以合并");
+    }
+
+    @Test
+    void builtInNodeReceivesPriorAcpStepSummaryInline() throws Exception {
+        var definition = Map.of(
+                "nodes",
+                List.of(
+                        Map.of("key", "start", "type", "TRIGGER", "name", "开始", "description", ""),
+                        Map.of("key", "first", "type", "AGENT", "name", "前序岗位", "description", "先分析问题"),
+                        Map.of("key", "check", "type", "HUMAN", "name", "人工中转", "description", "确认流转"),
+                        Map.of("key", "second", "type", "AGENT", "name", "内置汇总", "description", "汇总前序结论"),
+                        Map.of("key", "done", "type", "END", "name", "完成", "description", "")),
+                "edges",
+                List.of(
+                        Map.of("from", "start", "to", "first", "label", ""),
+                        Map.of("from", "first", "to", "check", "label", ""),
+                        Map.of("from", "check", "to", "second", "label", "继续"),
+                        Map.of("from", "second", "to", "done", "label", "")));
+        var created = post(
+                "/flows",
+                Map.of("name", "跨执行器交接", "description", "测试 ACP 到内置模型交接", "workspaceId", "", "definition", definition));
+        assertThat(created.statusCode()).isEqualTo(201);
+        String flowId = json.readTree(created.body()).path("flow").path("id").asText();
+        var secondPrompt = new java.util.concurrent.atomic.AtomicReference<String>("");
+        script = call -> {
+            if (call.speaker().equals("内置汇总")) {
+                secondPrompt.set(call.content());
+                return "汇总完成。";
+            }
+            return "ACP 发现关键根因：连接池泄漏。";
+        };
+        String item = start(flowId, "排查线上超时");
+        JsonNode paused = until(item, "WAITING");
+        String firstRunId = paused.path("steps").path(0).path("runId").asText();
+        // 模拟前序岗位由 ACP 执行（内置模型的 contextHistory 会跳过 scenario='ACP'）。
+        jdbc.update("UPDATE harness_run SET scenario='ACP' WHERE id=?", firstRunId);
+        assertThat(post("/flow-items/" + item + "/decide", Map.of("label", "继续"))
+                        .statusCode())
+                .isEqualTo(200);
+        until(item, "COMPLETED");
+        assertThat(secondPrompt.get()).contains("<step_output>").contains("ACP 发现关键根因：连接池泄漏。");
     }
 
     /** The list entry of one flow;the database is shared by the tests of this class. */
     JsonNode summary(String flow) throws Exception {
-        for (JsonNode entry : get("/flows")) if (entry.path("flow").path("id").asText().equals(flow)) return entry;
+        for (JsonNode entry : get("/flows"))
+            if (entry.path("flow").path("id").asText().equals(flow)) return entry;
         throw new AssertionError("flow not listed");
     }
 
@@ -420,7 +497,8 @@ class FlowApiIntegrationTest {
         script = call -> call.speaker().equals("审查员") ? "结论：打回" : "改好了。";
 
         String item = start(flow, "改不完");
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(speakers()).containsExactly("审查员"));
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(speakers()).containsExactly("审查员"));
         // Renaming a node now does not rename it for the travelling item.
         JsonNode snapshot = get("/flows/" + flow);
         var draft = new HashMap<String, Object>();
@@ -441,7 +519,13 @@ class FlowApiIntegrationTest {
         assertThat(failed.path("item").path("detail").asText()).contains("最多 40 步");
         assertThat(failed.path("steps")).hasSize(40);
         assertThat(speakers()).contains("修改员").doesNotContain("返工员");
-        assertThat(get("/flows/" + flow).path("flow").path("definition").path("nodes").path(2).path("name").asText())
+        assertThat(get("/flows/" + flow)
+                        .path("flow")
+                        .path("definition")
+                        .path("nodes")
+                        .path(2)
+                        .path("name")
+                        .asText())
                 .isEqualTo("返工员");
     }
 }

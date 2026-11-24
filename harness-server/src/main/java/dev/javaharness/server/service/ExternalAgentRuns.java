@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -50,6 +52,7 @@ public class ExternalAgentRuns {
     private final ExternalAgentInteractions interactions;
     private final JdbcTemplate jdbc;
     private final Map<String, Task> running = new HashMap<>();
+    private final List<Consumer<Run>> settledListeners = new CopyOnWriteArrayList<>();
     private boolean closed;
 
     public record Probe(String status, String name, String version, boolean resumable) {}
@@ -74,6 +77,52 @@ public class ExternalAgentRuns {
         this.catalog = catalog;
         this.interactions = interactions;
         this.jdbc = jdbc;
+    }
+
+    /** Register a callback notified outside the session store lock once an external run reaches a final status. */
+    public void onSettled(Consumer<Run> listener) {
+        if (listener != null) settledListeners.add(listener);
+    }
+
+    /** Whether this coordinator owns an active external run with the given ID. */
+    public boolean owns(String runId) {
+        synchronized (sessions) {
+            return running.containsKey(runId);
+        }
+    }
+
+    /** Submit a prompt directly to a configured external agent from an internal orchestrator (flow or group). */
+    public SessionStore.Submission submitDirect(String sessionId, String requestId, String prompt, String agentId) {
+        synchronized (sessions) {
+            var agent = catalog.get(agentId);
+            if (agent == null || !agent.enabled()) throw invalid("所选外部智能体未配置或已停用");
+            String text = prompt == null ? "" : prompt.strip();
+            if (text.isEmpty()) throw invalid("外部智能体任务内容不能为空");
+            if (text.length() > 100_000) throw invalid("外部智能体任务文本过长");
+            if (closed || running.size() >= MAX_RUNNING) throw new HarnessException("BUSY", "外部智能体任务繁忙");
+            var session = sessions.snapshot(sessionId).session();
+            var roots = WorkspaceRoots.directories(session.workspace());
+            if (roots.isEmpty()) throw invalid("外部智能体需要绑定包含目录的工作区");
+            Path cwd = realDirectory(roots.getFirst());
+            String workspaceKey = hash(session.workspaceId() + "\n" + session.workspace() + "\n" + cwd);
+            var result = sessions.submit(
+                    sessionId,
+                    requestId,
+                    text,
+                    SCENARIO,
+                    new ModelInfo(PROVIDER, agent.name(), true),
+                    new ModelSelection(agent.id(), ""),
+                    new ModelSelection(session.modelProfileId(), session.reasoningEffort()));
+            if (!result.created()) return result;
+            var task = new Task();
+            String runId = result.run().id();
+            task.thread = Thread.ofVirtual()
+                    .name("acp-run-" + runId)
+                    .unstarted(() -> execute(result.run(), agent, cwd, workspaceKey, text, task));
+            running.put(runId, task);
+            task.thread.start();
+            return result;
+        }
     }
 
     /** Return null for an ordinary Harness message; exact external retries are resolved before profile changes. */
@@ -257,28 +306,39 @@ public class ExternalAgentRuns {
                             error.getClass().getSimpleName(),
                             stderr.isEmpty() ? String.valueOf(error.getMessage()) : stderr);
         } finally {
+            Run settled = null;
             synchronized (sessions) {
                 try {
                     interactions.expire(run.id());
                 } finally {
                     interactions.forget(run.id());
-                    finish(run.id(), task, result, detail);
+                    settled = finish(run.id(), task, result, detail);
+                }
+            }
+            if (settled != null) {
+                for (Consumer<Run> listener : settledListeners) {
+                    try {
+                        listener.accept(settled);
+                    } catch (RuntimeException error) {
+                        System.getLogger(ExternalAgentRuns.class.getName())
+                                .log(System.Logger.Level.WARNING, "External run settled listener failed", error);
+                    }
                 }
             }
         }
     }
 
-    private void finish(String id, Task task, RunStatus result, String detail) {
+    private Run finish(String id, Task task, RunStatus result, String detail) {
         try {
-            RunStatus current = sessions.run(id).status();
-            if (!current.active()) return;
+            Run current = sessions.run(id);
+            if (!current.status().active()) return current;
             if (task.cancelled) {
                 result = RunStatus.CANCELLED;
                 detail = "外部智能体已停止";
             }
-            if ((result == RunStatus.CANCELLED || result == RunStatus.TIMED_OUT) && current != RunStatus.CANCELLING)
-                sessions.transition(id, RunStatus.CANCELLING, "");
-            sessions.transition(id, result, detail);
+            if ((result == RunStatus.CANCELLED || result == RunStatus.TIMED_OUT)
+                    && current.status() != RunStatus.CANCELLING) sessions.transition(id, RunStatus.CANCELLING, "");
+            return sessions.transition(id, result, detail);
         } finally {
             running.remove(id);
         }

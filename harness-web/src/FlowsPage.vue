@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { api, ApiError, approvalModeOptions, reasoningOptions, type ModelProfile, type Workspace } from './api'
+import { api, ApiError, approvalModeOptions, reasoningOptions, type ExternalAgent, type ModelProfile, type Workspace } from './api'
 import { formatTime } from './automations'
 import { isOpen, itemState, needsUser, pendingText, stepStateLabel, type FlowDefinition, type FlowItem, type FlowItemDetail, type FlowNode,
   type FlowProposal, type FlowSnapshot, type FlowSummary } from './flows'
@@ -10,6 +10,7 @@ import UiIcon from './UiIcon.vue'
 const props = defineProps<{ workspaces: Workspace[]; profiles: ModelProfile[]; sidebarCollapsed: boolean; defaultWorkspaceId: string; defaultProfileId: string }>()
 const emit = defineEmits<{ openSession: [id: string]; expandSidebar: [] }>()
 const summaries = ref<FlowSummary[]>([])
+const externalAgents = ref<ExternalAgent[]>([])
 const inbox = ref<FlowItem[]>([])
 const selectedId = ref('')
 const showInbox = ref(false)
@@ -114,10 +115,23 @@ async function openItem(item: Pick<FlowItem, 'id' | 'flowId'>) {
     showInbox.value = false
   }, '事项读取失败')
 }
+async function openTask(flowId: string, itemId?: string) {
+  if (itemId) {
+    await openItem({ id: itemId, flowId })
+    return
+  }
+  if (flowId) await selectFlow(flowId)
+}
+defineExpose({ openTask })
 function selectNode(key: string) {
   const node = flow.value?.definition.nodes.find(item => item.key === key)
   closeSide()
-  if (node) nodeForm.value = { ...node }
+  if (node) nodeForm.value = { ...node, externalAgentId: node.externalAgentId || '' }
+}
+function setNodeExecutor(kind: 'model' | 'acp') {
+  if (!nodeForm.value) return
+  if (kind === 'model') nodeForm.value.externalAgentId = ''
+  else if (!nodeForm.value.externalAgentId) nodeForm.value.externalAgentId = externalAgents.value.find(item => item.enabled)?.id || externalAgents.value[0]?.id || ''
 }
 const saveFlow = async (definition: FlowDefinition | null, name = flow.value!.name, description = flow.value!.description, workspaceId = flow.value!.workspaceId) => {
   snapshot.value = await api<FlowSnapshot>(`/flows/${flow.value!.id}`, { name, description, workspaceId, definition, revision: flow.value!.revision })
@@ -227,6 +241,7 @@ function syncPolling() {
   pollTimer = window.setInterval(poll, 2000)
 }
 onMounted(() => {
+  void api<ExternalAgent[]>('/external-agents').then(list => { externalAgents.value = list }).catch(() => {})
   document.addEventListener('visibilitychange', syncPolling)
   syncPolling()
 })
@@ -327,10 +342,25 @@ onUnmounted(() => {
               <label for="flow-node-name">名称</label><input id="flow-node-name" v-model="nodeForm.name" required maxlength="20" />
               <label for="flow-node-description">{{ nodeForm.type === 'AGENT' ? '职责' : '说明' }}</label><textarea id="flow-node-description" v-model="nodeForm.description" :required="nodeForm.type === 'AGENT'" maxlength="1000" :rows="nodeForm.type === 'AGENT' ? 6 : 3"></textarea>
               <template v-if="nodeForm.type === 'AGENT'">
-                <label for="flow-node-model">模型</label><select id="flow-node-model" v-model="nodeForm.modelProfileId"><option v-if="!profiles.some(item => item.id === nodeForm!.modelProfileId)" :value="nodeForm.modelProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select>
-                <label for="flow-node-effort">思考强度</label><select id="flow-node-effort" v-model="nodeForm.reasoningEffort"><option :value="null">模型默认</option><option v-for="option in efforts" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-                <label for="flow-node-approval">审批模式</label><select id="flow-node-approval" v-model="nodeForm.approvalMode"><option v-for="option in approvalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-                <p class="field-note">{{ approvalModeOptions.find(option => option.value === nodeForm!.approvalMode)?.description }}</p>
+                <label>执行方式</label>
+                <div class="segmented" role="group" aria-label="岗位执行方式">
+                  <button type="button" :aria-pressed="!nodeForm.externalAgentId" @click="setNodeExecutor('model')">内置模型</button>
+                  <button type="button" :aria-pressed="!!nodeForm.externalAgentId" :disabled="!externalAgents.length && !nodeForm.externalAgentId" :title="!externalAgents.length ? '请先在「设置 → 扩展 → 外部智能体」中配置 ACP 智能体' : undefined" @click="setNodeExecutor('acp')">外部智能体 (ACP)</button>
+                </div>
+                <template v-if="nodeForm.externalAgentId">
+                  <label for="flow-node-external-agent">外部智能体</label>
+                  <select id="flow-node-external-agent" v-model="nodeForm.externalAgentId" required>
+                    <option v-if="!externalAgents.some(item => item.id === nodeForm!.externalAgentId)" :value="nodeForm.externalAgentId">外部智能体已不存在，请重新选择</option>
+                    <option v-for="agent in externalAgents" :key="agent.id" :value="agent.id">{{ agent.name }} (/{{ agent.alias }}){{ agent.enabled ? '' : ' · 已停用' }}</option>
+                  </select>
+                  <p class="field-note">由本地 ACP 适配器执行该岗位（需为流水线绑定工作区），权限遵循外部智能体自身配置。</p>
+                </template>
+                <template v-else>
+                  <label for="flow-node-model">模型</label><select id="flow-node-model" v-model="nodeForm.modelProfileId"><option v-if="!profiles.some(item => item.id === nodeForm!.modelProfileId)" :value="nodeForm.modelProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select>
+                  <label for="flow-node-effort">思考强度</label><select id="flow-node-effort" v-model="nodeForm.reasoningEffort"><option :value="null">模型默认</option><option v-for="option in efforts" :key="option.value" :value="option.value">{{ option.label }}</option></select>
+                  <label for="flow-node-approval">审批模式</label><select id="flow-node-approval" v-model="nodeForm.approvalMode"><option v-for="option in approvalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
+                  <p class="field-note">{{ approvalModeOptions.find(option => option.value === nodeForm!.approvalMode)?.description }}</p>
+                </template>
               </template>
             </fieldset>
             <div class="flow-actions"><button type="submit" class="primary" :disabled="busy">保存</button><button type="button" :disabled="busy" @click="closeSide">取消</button></div>

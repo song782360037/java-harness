@@ -57,6 +57,7 @@ public final class GroupOrchestrator implements AutoCloseable {
     // Active rounds by group, and the group of every member run still speaking.
     private final Map<String, Active> active = new HashMap<>();
     private final Map<String, String> runGroups = new HashMap<>();
+    private ExternalAgentRuns externalAgents;
     private boolean closed;
 
     /** In-memory progress of a group's current round. */
@@ -132,6 +133,12 @@ public final class GroupOrchestrator implements AutoCloseable {
         this.configurations = configurations;
         // The engine already marked the member runs of a previous process as interrupted.
         update(groups::interruptRounds);
+    }
+
+    /** 绑定外部智能体运行调度，并在外部运行结束时接续群聊轮次。 */
+    public void useExternalAgents(ExternalAgentRuns externalAgents) {
+        this.externalAgents = externalAgents;
+        if (externalAgents != null) externalAgents.onSettled(this::settled);
     }
 
     public synchronized boolean busy(String groupId) {
@@ -212,7 +219,7 @@ public final class GroupOrchestrator implements AutoCloseable {
         abandonPlan(round);
         for (String runId : List.copyOf(round.running.keySet())) {
             try {
-                engine.cancel(runId);
+                cancelRun(runId);
             } catch (HarnessException error) {
                 // The engine no longer holds an active run only when its settlement failed; stop waiting for it.
                 log.warn("Group {} stops waiting for run {}", groupId, runId, error);
@@ -272,10 +279,8 @@ public final class GroupOrchestrator implements AutoCloseable {
             } else {
                 String detail = run.detail().isBlank() ? "" : "：" + run.detail();
                 String outcome = label(run.status()) + detail;
-                boolean retry = task != null
-                        && current
-                        && run.status() != RunStatus.CANCELLED
-                        && task.attempts < MAX_ATTEMPTS;
+                boolean retry =
+                        task != null && current && run.status() != RunStatus.CANCELLED && task.attempts < MAX_ATTEMPTS;
                 String text = task == null
                         ? member.name() + " 未完成发言（" + outcome + "）"
                         : member.name() + " 未完成任务「" + task.title + "」（" + outcome + "）" + (retry ? "，将重试一次" : "");
@@ -319,7 +324,7 @@ public final class GroupOrchestrator implements AutoCloseable {
             for (var entry : round.running.entrySet()) {
                 runGroups.remove(entry.getKey());
                 try {
-                    engine.cancel(entry.getKey());
+                    cancelRun(entry.getKey());
                 } catch (RuntimeException ignored) {
                     // Best effort: the round is already failing.
                 }
@@ -416,8 +421,7 @@ public final class GroupOrchestrator implements AutoCloseable {
             changed = false;
             for (TaskState task : round.tasks)
                 if (task.status.equals("PENDING")
-                        && task.dependsOn.stream()
-                                .anyMatch(key -> UNFINISHED.contains(byKey.get(key).status))) {
+                        && task.dependsOn.stream().anyMatch(key -> UNFINISHED.contains(byKey.get(key).status))) {
                     saveTask(task, "SKIPPED", "上游任务未完成");
                     changed = true;
                 }
@@ -467,14 +471,8 @@ public final class GroupOrchestrator implements AutoCloseable {
             task.attempts++;
             Member speaker = member;
             try {
-                Run run = engine.submit(
-                                member.sessionId(),
-                                UUID.randomUUID().toString(),
-                                GroupPrompts.taskPrompt(task.title, task.instruction, upstream),
-                                "NORMAL",
-                                new ModelSelection(member.modelProfileId(), member.reasoningEffort()),
-                                ApprovalMode.valueOf(member.approvalMode()))
-                        .run();
+                Run run = submitMember(
+                        round.groupId, member, GroupPrompts.taskPrompt(task.title, task.instruction, upstream));
                 round.running.put(run.id(), new Speaker(member, round.roundId, task));
                 runGroups.put(run.id(), round.groupId);
                 task.runId = run.id();
@@ -501,8 +499,7 @@ public final class GroupOrchestrator implements AutoCloseable {
 
     /** Pending tasks of the round will not run; running ones settle on their own. */
     private void cancelPending(Active round, String detail) {
-        for (TaskState task : round.tasks)
-            if (task.status.equals("PENDING")) saveTask(task, "CANCELLED", detail);
+        for (TaskState task : round.tasks) if (task.status.equals("PENDING")) saveTask(task, "CANCELLED", detail);
     }
 
     /** Record a task's new status; memory changes first so scheduling continues even when the write fails. */
@@ -535,14 +532,7 @@ public final class GroupOrchestrator implements AutoCloseable {
             if (!member.enabled()) continue;
             round.turns++;
             try {
-                Run run = engine.submit(
-                                member.sessionId(),
-                                UUID.randomUUID().toString(),
-                                turn.prompt(),
-                                "NORMAL",
-                                new ModelSelection(member.modelProfileId(), member.reasoningEffort()),
-                                ApprovalMode.valueOf(member.approvalMode()))
-                        .run();
+                Run run = submitMember(round.groupId, member, turn.prompt());
                 round.running.put(run.id(), new Speaker(member, round.roundId, null));
                 runGroups.put(run.id(), round.groupId);
                 update(() -> groups.updateRound(round.roundId, "RUNNING", round.turns, ""));
@@ -599,7 +589,11 @@ public final class GroupOrchestrator implements AutoCloseable {
                 try {
                     if (taskMode)
                         tasks = GroupPrompts.parseTasks(
-                                host(configuration, GroupPrompts.taskInstructions(members), messages, GroupPrompts.taskRequest()),
+                                host(
+                                        configuration,
+                                        GroupPrompts.taskInstructions(members),
+                                        messages,
+                                        GroupPrompts.taskRequest()),
                                 members);
                     else
                         result = GroupPrompts.parse(
@@ -730,6 +724,45 @@ public final class GroupOrchestrator implements AutoCloseable {
         } catch (RuntimeException error) {
             log.warn("Group {} could not finish round {}", round.groupId, round.roundId, error);
         }
+    }
+
+    private Run submitMember(String groupId, Member member, String prompt) {
+        if (!member.externalAgentId().isEmpty()) {
+            if (externalAgents == null) throw new HarnessException("UNAVAILABLE", "外部智能体服务未启用");
+            Group group = groups.get(groupId);
+            List<Member> members = groups.members(groupId).stream()
+                    .filter(item -> item.enabled() || item.id().equals(member.id()))
+                    .toList();
+            String context = GroupPrompts.context(
+                    group,
+                    member,
+                    members,
+                    groups.messages(groupId),
+                    !group.workspaceId().isEmpty(),
+                    text -> text == null ? 0 : Math.max(1, (text.length() + 1) / 2),
+                    16_000);
+            String fullPrompt = context + "\n\n" + prompt;
+            return externalAgents
+                    .submitDirect(
+                            member.sessionId(), UUID.randomUUID().toString(), fullPrompt, member.externalAgentId())
+                    .run();
+        }
+        return engine.submit(
+                        member.sessionId(),
+                        UUID.randomUUID().toString(),
+                        prompt,
+                        "NORMAL",
+                        new ModelSelection(member.modelProfileId(), member.reasoningEffort()),
+                        ApprovalMode.valueOf(member.approvalMode()))
+                .run();
+    }
+
+    private void cancelRun(String runId) {
+        if (externalAgents != null && externalAgents.owns(runId)) {
+            externalAgents.cancel(runId);
+            return;
+        }
+        engine.cancel(runId);
     }
 
     private List<Member> enabled(String groupId) {

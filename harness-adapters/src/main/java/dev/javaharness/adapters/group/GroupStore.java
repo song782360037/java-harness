@@ -27,7 +27,7 @@ public final class GroupStore {
             Instant createdAt,
             long revision) {}
 
-    /** 一个 AI 成员；每个成员通过自己的隐藏会话发言，template 为空表示自定义成员。 */
+    /** 一个 AI 成员；每个成员通过自己的隐藏会话发言，template 为空表示自定义成员，externalAgentId 非空表示通过 ACP 外部智能体执行。 */
     public record Member(
             String id,
             String groupId,
@@ -40,7 +40,37 @@ public final class GroupStore {
             String reasoningEffort,
             String approvalMode,
             int ordinal,
-            boolean enabled) {}
+            boolean enabled,
+            String externalAgentId) {
+        public Member(
+                String id,
+                String groupId,
+                String sessionId,
+                String name,
+                String template,
+                String color,
+                String focus,
+                String modelProfileId,
+                String reasoningEffort,
+                String approvalMode,
+                int ordinal,
+                boolean enabled) {
+            this(
+                    id,
+                    groupId,
+                    sessionId,
+                    name,
+                    template,
+                    color,
+                    focus,
+                    modelProfileId,
+                    reasoningEffort,
+                    approvalMode,
+                    ordinal,
+                    enabled,
+                    "");
+        }
+    }
 
     /** 群消息；author 为 USER、MEMBER 或 SYSTEM，runId 指向成员发言的运行。 */
     public record Message(
@@ -100,7 +130,8 @@ public final class GroupStore {
             rs.getString("reasoning_effort"),
             rs.getString("approval_mode"),
             rs.getInt("ordinal"),
-            rs.getBoolean("enabled"));
+            rs.getBoolean("enabled"),
+            rs.getString("external_agent_id") == null ? "" : rs.getString("external_agent_id"));
     private static final RowMapper<Message> MESSAGE = (rs, row) -> new Message(
             rs.getString("id"),
             rs.getLong("seq"),
@@ -232,13 +263,14 @@ public final class GroupStore {
                 value.id());
         if (duplicate > 0) throw new HarnessException("CONFLICT", "群里已有同名成员");
         String id = value.id().isEmpty() ? UUID.randomUUID().toString() : value.id();
+        String externalAgentId = value.externalAgentId() == null ? "" : value.externalAgentId();
         if (value.id().isEmpty()) {
             jdbc.update(
                     """
                     INSERT INTO harness_group_member(id,group_id,session_id,name,template,color,focus,model_profile_id,
-                        reasoning_effort,approval_mode,ordinal,enabled)
+                        reasoning_effort,approval_mode,ordinal,enabled,external_agent_id)
                     VALUES (?,?,?,?,?,?,?,?,?,?,
-                        (SELECT COALESCE(MAX(ordinal),0)+1 FROM harness_group_member WHERE group_id=?),?)
+                        (SELECT COALESCE(MAX(ordinal),0)+1 FROM harness_group_member WHERE group_id=?),?,?)
                     """,
                     id,
                     value.groupId(),
@@ -251,13 +283,14 @@ public final class GroupStore {
                     value.reasoningEffort(),
                     value.approvalMode(),
                     value.groupId(),
-                    value.enabled());
+                    value.enabled(),
+                    externalAgentId);
             jdbc.update("UPDATE harness_session SET group_id=? WHERE id=?", value.groupId(), value.sessionId());
         } else {
             jdbc.update(
                     """
                     UPDATE harness_group_member SET name=?,color=?,focus=?,model_profile_id=?,reasoning_effort=?,
-                        approval_mode=?,enabled=? WHERE id=?
+                        approval_mode=?,enabled=?,external_agent_id=? WHERE id=?
                     """,
                     value.name(),
                     value.color(),
@@ -266,6 +299,7 @@ public final class GroupStore {
                     value.reasoningEffort(),
                     value.approvalMode(),
                     value.enabled(),
+                    externalAgentId,
                     id);
         }
         touch(value.groupId());
@@ -361,12 +395,10 @@ public final class GroupStore {
      * the engine.
      */
     public void interruptRounds() {
-        for (String groupId : jdbc.queryForList(
-                """
+        for (String groupId : jdbc.queryForList("""
                 SELECT group_id FROM harness_group_round WHERE status='RUNNING'
                 UNION SELECT group_id FROM harness_group_task WHERE status IN ('PENDING','RUNNING')
-                """,
-                String.class)) {
+                """, String.class)) {
             jdbc.update(
                     "UPDATE harness_group_round SET status='INTERRUPTED',detail='服务已重启，协作中断；不会自动继续',state_updated_at=? WHERE group_id=? AND status='RUNNING'",
                     now(),
@@ -429,10 +461,11 @@ public final class GroupStore {
     }
 
     /** A member run shown in the group: an active speaker or the run behind a message. */
-    public record RunState(String id, String sessionId, String status, String workspace, long activity) {}
+    public record RunState(
+            String id, String sessionId, String status, String workspace, String scenario, long activity) {}
 
     // Events that change what the group shows; streamed text and reasoning stay out of the transcript.
-    private static final String VISIBLE_EVENTS = "('STATE','FILE_CHANGE','COMMAND','PLUGIN','WORKSPACE')";
+    private static final String VISIBLE_EVENTS = "('STATE','FILE_CHANGE','COMMAND','PLUGIN','WORKSPACE','QUESTION')";
 
     /**
      * Speaking runs and runs behind messages; activity is the session's latest visible event sequence, so clients
@@ -441,7 +474,7 @@ public final class GroupStore {
     public List<RunState> runs(String groupId) {
         return jdbc.query(
                 """
-                SELECT r.id,r.session_id,r.status,r.workspace,
+                SELECT r.id,r.session_id,r.status,r.workspace,r.scenario,
                     COALESCE((SELECT MAX(e.seq) FROM harness_event e WHERE e.session_id=r.session_id
                         AND e.event_type IN %s),0) AS activity
                 FROM harness_run r JOIN harness_session s ON s.id=r.session_id
@@ -455,6 +488,7 @@ public final class GroupStore {
                         rs.getString("session_id"),
                         rs.getString("status"),
                         rs.getString("workspace"),
+                        rs.getString("scenario"),
                         rs.getLong("activity")),
                 groupId,
                 groupId);

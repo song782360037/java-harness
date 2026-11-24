@@ -9,6 +9,7 @@ export interface Group {
 export interface GroupMember {
   id: string; groupId: string; sessionId: string; name: string; template: string; color: string; focus: string
   modelProfileId: string; reasoningEffort: string | null; approvalMode: ApprovalMode; ordinal: number; enabled: boolean
+  externalAgentId?: string
 }
 export interface GroupMessage {
   id: string; seq: number; roundId: string | null; author: 'USER' | 'MEMBER' | 'SYSTEM'; memberId: string | null
@@ -17,7 +18,7 @@ export interface GroupMessage {
 export type RoundStatus = 'RUNNING' | 'COMPLETED' | 'STOPPED' | 'SUPERSEDED' | 'FAILED' | 'INTERRUPTED'
 export interface GroupRound { id: string; groupId: string; status: RoundStatus; turns: number; detail: string; createdAt: string }
 /** 成员运行的展示状态；activity 变化时刷新该运行的审批卡片。 */
-export interface GroupRunState { id: string; sessionId: string; status: RunStatus; workspace: string; activity: number }
+export interface GroupRunState { id: string; sessionId: string; status: RunStatus; workspace: string; scenario?: string; activity: number }
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'SKIPPED' | 'CANCELLED' | 'INTERRUPTED'
 export interface GroupTask {
   id: string; roundId: string; ordinal: number; key: string; title: string; instruction: string; memberId: string
@@ -35,7 +36,7 @@ export interface GroupDraft {
 }
 export interface MemberDraft {
   name: string; template: string; color: string; focus: string; modelProfileId: string; reasoningEffort: string | null
-  approvalMode: ApprovalMode; enabled: boolean
+  approvalMode: ApprovalMode; enabled: boolean; externalAgentId: string
 }
 
 /** 新建群聊时默认勾选的模板：覆盖需求、实现与验证的最小班子。 */
@@ -84,12 +85,12 @@ export function taskSteps(tasks: GroupTask[]): GroupTask[][] {
 }
 
 export function emptyMemberDraft(profileId = 'default'): MemberDraft {
-  return { name: '', template: '', color: '#4b705b', focus: '', modelProfileId: profileId, reasoningEffort: null, approvalMode: 'MANUAL', enabled: true }
+  return { name: '', template: '', color: '#4b705b', focus: '', modelProfileId: profileId, reasoningEffort: null, approvalMode: 'MANUAL', enabled: true, externalAgentId: '' }
 }
 
 export function memberDraft(member: GroupMember): MemberDraft {
   const { name, template, color, focus, modelProfileId, reasoningEffort, approvalMode, enabled } = member
-  return { name, template, color, focus, modelProfileId, reasoningEffort, approvalMode, enabled }
+  return { name, template, color, focus, modelProfileId, reasoningEffort, approvalMode, enabled, externalAgentId: member.externalAgentId || '' }
 }
 
 /** The @mention being typed right before the caret, or null when the caret is not inside one. */

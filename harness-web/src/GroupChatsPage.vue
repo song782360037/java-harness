@@ -7,6 +7,7 @@ import { modifierKeyLabel, preferences, shouldSendPrompt } from './preferences'
 import MarkdownContent from './MarkdownContent.vue'
 import FileChanges from './FileChanges.vue'
 import Commands from './Commands.vue'
+import ExternalAgentRequests from './ExternalAgentRequests.vue'
 import PluginRunDetails from './PluginRunDetails.vue'
 import RunTimeline from './RunTimeline.vue'
 import GroupSettingsDialog from './GroupSettingsDialog.vue'
@@ -412,6 +413,7 @@ onUnmounted(() => {
                     <Commands :run-id="item.runId!" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :active="false" />
                   </template>
                   <PluginRunDetails v-if="item.runId && runOf(item.runId)" :run-id="item.runId" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :active="false" />
+                  <ExternalAgentRequests v-if="item.runId && runOf(item.runId)?.scenario === 'ACP'" :run-id="item.runId" :revision="`${runOf(item.runId)!.status}:${runOf(item.runId)!.activity}`" :active="false" />
                 </div>
               </article>
             </template>
@@ -422,6 +424,7 @@ onUnmounted(() => {
                 <div class="group-message-heading"><strong>{{ member.name }}</strong><span class="working-label"><span class="activity-dot"></span>{{ run.status === 'CANCELLING' ? '正在停止' : '正在输入…' }}</span></div>
                 <Commands v-if="run.workspace" :run-id="run.id" :revision="`${run.status}:${run.activity}`" :active="run.status === 'RUNNING'" />
                 <PluginRunDetails :run-id="run.id" :revision="`${run.status}:${run.activity}`" :active="run.status === 'RUNNING'" />
+                <ExternalAgentRequests v-if="run.scenario === 'ACP'" :run-id="run.id" :revision="`${run.status}:${run.activity}`" :active="run.status === 'RUNNING'" />
               </div>
             </article>
             <p v-if="snapshot.busy && !speaking.length" class="group-system"><span class="activity-dot"></span>{{ waitingText }}</p>

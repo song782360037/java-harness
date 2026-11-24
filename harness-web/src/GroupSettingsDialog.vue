@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { api, approvalModeOptions, effortLabel, reasoningOptions, type ModelProfile, type Workspace } from './api'
+import { api, approvalModeOptions, effortLabel, reasoningOptions, type ExternalAgent, type ModelProfile, type Workspace } from './api'
 import { avatarText, emptyGroupDraft, emptyMemberDraft, groupDraft, memberDraft, modeOptions,
   type GroupDraft, type GroupMember, type GroupSnapshot, type GroupTemplate, type MemberDraft } from './groups'
 import UiIcon from './UiIcon.vue'
@@ -9,6 +9,7 @@ const emit = defineEmits<{ saved: [value: GroupSnapshot]; deleted: [id: string];
 const dialog = ref<HTMLDialogElement>()
 const form = ref<GroupDraft>(props.snapshot ? groupDraft(props.snapshot.group) : emptyGroupDraft(props.defaultProfileId))
 const members = ref<GroupMember[]>(props.snapshot?.members ?? [])
+const externalAgents = ref<ExternalAgent[]>([])
 const editingMember = ref<{ id: string; draft: MemberDraft } | null>(null)
 const confirmingDelete = ref('')
 const busy = ref(false)
@@ -18,6 +19,16 @@ const groupBusy = computed(() => !!props.snapshot?.busy)
 // 编辑时只能补充群里还没有的模板成员。
 const availableTemplates = computed(() => props.templates.filter(template => !members.value.some(member => member.template === template.key)))
 const profileName = (id: string) => props.profiles.find(item => item.id === id)?.displayName || id
+const agentName = (id: string) => {
+  const found = externalAgents.value.find(item => item.id === id)
+  return found ? `${found.name} (/${found.alias})` : '外部智能体已不存在'
+}
+function setMemberExecutor(kind: 'model' | 'acp') {
+  if (!editingMember.value) return
+  if (kind === 'model') editingMember.value.draft.externalAgentId = ''
+  else if (!editingMember.value.draft.externalAgentId)
+    editingMember.value.draft.externalAgentId = externalAgents.value.find(item => item.enabled)?.id || externalAgents.value[0]?.id || ''
+}
 const message = (cause: unknown, fallback: string) => cause instanceof Error ? cause.message : fallback
 
 function toggleTemplate(key: string) {
@@ -95,6 +106,7 @@ function close(force = false) {
   emit('close')
 }
 onMounted(() => {
+  void api<ExternalAgent[]>('/external-agents').then(list => { externalAgents.value = list }).catch(() => {})
   dialog.value?.showModal()
   dialog.value?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
 })
@@ -133,7 +145,7 @@ onMounted(() => {
           <ul>
             <li v-for="member in members" :key="member.id" :class="{ disabled: !member.enabled }">
               <span class="group-avatar" :style="{ background: member.color }" aria-hidden="true">{{ avatarText(member.name) }}</span>
-              <span class="group-member-copy"><strong>{{ member.name }}<small v-if="!member.enabled">已停用</small></strong><small>{{ profileName(member.modelProfileId) }} · {{ member.reasoningEffort === null ? '模型默认强度' : effortLabel(member.reasoningEffort) }}</small></span>
+              <span class="group-member-copy"><strong>{{ member.name }}<small v-if="!member.enabled">已停用</small></strong><small>{{ member.externalAgentId ? `ACP · ${agentName(member.externalAgentId)}` : `${profileName(member.modelProfileId)} · ${member.reasoningEffort === null ? '模型默认强度' : effortLabel(member.reasoningEffort)}` }}</small></span>
               <span class="group-member-actions">
                 <button type="button" :disabled="busy" @click="toggleMember(member)">{{ member.enabled ? '停用' : '启用' }}</button>
                 <button type="button" class="icon-button" :disabled="busy" :aria-label="`编辑成员 ${member.name}`" title="编辑" @click="editMember(member)"><UiIcon name="edit" :size="14" /></button>
@@ -156,12 +168,27 @@ onMounted(() => {
               <div><label for="group-member-color">颜色</label><input id="group-member-color" v-model="editingMember.draft.color" type="color" /></div>
             </div>
             <label for="group-member-focus">职责与工作侧重点</label><textarea id="group-member-focus" v-model="editingMember.draft.focus" required maxlength="2000" rows="5" placeholder="这个成员负责什么、怎么工作、什么不做"></textarea>
-            <div class="automation-grid">
-              <div><label for="group-member-model">模型</label><select id="group-member-model" v-model="editingMember.draft.modelProfileId"><option v-if="!profiles.some(item => item.id === editingMember!.draft.modelProfileId)" :value="editingMember.draft.modelProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></div>
-              <div><label for="group-member-effort">思考强度</label><select id="group-member-effort" v-model="editingMember.draft.reasoningEffort"><option :value="null">模型默认</option><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
+            <label>执行方式</label>
+            <div class="segmented" role="group" aria-label="成员执行方式">
+              <button type="button" :aria-pressed="!editingMember.draft.externalAgentId" @click="setMemberExecutor('model')">内置模型</button>
+              <button type="button" :aria-pressed="!!editingMember.draft.externalAgentId" :disabled="!externalAgents.length && !editingMember.draft.externalAgentId" :title="!externalAgents.length ? '请先在「设置 → 扩展 → 外部智能体」中配置 ACP 智能体' : undefined" @click="setMemberExecutor('acp')">外部智能体 (ACP)</button>
             </div>
-            <label for="group-member-approval">审批模式</label><select id="group-member-approval" v-model="editingMember.draft.approvalMode" aria-describedby="group-member-approval-note"><option v-for="option in approvalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-            <p id="group-member-approval-note" class="field-note">{{ approvalModeOptions.find(option => option.value === editingMember!.draft.approvalMode)?.description }}</p>
+            <template v-if="editingMember.draft.externalAgentId">
+              <label for="group-member-external-agent">外部智能体</label>
+              <select id="group-member-external-agent" v-model="editingMember.draft.externalAgentId" required>
+                <option v-if="!externalAgents.some(item => item.id === editingMember!.draft.externalAgentId)" :value="editingMember.draft.externalAgentId">外部智能体已不存在，请重新选择</option>
+                <option v-for="agent in externalAgents" :key="agent.id" :value="agent.id">{{ agent.name }} (/{{ agent.alias }}){{ agent.enabled ? '' : ' · 已停用' }}</option>
+              </select>
+              <p class="field-note">由本地 ACP 适配器发言（需为群聊绑定工作区），权限遵循外部智能体自身配置。</p>
+            </template>
+            <template v-else>
+              <div class="automation-grid">
+                <div><label for="group-member-model">模型</label><select id="group-member-model" v-model="editingMember.draft.modelProfileId"><option v-if="!profiles.some(item => item.id === editingMember!.draft.modelProfileId)" :value="editingMember.draft.modelProfileId">模型已不存在，请重新选择</option><option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.displayName }}</option></select></div>
+                <div><label for="group-member-effort">思考强度</label><select id="group-member-effort" v-model="editingMember.draft.reasoningEffort"><option :value="null">模型默认</option><option v-for="option in reasoningOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
+              </div>
+              <label for="group-member-approval">审批模式</label><select id="group-member-approval" v-model="editingMember.draft.approvalMode" aria-describedby="group-member-approval-note"><option v-for="option in approvalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
+              <p id="group-member-approval-note" class="field-note">{{ approvalModeOptions.find(option => option.value === editingMember!.draft.approvalMode)?.description }}</p>
+            </template>
             <label class="check-label"><input v-model="editingMember.draft.enabled" type="checkbox" /> 参与群聊</label>
           </fieldset>
         </form>

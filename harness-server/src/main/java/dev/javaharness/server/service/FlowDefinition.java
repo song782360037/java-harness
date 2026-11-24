@@ -1,5 +1,6 @@
 package dev.javaharness.server.service;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.spi.model.ModelSelection;
@@ -29,7 +30,7 @@ public record FlowDefinition(List<Node> nodes, List<Edge> edges) {
     private static final Set<String> TYPES = Set.of("TRIGGER", "AGENT", "HUMAN", "END");
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** 一个节点；模型配置、思考强度和审批模式只对 AGENT 有意义，其余类型为空。 */
+    /** 一个节点；模型配置、思考强度、审批模式与外部智能体只对 AGENT 有意义，其余类型为空。 */
     public record Node(
             String key,
             String type,
@@ -37,7 +38,19 @@ public record FlowDefinition(List<Node> nodes, List<Edge> edges) {
             String description,
             String modelProfileId,
             String reasoningEffort,
-            String approvalMode) {}
+            String approvalMode,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) String externalAgentId) {
+        public Node(
+                String key,
+                String type,
+                String name,
+                String description,
+                String modelProfileId,
+                String reasoningEffort,
+                String approvalMode) {
+            this(key, type, name, description, modelProfileId, reasoningEffort, approvalMode, "");
+        }
+    }
 
     /** 一条连线；节点有多条出边时 label 是区分分支的结论。 */
     public record Edge(String from, String to, String label) {}
@@ -52,7 +65,10 @@ public record FlowDefinition(List<Node> nodes, List<Edge> edges) {
     }
 
     public Node trigger() {
-        return nodes.stream().filter(node -> node.type().equals("TRIGGER")).findFirst().orElseThrow();
+        return nodes.stream()
+                .filter(node -> node.type().equals("TRIGGER"))
+                .findFirst()
+                .orElseThrow();
     }
 
     /** Outgoing edges of a node in definition order. */
@@ -95,13 +111,15 @@ public record FlowDefinition(List<Node> nodes, List<Edge> edges) {
             if (!TYPES.contains(type)) throw new IllegalArgumentException("节点 " + key + " 的类型无效");
             if (types.put(key, type) != null) throw new IllegalArgumentException("节点 key 重复：" + key);
             String name = value.path("name").asText("").strip();
-            if (name.isEmpty() || name.length() > MAX_NAME || CONTROL.matcher(name).find())
+            if (name.isEmpty()
+                    || name.length() > MAX_NAME
+                    || CONTROL.matcher(name).find())
                 throw new IllegalArgumentException("节点 " + key + " 的名称需为 1–" + MAX_NAME + " 个字符");
             String description = value.path("description").asText("").strip();
             if (description.length() > MAX_DESCRIPTION)
                 throw new IllegalArgumentException("节点「" + name + "」的说明不能超过 " + MAX_DESCRIPTION + " 个字符");
             if (!type.equals("AGENT")) {
-                nodes.add(new Node(key, type, name, description, "", null, ""));
+                nodes.add(new Node(key, type, name, description, "", null, "", ""));
                 continue;
             }
             if (description.isEmpty()) throw new IllegalArgumentException("岗位「" + name + "」缺少职责说明");
@@ -113,11 +131,23 @@ public record FlowDefinition(List<Node> nodes, List<Edge> edges) {
                 throw new IllegalArgumentException("岗位「" + name + "」的思考强度无效");
             String approval = value.path("approvalMode").asText("").strip();
             try {
-                approval = approval.isEmpty() ? ApprovalMode.MANUAL.name() : ApprovalMode.parse(approval).name();
+                approval = approval.isEmpty()
+                        ? ApprovalMode.MANUAL.name()
+                        : ApprovalMode.parse(approval).name();
             } catch (RuntimeException error) {
                 throw new IllegalArgumentException("岗位「" + name + "」的审批模式无效");
             }
-            nodes.add(new Node(key, type, name, description, profile.isEmpty() ? "default" : profile, effort, approval));
+            String externalAgentId = value.path("externalAgentId").asText("").strip();
+            if (externalAgentId.length() > 36) throw new IllegalArgumentException("岗位「" + name + "」的外部智能体标识无效");
+            nodes.add(new Node(
+                    key,
+                    type,
+                    name,
+                    description,
+                    profile.isEmpty() ? "default" : profile,
+                    effort,
+                    approval,
+                    externalAgentId));
         }
         if (nodes.size() < 3 || nodes.size() > MAX_NODES)
             throw new IllegalArgumentException("流程需要 3–" + MAX_NODES + " 个节点");
@@ -164,7 +194,11 @@ public record FlowDefinition(List<Node> nodes, List<Edge> edges) {
         }
         var reachable = reach(List.of(definition.trigger().key()), forward);
         var finishing = reach(
-                nodes.stream().filter(node -> node.type().equals("END")).map(Node::key).toList(), backward);
+                nodes.stream()
+                        .filter(node -> node.type().equals("END"))
+                        .map(Node::key)
+                        .toList(),
+                backward);
         for (Node node : nodes) {
             if (!reachable.contains(node.key())) throw new IllegalArgumentException("节点「" + node.name() + "」无法从触发节点到达");
             if (!finishing.contains(node.key())) throw new IllegalArgumentException("节点「" + node.name() + "」无法走到任何终点");

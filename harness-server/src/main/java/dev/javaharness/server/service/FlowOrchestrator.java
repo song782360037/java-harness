@@ -19,7 +19,10 @@ import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.workspace.WorkspaceTools;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -35,7 +38,7 @@ public final class FlowOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(FlowOrchestrator.class);
     // A loop of rejections ends here instead of running forever.
     static final int MAX_STEPS = 40;
-    private static final int MAX_INPUT = 20_000;
+    static final int MAX_INPUT = 20_000;
 
     private final FlowStore flows;
     private final SessionStore sessions;
@@ -43,6 +46,7 @@ public final class FlowOrchestrator {
     private final AgentEngine engine;
     // The item of every agent run still in flight.
     private final Map<String, String> runItems = new HashMap<>();
+    private ExternalAgentRuns externalAgents;
 
     public FlowOrchestrator(FlowStore flows, SessionStore sessions, TransactionTemplate tx, AgentEngine engine) {
         this.flows = flows;
@@ -51,6 +55,12 @@ public final class FlowOrchestrator {
         this.engine = engine;
         // The engine already marked the runs of a previous process as interrupted.
         update(flows::recover);
+    }
+
+    /** 绑定外部智能体运行调度，并在外部运行结束时接续流水线流转。 */
+    public void useExternalAgents(ExternalAgentRuns externalAgents) {
+        this.externalAgents = externalAgents;
+        if (externalAgents != null) externalAgents.onSettled(this::settled);
     }
 
     /** Trigger the flow: create an item with its hidden session and enter the first node. */
@@ -67,9 +77,17 @@ public final class FlowOrchestrator {
                             FlowPrompts.clip(flow.name() + " · " + name, 99), flow.workspaceId())
                     .id();
             return flows.addItem(
-                    flowId, name, text, sessionId, flow.definition(), definition.trigger().key());
+                    flowId,
+                    name,
+                    text,
+                    sessionId,
+                    flow.definition(),
+                    definition.trigger().key());
         });
-        enter(item.id(), definition, definition.outgoing(definition.trigger().key()).getFirst().to());
+        enter(
+                item.id(),
+                definition,
+                definition.outgoing(definition.trigger().key()).getFirst().to());
         return flows.item(item.id());
     }
 
@@ -123,7 +141,8 @@ public final class FlowOrchestrator {
         if (!item.status().equals("RUNNING") && !item.status().equals("WAITING"))
             throw new HarnessException("CONFLICT", "这件事项已经结束");
         Step step = flows.lastStep(itemId);
-        boolean open = step != null && (step.status().equals("RUNNING") || step.status().equals("WAITING"));
+        boolean open = step != null
+                && (step.status().equals("RUNNING") || step.status().equals("WAITING"));
         update(() -> {
             if (open) flows.updateStep(step.id(), "CANCELLED", "", step.summary(), "已停止");
             flows.updateItem(itemId, "STOPPED", item.nodeKey(), "已停止", item.steps());
@@ -131,7 +150,7 @@ public final class FlowOrchestrator {
         if (item.status().equals("RUNNING") && step != null && step.runId() != null) {
             runItems.remove(step.runId());
             try {
-                engine.cancel(step.runId());
+                cancelRun(step.runId());
             } catch (RuntimeException error) {
                 // The item is already stopped; a run that settled meanwhile no longer needs cancelling.
                 log.warn("Flow item {} could not cancel run {}", itemId, step.runId(), error);
@@ -198,7 +217,7 @@ public final class FlowOrchestrator {
                             "",
                             "",
                             FlowPrompts.clip(outcome, 499));
-                    park(item,"「" + node.name() + "」未完成（" + outcome + "），可重试或直接选择下一步");
+                    park(item, "「" + node.name() + "」未完成（" + outcome + "），可重试或直接选择下一步");
                 });
                 return;
             }
@@ -208,7 +227,7 @@ public final class FlowOrchestrator {
             if (edge == null) {
                 update(() -> {
                     flows.updateStep(step.id(), "WAITING", "", reply, "没有给出明确结论");
-                    park(item,"「" + node.name() + "」没有给出明确结论，请你选择下一步");
+                    park(item, "「" + node.name() + "」没有给出明确结论，请你选择下一步");
                 });
                 return;
             }
@@ -219,7 +238,7 @@ public final class FlowOrchestrator {
             // An item left running would never move again.
             try {
                 Item item = flows.item(itemId);
-                if (item.status().equals("RUNNING")) update(() -> park(item,"流转出错，可重试当前环节或直接选择下一步"));
+                if (item.status().equals("RUNNING")) update(() -> park(item, "流转出错，可重试当前环节或直接选择下一步"));
             } catch (RuntimeException ignored) {
                 // The item is gone or the store is failing; restart recovery makes it wait.
             }
@@ -258,21 +277,31 @@ public final class FlowOrchestrator {
         Run[] submitted = new Run[1];
         try {
             Session session = sessions.snapshot(item.sessionId()).session();
+            List<Step> history = flows.steps(itemId);
             String prompt = FlowPrompts.step(
                     flows.get(item.flowId()).name(),
                     definition,
                     node,
                     item,
-                    flows.steps(itemId),
+                    history,
+                    inlineSummaries(node, history),
                     !session.workspace().isEmpty());
-            Run run = engine.submit(
-                            item.sessionId(),
-                            UUID.randomUUID().toString(),
-                            prompt,
-                            "NORMAL",
-                            new ModelSelection(node.modelProfileId(), node.reasoningEffort()),
-                            ApprovalMode.valueOf(node.approvalMode()))
-                    .run();
+            Run run;
+            if (!node.externalAgentId().isEmpty()) {
+                if (externalAgents == null) throw new HarnessException("UNAVAILABLE", "外部智能体服务未启用");
+                run = externalAgents
+                        .submitDirect(item.sessionId(), UUID.randomUUID().toString(), prompt, node.externalAgentId())
+                        .run();
+            } else {
+                run = engine.submit(
+                                item.sessionId(),
+                                UUID.randomUUID().toString(),
+                                prompt,
+                                "NORMAL",
+                                new ModelSelection(node.modelProfileId(), node.reasoningEffort()),
+                                ApprovalMode.valueOf(node.approvalMode()))
+                        .run();
+            }
             submitted[0] = run;
             runItems.put(run.id(), itemId);
             update(() -> {
@@ -283,11 +312,12 @@ public final class FlowOrchestrator {
             // For example a deleted model profile: the user fixes it and retries. A run that started but could not
             // be recorded is cancelled, so the item never stays running without a step to settle.
             String reason = error instanceof HarnessException ? error.getMessage() : "提交运行失败";
-            if (!(error instanceof HarnessException)) log.warn("Flow item {} could not enter {}", itemId, nodeKey, error);
+            if (!(error instanceof HarnessException))
+                log.warn("Flow item {} could not enter {}", itemId, nodeKey, error);
             if (submitted[0] != null) {
                 runItems.remove(submitted[0].id());
                 try {
-                    engine.cancel(submitted[0].id());
+                    cancelRun(submitted[0].id());
                 } catch (RuntimeException ignored) {
                     // Already settled or gone.
                 }
@@ -342,6 +372,40 @@ public final class FlowOrchestrator {
                 extension.close();
             }
         };
+    }
+
+    /**
+     * Identify prior agent steps whose outputs are not visible in the target executor's session history:
+     * external ACP nodes never receive Harness history, and built-in model nodes skip prior ACP runs.
+     */
+    private Set<String> inlineSummaries(Node target, List<Step> history) {
+        boolean toExternal = !target.externalAgentId().isEmpty();
+        var ids = new HashSet<String>();
+        for (Step step : history) {
+            if (!step.nodeType().equals("AGENT") || step.summary().isBlank()) continue;
+            if (toExternal) {
+                ids.add(step.id());
+                continue;
+            }
+            if (step.runId() != null) {
+                try {
+                    if (ExternalAgentRuns.SCENARIO.equals(
+                            sessions.run(step.runId()).scenario())) ids.add(step.id());
+                } catch (RuntimeException ignored) {
+                    // Run record missing; keep the step summary inline rather than losing it.
+                    ids.add(step.id());
+                }
+            }
+        }
+        return ids;
+    }
+
+    private void cancelRun(String runId) {
+        if (externalAgents != null && externalAgents.owns(runId)) {
+            externalAgents.cancel(runId);
+            return;
+        }
+        engine.cancel(runId);
     }
 
     private void update(Runnable change) {

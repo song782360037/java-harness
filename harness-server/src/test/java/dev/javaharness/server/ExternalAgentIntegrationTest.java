@@ -126,6 +126,166 @@ class ExternalAgentIntegrationTest {
                 .isFalse();
     }
 
+    @Test
+    void flowStepAndGroupMemberCanRunExternalAcpAgentAndAutomationCanTriggerFlow() throws Exception {
+        var agent = configure("orchestrated");
+        var workspaceResponse = http.postForEntity(
+                "/api/workspaces",
+                Map.of("name", "ACP 项目", "directories", List.of(cwd.toString()), "icon", "folder", "color", "#4b705b"),
+                JsonNode.class);
+        assertThat(workspaceResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String workspaceId = workspaceResponse.getBody().path("id").asText();
+
+        var definition = Map.of(
+                "nodes",
+                List.of(
+                        Map.of("key", "start", "type", "TRIGGER", "name", "开始", "description", ""),
+                        Map.of(
+                                "key",
+                                "worker",
+                                "type",
+                                "AGENT",
+                                "name",
+                                "外部审查员",
+                                "description",
+                                "执行代码检查",
+                                "externalAgentId",
+                                agent.id()),
+                        Map.of(
+                                "key",
+                                "summary",
+                                "type",
+                                "AGENT",
+                                "name",
+                                "外部复核员",
+                                "description",
+                                "基于前序审查结果复核",
+                                "externalAgentId",
+                                agent.id()),
+                        Map.of("key", "done", "type", "END", "name", "完成", "description", "")),
+                "edges",
+                List.of(
+                        Map.of("from", "start", "to", "worker", "label", ""),
+                        Map.of("from", "worker", "to", "summary", "label", ""),
+                        Map.of("from", "summary", "to", "done", "label", "")));
+        var createdFlow = http.postForEntity(
+                "/api/flows",
+                Map.of(
+                        "name",
+                        "ACP 流水线",
+                        "description",
+                        "由外部智能体执行",
+                        "workspaceId",
+                        workspaceId,
+                        "definition",
+                        definition),
+                JsonNode.class);
+        assertThat(createdFlow.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String flowId = createdFlow.getBody().path("flow").path("id").asText();
+
+        var createdAutomation = http.postForEntity(
+                "/api/automations",
+                Map.of(
+                        "revision",
+                        0,
+                        "name",
+                        "每日 ACP 流水线",
+                        "prompt",
+                        "ACP-STEP1-MARKER",
+                        "scheduleKind",
+                        "MANUAL",
+                        "scheduleTime",
+                        "09:00",
+                        "scheduleWeekday",
+                        1,
+                        "cron",
+                        "",
+                        "enabled",
+                        true,
+                        "flowId",
+                        flowId),
+                JsonNode.class);
+        assertThat(createdAutomation.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String automationId = createdAutomation.getBody().path("id").asText();
+
+        var triggered = http.postForEntity("/api/automations/" + automationId + "/run", Map.of(), JsonNode.class);
+        assertThat(triggered.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        String itemId = triggered.getBody().path("flowItemId").asText();
+        assertThat(itemId).isNotBlank();
+        await().atMost(Duration.ofSeconds(15))
+                .until(() -> http.getForObject("/api/flow-items/" + itemId, JsonNode.class)
+                        .path("item")
+                        .path("status")
+                        .asText()
+                        .equals("COMPLETED"));
+        var itemDetail = http.getForObject("/api/flow-items/" + itemId, JsonNode.class);
+        // 第二个 ACP 岗位收到的提示词应包含前序岗位的 step_output，不因跨执行器丢失产出。
+        assertThat(itemDetail.path("steps").path(1).path("summary").asText())
+                .contains("<step_output>")
+                .contains("ACP-STEP1-MARKER");
+        var history = http.getForObject("/api/automations/" + automationId + "/runs", JsonNode.class);
+        assertThat(history.path(0).path("flowId").asText()).isEqualTo(flowId);
+        assertThat(history.path(0).path("flowItemStatus").asText()).isEqualTo("COMPLETED");
+
+        var createdGroup = http.postForEntity(
+                "/api/groups",
+                Map.of("name", "ACP 群聊", "workspaceId", workspaceId, "maxTurns", 4, "templates", List.of()),
+                JsonNode.class);
+        assertThat(createdGroup.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String groupId = createdGroup.getBody().path("group").path("id").asText();
+        var member = http.postForEntity(
+                "/api/groups/" + groupId + "/members",
+                Map.of("name", "外部专家", "focus", "负责外部代码审查", "externalAgentId", agent.id(), "enabled", true),
+                JsonNode.class);
+        assertThat(member.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(member.getBody().path("externalAgentId").asText()).isEqualTo(agent.id());
+        var posted = http.postForEntity(
+                "/api/groups/" + groupId + "/messages",
+                Map.of("requestId", UUID.randomUUID().toString(), "content", "@外部专家 帮忙看看"),
+                JsonNode.class);
+        assertThat(posted.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        await().atMost(Duration.ofSeconds(15)).until(() -> {
+            var snap = http.getForObject("/api/groups/" + groupId, JsonNode.class);
+            for (JsonNode msg : snap.path("messages"))
+                if (msg.path("author").asText().equals("MEMBER")
+                        && msg.path("authorName").asText().equals("外部专家")) return true;
+            return false;
+        });
+        http.postForEntity("/api/groups/" + groupId + "/stop", Map.of(), JsonNode.class);
+        var beforeQuestion = http.getForObject("/api/groups/" + groupId, JsonNode.class);
+        String runId = beforeQuestion.path("runs").path(0).path("id").asText();
+        assertThat(beforeQuestion.path("runs").path(0).path("scenario").asText())
+                .isEqualTo("ACP");
+        String versionBefore = beforeQuestion.path("version").asText();
+        long activityBefore =
+                beforeQuestion.path("runs").path(0).path("activity").asLong();
+        // 新到达的 ACP 审批/追问事件（QUESTION）必须推进群聊版本与运行活动序号。
+        sessions.questionsUpdated(runId);
+        var afterQuestion = http.getForObject("/api/groups/" + groupId, JsonNode.class);
+        assertThat(afterQuestion.path("version").asText()).isNotEqualTo(versionBefore);
+        assertThat(afterQuestion.path("runs").path(0).path("activity").asLong()).isGreaterThan(activityBefore);
+        // 成员改回内置模型后，既有历史运行的 scenario 仍保持 ACP，不隐藏历史交互记录。
+        String memberId = member.getBody().path("id").asText();
+        assertThat(http.postForEntity(
+                                "/api/groups/" + groupId + "/members/" + memberId,
+                                Map.of(
+                                        "name",
+                                        "外部专家",
+                                        "focus",
+                                        "改为内置模型",
+                                        "modelProfileId",
+                                        "default",
+                                        "externalAgentId",
+                                        "",
+                                        "enabled",
+                                        true),
+                                JsonNode.class)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        var afterSwitch = http.getForObject("/api/groups/" + groupId, JsonNode.class);
+        assertThat(afterSwitch.path("runs").path(0).path("scenario").asText()).isEqualTo("ACP");
+    }
+
     private Profile configure(String alias, String... extra) throws Exception {
         String bin = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         String executable = Path.of(System.getProperty("java.home"), "bin", bin).toString();

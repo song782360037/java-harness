@@ -73,6 +73,13 @@ public class ExternalAgentCatalog {
         return candidates.isEmpty() ? null : candidates.getFirst();
     }
 
+    /** Look up one configured external agent by its stable ID, or null if removed. */
+    public Profile get(String id) {
+        if (id == null || id.isBlank()) return null;
+        var candidates = jdbc.query("SELECT * FROM harness_external_agent WHERE id=?", PROFILE, id);
+        return candidates.isEmpty() ? null : candidates.getFirst();
+    }
+
     /** Validate the launch profile before persisting it or testing it. */
     public static Profile validate(Profile form) {
         if (form == null || form.preset() == null || !PRESETS.contains(form.preset())) throw invalid("无效的智能体类型");

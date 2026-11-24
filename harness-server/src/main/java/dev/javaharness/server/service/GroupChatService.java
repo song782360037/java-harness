@@ -42,7 +42,7 @@ public final class GroupChatService {
             long revision,
             List<String> templates) {}
 
-    /** 成员设置；template 为空表示自定义成员，新建时其余空字段取模板值。 */
+    /** 成员设置；template 为空表示自定义成员，externalAgentId 非空表示绑定外部 ACP 智能体，新建时其余空字段取模板值。 */
     public record MemberDraft(
             String name,
             String template,
@@ -51,7 +51,20 @@ public final class GroupChatService {
             String modelProfileId,
             String reasoningEffort,
             String approvalMode,
-            Boolean enabled) {}
+            Boolean enabled,
+            String externalAgentId) {
+        public MemberDraft(
+                String name,
+                String template,
+                String color,
+                String focus,
+                String modelProfileId,
+                String reasoningEffort,
+                String approvalMode,
+                Boolean enabled) {
+            this(name, template, color, focus, modelProfileId, reasoningEffort, approvalMode, enabled, "");
+        }
+    }
 
     /** 群列表项；busy 表示有进行中的协作。 */
     public record Summary(Group group, int members, boolean busy) {}
@@ -72,6 +85,7 @@ public final class GroupChatService {
     private final TransactionTemplate tx;
     private final SettingsService settings;
     private final GroupOrchestrator orchestrator;
+    private ExternalAgentCatalog externalAgents;
 
     public GroupChatService(
             GroupStore groups,
@@ -84,6 +98,11 @@ public final class GroupChatService {
         this.tx = tx;
         this.settings = settings;
         this.orchestrator = orchestrator;
+    }
+
+    /** 绑定外部智能体目录，校验成员引用的 ACP 智能体是否存在。 */
+    public void useExternalAgents(ExternalAgentCatalog externalAgents) {
+        this.externalAgents = externalAgents;
     }
 
     public List<Summary> list() {
@@ -189,8 +208,7 @@ public final class GroupChatService {
 
     /** Member sessions are changed only through their group chat; reading them stays allowed. */
     public void requireOrdinary(String sessionId) {
-        if (groups.memberBySession(sessionId) != null)
-            throw new HarnessException("CONFLICT", "这是群聊成员的会话，请在群聊中管理");
+        if (groups.memberBySession(sessionId) != null) throw new HarnessException("CONFLICT", "这是群聊成员的会话，请在群聊中管理");
     }
 
     /** Delete a member's hidden session; one already gone does not block removing the member or group. */
@@ -225,7 +243,8 @@ public final class GroupChatService {
                 draft.modelProfileId(),
                 draft.reasoningEffort(),
                 draft.approvalMode(),
-                draft.enabled());
+                draft.enabled(),
+                draft.externalAgentId());
         Member value = validated(filled, null, filled.template());
         String sessionId = sessions.createSessionInWorkspace(title(group, value.name()), group.workspaceId())
                 .id();
@@ -241,7 +260,8 @@ public final class GroupChatService {
                 value.reasoningEffort(),
                 value.approvalMode(),
                 0,
-                value.enabled()));
+                value.enabled(),
+                value.externalAgentId()));
     }
 
     private Group validated(String id, GroupDraft draft, Group existing) {
@@ -275,14 +295,27 @@ public final class GroupChatService {
     private Member validated(MemberDraft draft, Member existing, String template) {
         String name = draft.name() == null ? "" : draft.name().strip();
         // The column counts UTF-16 units, so emoji names are bounded by length as well as by code points.
-        if (!MEMBER_NAME.matcher(name).matches() || name.length() > 20) throw new HarnessException("INVALID", "成员昵称需为 1–20 个字符，且不含空格和 @");
+        if (!MEMBER_NAME.matcher(name).matches() || name.length() > 20)
+            throw new HarnessException("INVALID", "成员昵称需为 1–20 个字符，且不含空格和 @");
         if (name.equals("用户") || name.equals("系统")) throw new HarnessException("INVALID", "该昵称已被保留");
         String color = blank(draft.color()) ? "#4b705b" : draft.color();
         if (!COLOR.matcher(color).matches()) throw new HarnessException("INVALID", "请选择有效的颜色");
         String focus = draft.focus() == null ? "" : draft.focus().strip();
         if (focus.isEmpty() || focus.length() > 2000) throw new HarnessException("INVALID", "职责描述需为 1–2000 个字符");
+        String externalAgentId =
+                draft.externalAgentId() == null ? "" : draft.externalAgentId().strip();
+        if (externalAgentId.length() > 36) throw new HarnessException("INVALID", "外部智能体标识无效");
         String profile = blank(draft.modelProfileId()) ? "default" : draft.modelProfileId();
-        if (existing == null || !profile.equals(existing.modelProfileId())) profile(profile);
+        if (!externalAgentId.isEmpty()) {
+            if (existing == null || !externalAgentId.equals(existing.externalAgentId())) {
+                if (externalAgents == null || externalAgents.get(externalAgentId) == null)
+                    throw new HarnessException("INVALID", "所选外部智能体不存在，请重新选择");
+            }
+        } else if (existing == null
+                || !profile.equals(existing.modelProfileId())
+                || !existing.externalAgentId().isEmpty()) {
+            profile(profile);
+        }
         checkEffort(draft.reasoningEffort());
         ApprovalMode mode =
                 draft.approvalMode() == null ? ApprovalMode.MANUAL : ApprovalMode.parse(draft.approvalMode());
@@ -298,7 +331,8 @@ public final class GroupChatService {
                 draft.reasoningEffort(),
                 mode.name(),
                 existing == null ? 0 : existing.ordinal(),
-                draft.enabled() == null || draft.enabled());
+                draft.enabled() == null || draft.enabled(),
+                externalAgentId);
     }
 
     /** A missing model profile is an invalid choice here, not a missing resource. */

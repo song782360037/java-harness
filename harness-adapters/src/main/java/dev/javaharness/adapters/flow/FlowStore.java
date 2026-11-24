@@ -63,7 +63,7 @@ public final class FlowStore {
     /** 岗位运行中等待用户介入的事项；kind 为 APPROVAL（待审批）或 ANSWER（待回答）。 */
     public record Pending(String itemId, String flowId, String kind) {}
 
-    private static final RowMapper<Flow> FLOW =(rs, row) -> new Flow(
+    private static final RowMapper<Flow> FLOW = (rs, row) -> new Flow(
             rs.getString("id"),
             rs.getString("name"),
             rs.getString("description"),
@@ -123,30 +123,17 @@ public final class FlowStore {
         String workspace = value.workspaceId().isEmpty() ? null : value.workspaceId();
         if (value.id().isEmpty()) {
             String id = UUID.randomUUID().toString();
-            jdbc.update(
-                    """
+            jdbc.update("""
                     INSERT INTO harness_flow(id,name,description,workspace_id,definition,created_at,revision)
                     VALUES (?,?,?,?,?,?,1)
-                    """,
-                    id,
-                    value.name(),
-                    value.description(),
-                    workspace,
-                    value.definition(),
-                    now());
+                    """, id, value.name(), value.description(), workspace, value.definition(), now());
             return get(id);
         }
         int updated = jdbc.update(
                 """
                 UPDATE harness_flow SET name=?,description=?,workspace_id=?,definition=?,revision=revision+1,
                     last_seq=last_seq+1 WHERE id=? AND revision=?
-                """,
-                value.name(),
-                value.description(),
-                workspace,
-                value.definition(),
-                value.id(),
-                value.revision());
+                """, value.name(), value.description(), workspace, value.definition(), value.id(), value.revision());
         if (updated == 0) {
             get(value.id());
             throw new HarnessException("CONFLICT", "流水线已被更新，请重新打开后再保存");
@@ -156,7 +143,9 @@ public final class FlowStore {
 
     /** Remove the flow's own rows; item sessions are deleted by the caller first. */
     public void delete(String id) {
-        jdbc.update("DELETE FROM harness_flow_step WHERE item_id IN (SELECT id FROM harness_flow_item WHERE flow_id=?)", id);
+        jdbc.update(
+                "DELETE FROM harness_flow_step WHERE item_id IN (SELECT id FROM harness_flow_item WHERE flow_id=?)",
+                id);
         jdbc.update("DELETE FROM harness_flow_item WHERE flow_id=?", id);
         jdbc.update("DELETE FROM harness_flow WHERE id=?", id);
     }
@@ -173,14 +162,11 @@ public final class FlowStore {
     }
 
     public Counts counts(String flowId) {
-        return jdbc.queryForObject(
-                """
+        return jdbc.queryForObject("""
                 SELECT COALESCE(SUM(CASE WHEN status='RUNNING' THEN 1 ELSE 0 END),0) running,
                     COALESCE(SUM(CASE WHEN status='WAITING' THEN 1 ELSE 0 END),0) waiting
                 FROM harness_flow_item WHERE flow_id=?
-                """,
-                (rs, row) -> new Counts(rs.getInt("running"), rs.getInt("waiting")),
-                flowId);
+                """, (rs, row) -> new Counts(rs.getInt("running"), rs.getInt("waiting")), flowId);
     }
 
     /** Create a RUNNING item standing on the trigger node and mark its session as hidden. */
@@ -188,21 +174,11 @@ public final class FlowStore {
             String flowId, String title, String input, String sessionId, String definition, String nodeKey) {
         String id = UUID.randomUUID().toString();
         OffsetDateTime now = now();
-        jdbc.update(
-                """
+        jdbc.update("""
                 INSERT INTO harness_flow_item(id,flow_id,title,input,session_id,definition,status,node_key,detail,steps,
                     created_at,updated_at)
                 VALUES (?,?,?,?,?,?,'RUNNING',?,'',0,?,?)
-                """,
-                id,
-                flowId,
-                title,
-                input,
-                sessionId,
-                definition,
-                nodeKey,
-                now,
-                now);
+                """, id, flowId, title, input, sessionId, definition, nodeKey, now, now);
         jdbc.update("UPDATE harness_session SET flow_id=? WHERE id=?", flowId, sessionId);
         touch(flowId);
         return item(id);
@@ -246,13 +222,14 @@ public final class FlowStore {
                     SELECT run_id,'APPROVAL' kind FROM harness_command WHERE status='PENDING'
                     UNION ALL SELECT run_id,'APPROVAL' FROM harness_external_approval WHERE status='PENDING'
                     UNION ALL SELECT run_id,'ANSWER' FROM harness_question WHERE status='PENDING'
+                    UNION ALL SELECT run_id,CASE WHEN interaction_kind='permission' THEN 'APPROVAL' ELSE 'ANSWER' END
+                        FROM harness_external_interaction WHERE status='PENDING'
                 ) a JOIN harness_run r ON r.id=a.run_id
                     JOIN harness_run root ON root.id=COALESCE(r.parent_run_id,r.id)
                     JOIN harness_flow_item i ON i.session_id=root.session_id
                 WHERE r.status='RUNNING' AND i.status='RUNNING'
                 GROUP BY i.id,i.flow_id ORDER BY i.id
-                """,
-                (rs, row) -> new Pending(rs.getString("id"), rs.getString("flow_id"), rs.getString("kind")));
+                """, (rs, row) -> new Pending(rs.getString("id"), rs.getString("flow_id"), rs.getString("kind")));
     }
 
     public List<String> sessionIds(String flowId) {
@@ -280,21 +257,11 @@ public final class FlowStore {
 
     public Step addStep(String itemId, String nodeKey, String nodeName, String nodeType, String status, String runId) {
         String id = UUID.randomUUID().toString();
-        jdbc.update(
-                """
+        jdbc.update("""
                 INSERT INTO harness_flow_step(id,item_id,seq,node_key,node_name,node_type,status,outcome,summary,detail,
                     run_id,created_at)
                 VALUES (?,?,(SELECT COALESCE(MAX(seq),0)+1 FROM harness_flow_step WHERE item_id=?),?,?,?,?,'','','',?,?)
-                """,
-                id,
-                itemId,
-                itemId,
-                nodeKey,
-                nodeName,
-                nodeType,
-                status,
-                runId,
-                now());
+                """, id, itemId, itemId, nodeKey, nodeName, nodeType, status, runId, now());
         touch(item(itemId).flowId());
         return jdbc.queryForObject("SELECT * FROM harness_flow_step WHERE id=?", STEP, id);
     }
@@ -319,7 +286,8 @@ public final class FlowStore {
 
     /** The newest step of an item, or null before the first node. */
     public Step lastStep(String itemId) {
-        var rows = jdbc.query("SELECT * FROM harness_flow_step WHERE item_id=? ORDER BY seq DESC LIMIT 1", STEP, itemId);
+        var rows =
+                jdbc.query("SELECT * FROM harness_flow_step WHERE item_id=? ORDER BY seq DESC LIMIT 1", STEP, itemId);
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
@@ -328,13 +296,11 @@ public final class FlowStore {
      * runs are recovered by the engine.
      */
     public void recover() {
-        jdbc.update(
-                """
+        jdbc.update("""
                 UPDATE harness_flow_step SET status='INTERRUPTED',detail='服务已重启' WHERE status='RUNNING'
                     AND item_id IN (SELECT id FROM harness_flow_item WHERE status='RUNNING')
                 """);
-        jdbc.update(
-                """
+        jdbc.update("""
                 UPDATE harness_flow SET last_seq=last_seq+1
                 WHERE id IN (SELECT flow_id FROM harness_flow_item WHERE status='RUNNING')
                 """);

@@ -3,7 +3,7 @@ import type { ApprovalMode } from './api'
 export type FlowNodeType = 'TRIGGER' | 'AGENT' | 'HUMAN' | 'END'
 export interface FlowNode {
   key: string; type: FlowNodeType; name: string; description: string
-  modelProfileId: string; reasoningEffort: string | null; approvalMode: ApprovalMode | ''
+  modelProfileId: string; reasoningEffort: string | null; approvalMode: ApprovalMode | ''; externalAgentId?: string
 }
 export interface FlowEdge { from: string; to: string; label: string }
 export interface FlowDefinition { nodes: FlowNode[]; edges: FlowEdge[] }

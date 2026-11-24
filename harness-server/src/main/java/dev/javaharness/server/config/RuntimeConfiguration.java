@@ -23,6 +23,8 @@ import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.DesktopUpdateGate;
+import dev.javaharness.server.service.ExternalAgentCatalog;
+import dev.javaharness.server.service.ExternalAgentRuns;
 import dev.javaharness.server.service.FlowOrchestrator;
 import dev.javaharness.server.service.FlowService;
 import dev.javaharness.server.service.GroupChatService;
@@ -146,7 +148,8 @@ public class RuntimeConfiguration {
             AgentEngine engine,
             SettingsService settings,
             UnattendedSubmissions unattended,
-            DesktopUpdateGate updates) {
+            DesktopUpdateGate updates,
+            FlowOrchestrator flowOrchestrator) {
         var service = new AutomationService(
                 new AutomationStore(jdbc),
                 sessions,
@@ -156,6 +159,7 @@ public class RuntimeConfiguration {
                 Clock.systemUTC(),
                 ZoneId.systemDefault());
         service.useUpdateGate(updates);
+        service.useFlows(new FlowStore(jdbc), flowOrchestrator);
         return service;
     }
 
@@ -254,10 +258,7 @@ public class RuntimeConfiguration {
 
     @Bean(destroyMethod = "close")
     MemoryService memoryService(
-            JdbcMemoryStore memories,
-            SessionStore sessions,
-            RunConfigurationSource configurations,
-            ObjectMapper json) {
+            JdbcMemoryStore memories, SessionStore sessions, RunConfigurationSource configurations, ObjectMapper json) {
         return new MemoryService(memories, sessions, configurations, json);
     }
 
@@ -293,9 +294,12 @@ public class RuntimeConfiguration {
             PlatformTransactionManager transactions,
             SessionStore sessions,
             AgentEngine engine,
-            RunConfigurationSource configurations) {
-        return new GroupOrchestrator(
+            RunConfigurationSource configurations,
+            ExternalAgentRuns externalAgents) {
+        var orchestrator = new GroupOrchestrator(
                 new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), engine, configurations);
+        orchestrator.useExternalAgents(externalAgents);
+        return orchestrator;
     }
 
     /** Member runs see the group transcript through the settings service's extension capture. */
@@ -306,9 +310,11 @@ public class RuntimeConfiguration {
             PlatformTransactionManager transactions,
             SessionStore sessions,
             SettingsService settings,
-            GroupOrchestrator orchestrator) {
+            GroupOrchestrator orchestrator,
+            ExternalAgentCatalog externalAgents) {
         var service = new GroupChatService(
                 new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), settings, orchestrator);
+        service.useExternalAgents(externalAgents);
         settings.useGroups(service::decorate);
         return service;
     }
@@ -321,9 +327,11 @@ public class RuntimeConfiguration {
             PlatformTransactionManager transactions,
             SessionStore sessions,
             AgentEngine engine,
-            SettingsService settings) {
+            SettingsService settings,
+            ExternalAgentRuns externalAgents) {
         var orchestrator =
                 new FlowOrchestrator(new FlowStore(jdbc), sessions, new TransactionTemplate(transactions), engine);
+        orchestrator.useExternalAgents(externalAgents);
         settings.useFlows(orchestrator::decorate);
         return orchestrator;
     }
@@ -335,9 +343,12 @@ public class RuntimeConfiguration {
             PlatformTransactionManager transactions,
             SessionStore sessions,
             SettingsService settings,
-            RunConfigurationSource configurations) {
-        return new FlowService(
+            RunConfigurationSource configurations,
+            ExternalAgentCatalog externalAgents) {
+        var service = new FlowService(
                 new FlowStore(jdbc), sessions, new TransactionTemplate(transactions), settings, configurations);
+        service.useExternalAgents(externalAgents);
+        return service;
     }
 
     /** 由桌面壳启动时开启：标准输入关闭即视为桌面壳已退出，随之关闭应用。 */
