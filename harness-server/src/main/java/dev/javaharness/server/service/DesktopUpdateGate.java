@@ -43,6 +43,7 @@ public final class DesktopUpdateGate {
             if (count("SELECT COUNT(*) FROM harness_run WHERE status IN ('QUEUED','RUNNING','CANCELLING')") > 0
                     || count("SELECT COUNT(*) FROM harness_group_round WHERE status='RUNNING'") > 0
                     || count("SELECT COUNT(*) FROM harness_group_task WHERE status IN ('PENDING','RUNNING')") > 0
+                    || count("SELECT COUNT(*) FROM harness_flow_item WHERE status='RUNNING'") > 0
                     || count(
                                     "SELECT COUNT(*) FROM harness_command WHERE status IN ('REVIEWING','PENDING','APPROVED','RUNNING','STOPPING')")
                             > 0) throw busy();
@@ -63,6 +64,6 @@ public final class DesktopUpdateGate {
     }
 
     private HarnessException busy() {
-        return new HarnessException("BUSY", "仍有任务、群聊协作或命令正在进行，请完成或停止后再更新");
+        return new HarnessException("BUSY", "仍有任务、群聊协作、流水线或命令正在进行，请完成或停止后再更新");
     }
 }

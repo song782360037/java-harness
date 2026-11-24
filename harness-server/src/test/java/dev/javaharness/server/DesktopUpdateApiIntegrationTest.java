@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.automation.AutomationStore;
+import dev.javaharness.adapters.flow.FlowStore;
 import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.DesktopUpdateGate;
@@ -77,6 +78,7 @@ class DesktopUpdateApiIntegrationTest {
         gate.release();
         sessions.recoverInterruptedRuns();
         jdbc.update("UPDATE harness_group_round SET status='STOPPED' WHERE status='RUNNING'");
+        jdbc.update("UPDATE harness_flow_item SET status='STOPPED' WHERE status='RUNNING'");
         jdbc.update("UPDATE harness_command SET status='INTERRUPTED'");
     }
 
@@ -145,6 +147,19 @@ class DesktopUpdateApiIntegrationTest {
         new GroupStore(jdbc).startRound(id);
         assertThat(post("/desktop/update/prepare", "desktop-test-token", "{}").statusCode())
                 .isEqualTo(409);
+    }
+
+    @Test
+    void runningFlowItemPreventsPreparationWhileWaitingItemAllowsIt() throws Exception {
+        var flows = new FlowStore(jdbc);
+        var flow = flows.save(new FlowStore.Flow("", "release-gate", "test", "", "{}", null, 0));
+        var session = sessions.createSession("flow item");
+        var item = flows.addItem(flow.id(), "check", "", session.id(), "{}", "start");
+        assertThat(post("/desktop/update/prepare", "desktop-test-token", "{}").statusCode())
+                .isEqualTo(409);
+        jdbc.update("UPDATE harness_flow_item SET status='WAITING' WHERE id=?", item.id());
+        assertThat(post("/desktop/update/prepare", "desktop-test-token", "{}").statusCode())
+                .isEqualTo(204);
     }
 
     @Test
