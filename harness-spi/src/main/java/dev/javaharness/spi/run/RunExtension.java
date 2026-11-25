@@ -25,6 +25,16 @@ public interface RunExtension extends AutoCloseable {
     /** Notified once with the final run after the engine settled it and closed this extension. */
     default void settled(Run run) {}
 
+    /** Whether the engine may attach built-in delegate_task subagents to this run. */
+    default boolean allowSubagents() {
+        return true;
+    }
+
+    /** Whether the engine prepends default workspace coding instructions ahead of extension instructions. */
+    default boolean useDefaultGuidance() {
+        return true;
+    }
+
     @Override
     void close();
 

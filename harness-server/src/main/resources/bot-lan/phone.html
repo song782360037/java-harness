@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" />
+  <title>Java Harness · Bot 移动伴侣</title>
+  <style>
+    :root { --bg:#f5f8f6; --card:#ffffff; --text:#1c251f; --muted:#5c6b61; --border:#dde4dd; --accent:#276649; --danger:#a63d34; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#141916; --card:#1e2521; --text:#e8eee9; --muted:#9eb0a3; --border:#2f3932; --accent:#63b98e; --danger:#efb0a7; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100dvh; display:flex; flex-direction:column; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; background:var(--card); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10; }
+    header h1 { margin:0; font-size:16px; }
+    button { font:inherit; cursor:pointer; }
+    .btn { padding:6px 12px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--text); font-size:13px; }
+    .btn.primary { background:var(--accent); color:#fff; border-color:transparent; }
+    .btn.danger { color:var(--danger); }
+    .wrap { flex:1; display:flex; flex-direction:column; max-width:680px; width:100%; margin:0 auto; }
+    .pair-box { margin:auto; padding:28px 22px; text-align:center; background:var(--card); border:1px solid var(--border); border-radius:18px; width:min(340px,90vw); }
+    .pair-code { font-size:44px; font-weight:800; letter-spacing:10px; margin:16px 0; color:var(--accent); font-family:ui-monospace,monospace; }
+    .bot-list { padding:12px; display:flex; flex-direction:column; gap:8px; }
+    .bot-item { display:flex; align-items:center; gap:12px; padding:12px; border-radius:14px; border:1px solid var(--border); background:var(--card); text-align:left; color:var(--text); width:100%; }
+    .avatar { width:38px; height:38px; border-radius:12px; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; flex-shrink:0; }
+    .bot-copy { flex:1; min-width:0; }
+    .bot-copy strong { display:block; font-size:15px; }
+    .bot-copy small { display:block; color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pill { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(39,102,73,.14); color:var(--accent); }
+    .timeline { flex:1; padding:14px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; }
+    .msg { max-width:86%; padding:10px 13px; border-radius:14px; white-space:pre-wrap; word-break:break-word; font-size:14px; line-height:1.5; }
+    .msg.user { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
+    .msg.assistant { align-self:flex-start; background:var(--card); border:1px solid var(--border); border-bottom-left-radius:4px; }
+    .msg.task_result { align-self:flex-start; background:var(--card); border:1px solid var(--border); border-left:3px solid var(--accent); }
+    .composer { display:flex; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); background:var(--card); border-top:1px solid var(--border); position:sticky; bottom:0; }
+    .composer textarea { flex:1; border:1px solid var(--border); border-radius:12px; padding:8px 10px; background:var(--bg); color:var(--text); font:inherit; resize:none; }
+    .drawer { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:30; display:flex; justify-content:flex-end; }
+    .drawer-sheet { width:min(360px,90vw); height:100%; background:var(--card); padding:14px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
+    .card { padding:10px; border-radius:12px; border:1px solid var(--border); background:var(--bg); display:flex; flex-direction:column; gap:6px; font-size:13px; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .app-modal { position:fixed; inset:0; background:var(--card); z-index:40; display:flex; flex-direction:column; }
+    .app-modal iframe { flex:1; border:none; width:100%; background:#fff; }
+  </style>
+</head>
+<body>
+  <div id="app" class="wrap"></div>
+  <script>
+    const state = {
+      authed: false,
+      allowRemoteApproval: false,
+      pair: null,
+      workspace: null,
+      selectedBotId: '',
+      thread: null,
+      approvals: [],
+      drawer: false,
+      openApp: null,
+    };
+
+    async function api(path, body) {
+      const opts = body === undefined
+        ? { credentials: 'same-origin' }
+        : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+      const res = await fetch(path, opts);
+      if (res.status === 401) { state.authed = false; startPairing(); throw new Error('未配对'); }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || '请求失败');
+      return data;
+    }
+
+    async function boot() {
+      try {
+        const me = await api('/lan/api/me');
+        state.authed = true;
+        state.allowRemoteApproval = !!me.allowRemoteApproval;
+        await refresh();
+        setInterval(refresh, 3000);
+      } catch {
+        await startPairing();
+      }
+    }
+
+    async function startPairing() {
+      if (state.pair) return;
+      const res = await fetch('/lan/api/pair/request', { method: 'POST', credentials: 'same-origin' });
+      state.pair = await res.json();
+      render();
+      pollPair();
+    }
+
+    async function pollPair() {
+      if (!state.pair || state.authed) return;
+      try {
+        const res = await fetch('/lan/api/pair/poll?requestId=' + encodeURIComponent(state.pair.requestId), { credentials: 'same-origin' });
+        const data = await res.json();
+        if (data.status === 'PAIRED') {
+          state.pair = null;
+          await boot();
+          return;
+        }
+        if (data.status === 'EXPIRED') {
+          state.pair = null;
+          await startPairing();
+          return;
+        }
+      } catch {}
+      setTimeout(pollPair, 1500);
+    }
+
+    async function refresh() {
+      if (!state.authed) return;
+      state.workspace = await api('/lan/api/bots/workspace');
+      if (state.selectedBotId) {
+        state.thread = await api('/lan/api/bots/' + state.selectedBotId + '/thread');
+      }
+      if (state.allowRemoteApproval) {
+        state.approvals = await api('/lan/api/approvals');
+      }
+      render();
+    }
+
+    function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+    async function openBot(id) {
+      state.selectedBotId = id;
+      state.drawer = false;
+      await api('/lan/api/bots/' + id + '/seen', {});
+      await refresh();
+    }
+
+    async function sendMsg() {
+      const el = document.getElementById('msg-input');
+      const text = el ? el.value.trim() : '';
+      if (!text || !state.selectedBotId) return;
+      el.value = '';
+      await api('/lan/api/bots/' + state.selectedBotId + '/messages', { requestId: crypto.randomUUID(), content: text });
+      await refresh();
+    }
+
+    async function openMiniApp(appId) {
+      state.openApp = await api('/lan/api/bot-apps/' + appId);
+      render();
+    }
+
+    window.addEventListener('message', async event => {
+      const frame = document.getElementById('phone-app-frame');
+      if (!frame || event.source !== frame.contentWindow || !state.openApp) return;
+      const msg = event.data;
+      if (!msg || msg.source !== 'harness-mini-app' || !msg.id) return;
+      const reply = (result, error) => frame.contentWindow.postMessage({ source: 'harness-host', id: msg.id, result, error }, '*');
+      try {
+        if (msg.action === 'getData') reply(state.openApp.data);
+        else if (msg.action === 'setData') {
+          await api('/lan/api/bot-apps/' + state.openApp.app.id + '/data', msg.payload || {});
+          state.openApp.data = msg.payload || {};
+          reply({ ok: true });
+        } else if (msg.action === 'sendMessage') {
+          await api('/lan/api/bots/' + state.openApp.app.botId + '/messages', { requestId: crypto.randomUUID(), content: String(msg.payload || '') });
+          reply({ ok: true });
+          await refresh();
+        }
+      } catch (e) { reply(null, e.message); }
+    });
+
+    function render() {
+      const root = document.getElementById('app');
+      if (!state.authed) {
+        root.innerHTML = `<div class="pair-box"><h2>配对电脑上的 Bot 团队</h2><p style="color:var(--muted);font-size:13px">请在电脑端「设置 → 设备」输入下方 4 位配对码：</p><div class="pair-code">${esc(state.pair ? state.pair.code : '----')}</div><p style="color:var(--muted);font-size:12px">配对码 2 分钟内有效，等待电脑端确认…</p></div>`;
+        return;
+      }
+
+      if (state.openApp) {
+        root.innerHTML = `<div class="app-modal"><header><strong>${esc(state.openApp.app.name)} v${state.openApp.app.version}</strong><button class="btn" id="close-app">关闭</button></header><iframe id="phone-app-frame" sandbox="allow-scripts"></iframe></div>`;
+        document.getElementById('close-app').onclick = () => { state.openApp = null; render(); };
+        document.getElementById('phone-app-frame').srcdoc = state.openApp.html;
+        return;
+      }
+
+      if (!state.selectedBotId) {
+        const bots = (state.workspace && state.workspace.bots) || [];
+        const approvalsBanner = state.approvals.length
+          ? `<div style="padding:12px 12px 0"><div class="card"><strong>待确认命令（${state.approvals.length}）</strong>${state.approvals.map(a => `<div class="row"><span>${esc(a.taskTitle)}: <code>${esc(a.commandText)}</code></span><span><button class="btn primary" data-approve="${a.commandId}">批准</button> <button class="btn danger" data-reject="${a.commandId}">拒绝</button></span></div>`).join('')}</div></div>`
+          : '';
+        root.innerHTML = `<header><h1>Bot 团队</h1><span class="pill">${bots.length} 位成员</span></header>${approvalsBanner}<div class="bot-list">${bots.map(c => `<button class="bot-item" data-bot="${c.bot.id}"><span class="avatar" style="background:${esc(c.bot.color)}">${esc(c.bot.name.slice(0,1))}</span><span class="bot-copy"><strong>${esc(c.bot.name)} · Lv.${c.experience.level}</strong><small>${esc(c.preview || c.bot.roleSummary || '随时待命')}</small></span><span class="pill">${esc(c.status)}</span></button>`).join('')}</div>`;
+        root.querySelectorAll('[data-bot]').forEach(btn => btn.onclick = () => openBot(btn.dataset.bot));
+        root.querySelectorAll('[data-approve]').forEach(btn => btn.onclick = async () => { await api('/lan/api/approvals/' + btn.dataset.approve + '/approve', {}); await refresh(); });
+        root.querySelectorAll('[data-reject]').forEach(btn => btn.onclick = async () => { await api('/lan/api/approvals/' + btn.dataset.reject + '/reject', {}); await refresh(); });
+        return;
+      }
+
+      const t = state.thread;
+      const entries = (t && t.entries) || [];
+      const drawerHtml = state.drawer && t ? `<div class="drawer" id="drawer-scrim"><div class="drawer-sheet"><div class="row"><strong>${esc(t.card.bot.name)} 面板</strong><button class="btn" id="close-drawer">关闭</button></div><div class="card"><strong>例行任务（${t.routines.length}）</strong>${t.routines.map(r => `<div class="row"><span>${esc(r.name)}</span><button class="btn" data-toggle-routine="${r.id}" data-enabled="${!r.enabled}">${r.enabled ? '暂停' : '启用'}</button></div>`).join('') || '<small>暂无</small>'}</div><div class="card"><strong>小程序（${t.apps.length}）</strong>${t.apps.map(a => `<div class="row"><span>${esc(a.name)} v${a.version}</span><button class="btn primary" data-open-app="${a.id}">打开</button></div>`).join('') || '<small>暂无</small>'}</div><div class="card"><strong>后台任务（${t.tasks.length}）</strong>${t.tasks.slice(0,5).map(tk => `<div class="row"><span>${esc(tk.title)} (${esc(tk.status)})</span>${tk.status==='RUNNING' ? `<button class="btn danger" data-cancel-task="${tk.id}">停止</button>` : ''}</div>`).join('') || '<small>暂无</small>'}</div></div></div>` : '';
+      root.innerHTML = `<header><button class="btn" id="back-btn">← 返回</button><h1>${esc(t ? t.card.bot.name : '')}</h1><button class="btn" id="panel-btn">面板</button></header><div class="timeline" id="tl">${entries.map(e => `<div class="msg ${e.kind.toLowerCase()}">${esc(e.content)}</div>`).join('')}${t && t.streaming ? `<div class="msg assistant">${esc(t.streaming.output || '回复中…')}</div>` : ''}</div><form class="composer" id="chat-form"><textarea id="msg-input" rows="1" placeholder="给 Bot 发消息…"></textarea><button type="submit" class="btn primary">发送</button></form>${drawerHtml}`;
+      document.getElementById('back-btn').onclick = () => { state.selectedBotId = ''; state.thread = null; render(); };
+      document.getElementById('panel-btn').onclick = () => { state.drawer = true; render(); };
+      document.getElementById('chat-form').onsubmit = e => { e.preventDefault(); sendMsg(); };
+      const tl = document.getElementById('tl');
+      if (tl) tl.scrollTop = tl.scrollHeight;
+      if (state.drawer) {
+        document.getElementById('close-drawer').onclick = () => { state.drawer = false; render(); };
+        document.getElementById('drawer-scrim').onclick = e => { if (e.target.id === 'drawer-scrim') { state.drawer = false; render(); } };
+        root.querySelectorAll('[data-toggle-routine]').forEach(b => b.onclick = async () => { await api('/lan/api/bot-routines/' + b.dataset.toggleRoutine + '/toggle', { enabled: b.dataset.enabled === 'true' }); await refresh(); });
+        root.querySelectorAll('[data-open-app]').forEach(b => b.onclick = () => openMiniApp(b.dataset.openApp));
+        root.querySelectorAll('[data-cancel-task]').forEach(b => b.onclick = async () => { await api('/lan/api/bot-tasks/' + b.dataset.cancelTask + '/cancel', {}); await refresh(); });
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>

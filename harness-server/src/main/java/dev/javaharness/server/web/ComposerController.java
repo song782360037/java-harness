@@ -4,7 +4,6 @@ import dev.javaharness.adapters.attachment.AttachmentStore.Attachment;
 import dev.javaharness.adapters.workspace.WorkspaceBrowser;
 import dev.javaharness.adapters.workspace.WorkspaceFileSearch;
 import dev.javaharness.server.service.ComposerInputService;
-import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.PromptOptimizationService;
 import dev.javaharness.spi.HarnessException;
 import java.io.IOException;
@@ -25,26 +24,21 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api")
 public class ComposerController {
     private final ComposerInputService inputs;
-    private final GroupChatService groups;
     private final PromptOptimizationService optimization;
 
-    public ComposerController(
-            ComposerInputService inputs, GroupChatService groups, PromptOptimizationService optimization) {
+    public ComposerController(ComposerInputService inputs, PromptOptimizationService optimization) {
         this.inputs = inputs;
-        this.groups = groups;
         this.optimization = optimization;
     }
 
     /** 优化草稿只返回预览，不创建会话或任务；草稿可按所选工作区使用引用和记忆。 */
     @PostMapping("/composer/optimize")
     public PromptOptimizationService.Result optimize(@RequestBody PromptOptimizationService.Draft draft) {
-        if (draft.sessionId() != null && !draft.sessionId().isBlank()) groups.requireOrdinary(draft.sessionId());
         return optimization.optimize(draft);
     }
 
     @GetMapping("/sessions/{id}/files")
     public List<WorkspaceFileSearch.Entry> files(@PathVariable String id, @RequestParam(defaultValue = "") String q) {
-        groups.requireOrdinary(id);
         return inputs.search(id, q);
     }
 
@@ -61,7 +55,6 @@ public class ComposerController {
             @PathVariable String id,
             @RequestParam(defaultValue = "1") int root,
             @RequestParam(defaultValue = "") String path) {
-        groups.requireOrdinary(id);
         return inputs.listDirectory(id, root, path);
     }
 
@@ -69,7 +62,6 @@ public class ComposerController {
     @GetMapping("/sessions/{id}/file")
     public WorkspaceBrowser.FilePreview sessionFile(
             @PathVariable String id, @RequestParam(defaultValue = "1") int root, @RequestParam String path) {
-        groups.requireOrdinary(id);
         return inputs.previewFile(id, root, path);
     }
 

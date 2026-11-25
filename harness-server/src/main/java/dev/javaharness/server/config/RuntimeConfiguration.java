@@ -5,9 +5,10 @@ import dev.javaharness.adapters.approval.ApprovalPolicy;
 import dev.javaharness.adapters.approval.ApprovalReviewer;
 import dev.javaharness.adapters.attachment.AttachmentStore;
 import dev.javaharness.adapters.automation.AutomationStore;
+import dev.javaharness.adapters.bot.BotLanStore;
+import dev.javaharness.adapters.bot.BotStore;
 import dev.javaharness.adapters.command.CommandService;
 import dev.javaharness.adapters.flow.FlowStore;
-import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.adapters.memory.JdbcMemoryStore;
 import dev.javaharness.adapters.plugins.PluginService;
 import dev.javaharness.adapters.question.QuestionService;
@@ -21,14 +22,17 @@ import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.adapters.workspace.RunArtifacts;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
+import dev.javaharness.server.service.BotLanServer;
+import dev.javaharness.server.service.BotMiniAppService;
+import dev.javaharness.server.service.BotOrchestrator;
+import dev.javaharness.server.service.BotRoutineScheduler;
+import dev.javaharness.server.service.BotService;
 import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.DesktopUpdateGate;
 import dev.javaharness.server.service.ExternalAgentCatalog;
 import dev.javaharness.server.service.ExternalAgentRuns;
 import dev.javaharness.server.service.FlowOrchestrator;
 import dev.javaharness.server.service.FlowService;
-import dev.javaharness.server.service.GroupChatService;
-import dev.javaharness.server.service.GroupOrchestrator;
 import dev.javaharness.server.service.LlmApprovalJudge;
 import dev.javaharness.server.service.MemoryService;
 import dev.javaharness.server.service.PromptOptimizationService;
@@ -286,39 +290,6 @@ public class RuntimeConfiguration {
         return new SessionNamingService(store, configurations, enabled);
     }
 
-    /** Group chat rounds; created after the engine, whose startup recovery interrupts old member runs. */
-    @Bean(destroyMethod = "close")
-    @DependsOnDatabaseInitialization
-    GroupOrchestrator groupOrchestrator(
-            JdbcTemplate jdbc,
-            PlatformTransactionManager transactions,
-            SessionStore sessions,
-            AgentEngine engine,
-            RunConfigurationSource configurations,
-            ExternalAgentRuns externalAgents) {
-        var orchestrator = new GroupOrchestrator(
-                new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), engine, configurations);
-        orchestrator.useExternalAgents(externalAgents);
-        return orchestrator;
-    }
-
-    /** Member runs see the group transcript through the settings service's extension capture. */
-    @Bean
-    @DependsOnDatabaseInitialization
-    GroupChatService groupChatService(
-            JdbcTemplate jdbc,
-            PlatformTransactionManager transactions,
-            SessionStore sessions,
-            SettingsService settings,
-            GroupOrchestrator orchestrator,
-            ExternalAgentCatalog externalAgents) {
-        var service = new GroupChatService(
-                new GroupStore(jdbc), sessions, new TransactionTemplate(transactions), settings, orchestrator);
-        service.useExternalAgents(externalAgents);
-        settings.useGroups(service::decorate);
-        return service;
-    }
-
     /** Flow items; created after the engine, whose startup recovery interrupts old item runs. */
     @Bean
     @DependsOnDatabaseInitialization
@@ -351,6 +322,128 @@ public class RuntimeConfiguration {
         return service;
     }
 
+    /** Bot 团队协调器：在引擎启动恢复之后创建，自动中断旧后台任务并确保内置主 Bot 存在。 */
+    @Bean(destroyMethod = "close")
+    @DependsOnDatabaseInitialization
+    BotOrchestrator botOrchestrator(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            AgentEngine engine,
+            SettingsService settings,
+            ExternalAgentRuns externalAgents,
+            MemoryService memories,
+            @Value("${harness.bots.library-directory:./data/bot-library}") String libraryDirectory) {
+        var orchestrator = new BotOrchestrator(
+                new BotStore(jdbc),
+                sessions,
+                new TransactionTemplate(transactions),
+                engine,
+                settings,
+                Path.of(libraryDirectory));
+        orchestrator.useExternalAgents(externalAgents);
+        orchestrator.useMemories(memories);
+        settings.useBots(orchestrator::decorate);
+        return orchestrator;
+    }
+
+    @Bean(destroyMethod = "close")
+    @DependsOnDatabaseInitialization
+    BotRoutineScheduler botRoutineScheduler(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            BotOrchestrator orchestrator,
+            DesktopUpdateGate updates) {
+        var scheduler = new BotRoutineScheduler(
+                new BotStore(jdbc),
+                sessions,
+                new TransactionTemplate(transactions),
+                orchestrator,
+                Clock.systemUTC(),
+                ZoneId.systemDefault());
+        scheduler.useUpdateGate(updates);
+        orchestrator.useRoutines(scheduler);
+        return scheduler;
+    }
+
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> startBotRoutines(
+            BotRoutineScheduler routines,
+            @Value("${harness.automations.enabled:true}") boolean enabled,
+            @Value("${harness.automations.check-interval:30s}") Duration interval) {
+        return event -> {
+            if (enabled) routines.start(interval);
+        };
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    BotMiniAppService botMiniAppService(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            BotOrchestrator orchestrator,
+            @Value("${harness.bots.library-directory:./data/bot-library}") String libraryDirectory) {
+        var service = new BotMiniAppService(
+                new BotStore(jdbc), sessions, new TransactionTemplate(transactions), Path.of(libraryDirectory));
+        service.useOrchestrator(orchestrator);
+        orchestrator.useMiniApps(service);
+        return service;
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    BotService botService(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            SettingsService settings,
+            BotOrchestrator orchestrator,
+            PluginService plugins,
+            ExternalAgentCatalog externalAgents,
+            @Value("${harness.bots.library-directory:./data/bot-library}") String libraryDirectory) {
+        var service = new BotService(
+                new BotStore(jdbc),
+                sessions,
+                new TransactionTemplate(transactions),
+                settings,
+                orchestrator,
+                Path.of(libraryDirectory));
+        service.usePlugins(plugins);
+        service.useExternalAgents(externalAgents);
+        return service;
+    }
+
+    @Bean(destroyMethod = "close")
+    @DependsOnDatabaseInitialization
+    BotLanServer botLanServer(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            BotService botService,
+            BotOrchestrator botOrchestrator,
+            BotRoutineScheduler botRoutines,
+            BotMiniAppService botMiniApps,
+            CommandService commands,
+            ObjectMapper json) {
+        return new BotLanServer(
+                new BotLanStore(jdbc),
+                sessions,
+                new TransactionTemplate(transactions),
+                botService,
+                botOrchestrator,
+                botRoutines,
+                botMiniApps,
+                commands,
+                json);
+    }
+
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> startBotLanServer(BotLanServer lanServer) {
+        return event -> lanServer.startIfEnabled();
+    }
+
     /** 由桌面壳启动时开启：标准输入关闭即视为桌面壳已退出，随之关闭应用。 */
     @Bean
     @ConditionalOnProperty(name = "harness.desktop.exit-with-parent", havingValue = "true")
@@ -364,11 +457,18 @@ public class RuntimeConfiguration {
 
     @Bean
     ApplicationListener<ContextClosedEvent> stopRuntime(
-            AgentEngine engine, EventController events, AutomationService automations, GroupOrchestrator groups) {
+            AgentEngine engine,
+            EventController events,
+            AutomationService automations,
+            BotRoutineScheduler botRoutines,
+            BotLanServer botLanServer,
+            BotOrchestrator bots) {
         return event -> {
+            botLanServer.close();
             automations.close();
+            botRoutines.close();
             events.close();
-            groups.close();
+            bots.close();
             engine.close();
         };
     }

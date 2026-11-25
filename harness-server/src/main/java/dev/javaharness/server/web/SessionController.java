@@ -1,9 +1,9 @@
 package dev.javaharness.server.web;
 
+import dev.javaharness.server.service.BotService;
 import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.ExternalAgentRuns;
 import dev.javaharness.server.service.FlowService;
-import dev.javaharness.server.service.GroupChatService;
 import dev.javaharness.server.service.SessionNamingService;
 import dev.javaharness.server.service.WorkspaceDirectories;
 import dev.javaharness.spi.HarnessException;
@@ -42,8 +42,8 @@ public class SessionController {
     private final AgentEngine engine;
     private final WorkspaceDirectories directories;
     private final SessionNamingService naming;
-    private final GroupChatService groups;
     private final FlowService flows;
+    private final BotService bots;
     private final ComposerInputService inputs;
     private final ExternalAgentRuns external;
 
@@ -52,16 +52,16 @@ public class SessionController {
             AgentEngine engine,
             WorkspaceDirectories directories,
             SessionNamingService naming,
-            GroupChatService groups,
             FlowService flows,
+            BotService bots,
             ComposerInputService inputs,
             ExternalAgentRuns external) {
         this.store = store;
         this.engine = engine;
         this.directories = directories;
         this.naming = naming;
-        this.groups = groups;
         this.flows = flows;
+        this.bots = bots;
         this.inputs = inputs;
         this.external = external;
     }
@@ -105,8 +105,8 @@ public class SessionController {
 
     @PostMapping(value = "/sessions/{id}/workspace", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session workspace(@PathVariable String id, @RequestBody ChangeWorkspace request) {
-        groups.requireOrdinary(id);
         flows.requireOrdinary(id);
+        bots.requireOrdinary(id);
         return request.workspaceId() == null
                 ? store.updateWorkspace(id, directories.normalize(request.workspace()))
                 : store.selectWorkspace(id, request.workspaceId());
@@ -115,8 +115,8 @@ public class SessionController {
     /** Rename the session, including while a run is active. */
     @PostMapping(value = "/sessions/{id}/title", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Session rename(@PathVariable String id, @RequestBody RenameSession request) {
-        groups.requireOrdinary(id);
         flows.requireOrdinary(id);
+        bots.requireOrdinary(id);
         return store.renameSession(id, request.title());
     }
 
@@ -156,15 +156,15 @@ public class SessionController {
     @PostMapping("/sessions/{id}/delete")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable String id) {
-        groups.requireOrdinary(id);
         flows.requireOrdinary(id);
+        bots.requireOrdinary(id);
         store.deleteSession(id);
     }
 
     @PostMapping(value = "/sessions/{id}/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Run> submit(@PathVariable String id, @RequestBody SubmitRun request) {
-        groups.requireOrdinary(id);
         flows.requireOrdinary(id);
+        bots.requireOrdinary(id);
         var routed = external.submit(
                 id,
                 request.requestId(),

@@ -226,64 +226,6 @@ class ExternalAgentIntegrationTest {
         var history = http.getForObject("/api/automations/" + automationId + "/runs", JsonNode.class);
         assertThat(history.path(0).path("flowId").asText()).isEqualTo(flowId);
         assertThat(history.path(0).path("flowItemStatus").asText()).isEqualTo("COMPLETED");
-
-        var createdGroup = http.postForEntity(
-                "/api/groups",
-                Map.of("name", "ACP 群聊", "workspaceId", workspaceId, "maxTurns", 4, "templates", List.of()),
-                JsonNode.class);
-        assertThat(createdGroup.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String groupId = createdGroup.getBody().path("group").path("id").asText();
-        var member = http.postForEntity(
-                "/api/groups/" + groupId + "/members",
-                Map.of("name", "外部专家", "focus", "负责外部代码审查", "externalAgentId", agent.id(), "enabled", true),
-                JsonNode.class);
-        assertThat(member.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(member.getBody().path("externalAgentId").asText()).isEqualTo(agent.id());
-        var posted = http.postForEntity(
-                "/api/groups/" + groupId + "/messages",
-                Map.of("requestId", UUID.randomUUID().toString(), "content", "@外部专家 帮忙看看"),
-                JsonNode.class);
-        assertThat(posted.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
-        await().atMost(Duration.ofSeconds(15)).until(() -> {
-            var snap = http.getForObject("/api/groups/" + groupId, JsonNode.class);
-            for (JsonNode msg : snap.path("messages"))
-                if (msg.path("author").asText().equals("MEMBER")
-                        && msg.path("authorName").asText().equals("外部专家")) return true;
-            return false;
-        });
-        http.postForEntity("/api/groups/" + groupId + "/stop", Map.of(), JsonNode.class);
-        var beforeQuestion = http.getForObject("/api/groups/" + groupId, JsonNode.class);
-        String runId = beforeQuestion.path("runs").path(0).path("id").asText();
-        assertThat(beforeQuestion.path("runs").path(0).path("scenario").asText())
-                .isEqualTo("ACP");
-        String versionBefore = beforeQuestion.path("version").asText();
-        long activityBefore =
-                beforeQuestion.path("runs").path(0).path("activity").asLong();
-        // 新到达的 ACP 审批/追问事件（QUESTION）必须推进群聊版本与运行活动序号。
-        sessions.questionsUpdated(runId);
-        var afterQuestion = http.getForObject("/api/groups/" + groupId, JsonNode.class);
-        assertThat(afterQuestion.path("version").asText()).isNotEqualTo(versionBefore);
-        assertThat(afterQuestion.path("runs").path(0).path("activity").asLong()).isGreaterThan(activityBefore);
-        // 成员改回内置模型后，既有历史运行的 scenario 仍保持 ACP，不隐藏历史交互记录。
-        String memberId = member.getBody().path("id").asText();
-        assertThat(http.postForEntity(
-                                "/api/groups/" + groupId + "/members/" + memberId,
-                                Map.of(
-                                        "name",
-                                        "外部专家",
-                                        "focus",
-                                        "改为内置模型",
-                                        "modelProfileId",
-                                        "default",
-                                        "externalAgentId",
-                                        "",
-                                        "enabled",
-                                        true),
-                                JsonNode.class)
-                        .getStatusCode())
-                .isEqualTo(HttpStatus.OK);
-        var afterSwitch = http.getForObject("/api/groups/" + groupId, JsonNode.class);
-        assertThat(afterSwitch.path("runs").path(0).path("scenario").asText()).isEqualTo("ACP");
     }
 
     private Profile configure(String alias, String... extra) throws Exception {

@@ -94,6 +94,15 @@ final class AgentLoopRunner {
      * exceed the provider limit; without it, outputs reach the model whole. A root also gets delegate_task.
      */
     static Toolset toolset(WorkspaceTools tools, String extensionInstructions, String agent) {
+        return toolset(tools, extensionInstructions, agent, true, true);
+    }
+
+    static Toolset toolset(
+            WorkspaceTools tools,
+            String extensionInstructions,
+            String agent,
+            boolean allowSubagents,
+            boolean useDefaultGuidance) {
         boolean toolEnabled = !tools.definitions().isEmpty();
         var definitions = new ArrayList<>(tools.definitions());
         boolean spill = toolEnabled
@@ -101,11 +110,12 @@ final class AgentLoopRunner {
                 && definitions.stream().noneMatch(tool -> tool.name().equals(ToolOutputs.READ));
         if (spill) definitions.add(ToolOutputs.DEFINITION);
         boolean delegate = toolEnabled
+                && allowSubagents
                 && agent == null
                 && definitions.size() < ToolOutputs.MAX_REQUEST_TOOLS
                 && definitions.stream().noneMatch(tool -> tool.name().equals(Subagents.DELEGATE));
         if (delegate) definitions.add(Subagents.DEFINITION);
-        String guidance = !toolEnabled
+        String guidance = !toolEnabled || !useDefaultGuidance
                 ? ""
                 : agent != null
                         ? AgentInstructions.forSubagent(agent)

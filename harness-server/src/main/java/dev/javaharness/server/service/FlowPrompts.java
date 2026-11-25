@@ -152,6 +152,9 @@ final class FlowPrompts {
 
     /** At most max units plus an ellipsis, never splitting a surrogate pair. */
     static String clip(String text, int max) {
-        return GroupPrompts.clip(text, max);
+        if (text == null || text.length() <= max) return text == null ? "" : text;
+        int end = max;
+        if (end > 0 && Character.isHighSurrogate(text.charAt(end - 1))) end--;
+        return text.substring(0, end) + "…";
     }
 }

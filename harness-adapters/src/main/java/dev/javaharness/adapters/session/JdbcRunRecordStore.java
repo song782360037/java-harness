@@ -71,11 +71,12 @@ final class JdbcRunRecordStore {
                 """, runMapper, current.sessionId(), current.id());
     }
 
-    /** 首个请求的用户消息须为原始提问，或群聊上下文/召回记忆/附带内容块加原始提问。 */
+    /** 首个请求的用户消息须为原始提问，或群聊/Bot 上下文/召回记忆/附带内容块加原始提问。 */
     private static boolean prompted(String content, String prompt) {
         return content.equals(prompt)
                 || (content.startsWith("<retrieved_memory>")
                                 || content.startsWith("<group_chat>")
+                                || content.startsWith("<bot_chat>")
                                 || content.startsWith(RunInput.TAG))
                         && content.endsWith(prompt);
     }
@@ -397,7 +398,7 @@ final class JdbcRunRecordStore {
         var hits = new LinkedHashMap<String, SessionStore.SearchHit>();
         var titleMatches = jdbc.query("""
                 SELECT * FROM harness_session
-                WHERE group_id IS NULL AND flow_id IS NULL
+                WHERE group_id IS NULL AND flow_id IS NULL AND bot_id IS NULL AND bot_task_id IS NULL
                   AND LOWER(title) LIKE LOWER(?) ESCAPE '\\'
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
@@ -413,7 +414,7 @@ final class JdbcRunRecordStore {
                            r.prompt AS matched_prompt, r.output AS matched_output, r.created_at AS matched_at
                     FROM harness_run r
                     JOIN harness_session s ON s.id = r.session_id
-                    WHERE s.group_id IS NULL AND s.flow_id IS NULL
+                    WHERE s.group_id IS NULL AND s.flow_id IS NULL AND s.bot_id IS NULL AND s.bot_task_id IS NULL
                       AND r.parent_run_id IS NULL
                       AND (LOWER(r.prompt) LIKE LOWER(?) ESCAPE '\\' OR LOWER(r.output) LIKE LOWER(?) ESCAPE '\\')
                     ORDER BY r.created_at DESC, r.id DESC

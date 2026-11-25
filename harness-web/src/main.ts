@@ -13,7 +13,7 @@ import './styles/artifacts.css'
 import './styles/commands.css'
 import './styles/automations.css'
 import './styles/memories.css'
-import './styles/groups.css'
 import './styles/flows.css'
+import './styles/bots.css'
 
 createApp(App).mount('#app')

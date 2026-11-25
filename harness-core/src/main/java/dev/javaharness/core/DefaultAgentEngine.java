@@ -257,7 +257,8 @@ public final class DefaultAgentEngine implements AgentEngine {
             ModelProvider.Cancellation cancellation = cancellation(task);
             WorkspaceTools tools = extension.open(run.id(), resources.tools(), cancellation);
             String extensionInstructions = extension.instructions();
-            AgentLoopRunner.Toolset toolset = AgentLoopRunner.toolset(tools, extensionInstructions, null);
+            AgentLoopRunner.Toolset toolset = AgentLoopRunner.toolset(
+                    tools, extensionInstructions, null, extension.allowSubagents(), extension.useDefaultGuidance());
             TokenCounter counter = configuration.tokenCounter();
             int historyBudget = AgentLoopRunner.historyBudget(configuration, toolset);
             synchronized (this) {

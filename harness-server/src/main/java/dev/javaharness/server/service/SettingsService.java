@@ -47,10 +47,10 @@ public final class SettingsService implements RunConfigurationSource {
     private final CommandService commands;
     private final PluginService plugins;
     private final UnattendedSubmissions unattended;
-    // Group chats add their transcript to member runs; attached once the group service exists.
-    private volatile java.util.function.BiFunction<Session, RunExtension, RunExtension> groups;
     // Flows follow the runs of their item sessions; attached once the flow orchestrator exists.
     private volatile java.util.function.BiFunction<Session, RunExtension, RunExtension> flows;
+    // Bots decorate their chat sessions and isolated background task sessions; attached once BotOrchestrator exists.
+    private volatile java.util.function.BiFunction<Session, RunExtension, RunExtension> bots;
     // Attended runs may ask the user; attached once the question service exists.
     private volatile QuestionService questions;
 
@@ -273,18 +273,16 @@ public final class SettingsService implements RunConfigurationSource {
     public RunExtension extensions(Session session, String prompt) {
         var extension = plugins == null ? RunExtension.none() : plugins.prepare(session, prompt);
         if (unattended.commandsBlocked(session.id())) extension = withoutCommands(extension);
-        var decorator = groups;
-        var decorated = extension;
-        if (decorator != null) {
+        var botDecorator = bots;
+        if (botDecorator != null) {
             try {
-                decorated = decorator.apply(session, extension);
+                var botDecorated = botDecorator.apply(session, extension);
+                if (botDecorated != extension) return botDecorated;
             } catch (RuntimeException error) {
                 extension.close();
                 throw error;
             }
         }
-        // The group decorator returns ordinary sessions unchanged; member runs speak in a group and get neither tool.
-        if (decorated != extension) return decorated;
         var interactive = withInteraction(extension, unattended.unattended(session.id()) ? null : questions);
         var flowDecorator = flows;
         if (flowDecorator == null) return interactive;
@@ -294,6 +292,11 @@ public final class SettingsService implements RunConfigurationSource {
             interactive.close();
             throw error;
         }
+    }
+
+    /** Let bots wrap the extension of their chat and background task sessions. */
+    public void useBots(java.util.function.BiFunction<Session, RunExtension, RunExtension> decorator) {
+        bots = decorator;
     }
 
     /** Let flows observe the settlement of runs in their item sessions. */
@@ -339,11 +342,6 @@ public final class SettingsService implements RunConfigurationSource {
                 extension.close();
             }
         };
-    }
-
-    /** Let group chats wrap the extension of their member sessions. */
-    public void useGroups(java.util.function.BiFunction<Session, RunExtension, RunExtension> decorator) {
-        groups = decorator;
     }
 
     /** Hide the command tool from an unattended automation run, keeping the captured plugin extension. */

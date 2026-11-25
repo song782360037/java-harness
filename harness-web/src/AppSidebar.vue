@@ -10,8 +10,9 @@ const props = defineProps<{
   sessions: Session[]
   workspaces: Workspace[]
   selectedId: string
-  activePage: 'chat' | 'automations' | 'memories' | 'groups' | 'flows'
+  activePage: 'chat' | 'automations' | 'memories' | 'flows' | 'bots'
   waitingFlowCount: number
+  activeBotCount?: number
   collapsed: boolean
   width: number
   isMobile: boolean
@@ -32,8 +33,8 @@ const emit = defineEmits<{
   selectSession: [id: string]
   openAutomations: []
   openMemories: []
-  openGroups: []
   openFlows: []
+  openBots: []
   openSettings: []
   sessionRenamed: [session: Session]
   sessionDeleted: [session: { id: string }]
@@ -225,7 +226,7 @@ onUnmounted(() => {
   <button v-if="!collapsed && !showSettings" class="sidebar-scrim" aria-label="关闭会话侧栏" @click="emit('update:collapsed', true)"></button>
   <aside v-show="!showSettings" class="sidebar" :inert="collapsed || undefined">
     <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="emit('createSession')"><UiIcon name="plus" :size="17" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="emit('update:collapsed', true)"><UiIcon name="panel" :size="16" /></button></div>
-    <nav class="sidebar-links" aria-label="功能"><button class="sidebar-link" :aria-current="activePage === 'automations' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openAutomations')"><UiIcon name="clock" :size="16" /><span>自动化</span></button><button class="sidebar-link" :aria-current="activePage === 'memories' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openMemories')"><UiIcon name="memory" :size="16" /><span>记忆</span></button><button class="sidebar-link" :aria-current="activePage === 'groups' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openGroups')"><UiIcon name="users" :size="16" /><span>群聊</span></button><button class="sidebar-link" :aria-current="activePage === 'flows' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openFlows')"><UiIcon name="branch" :size="16" /><span>流水线</span><span v-if="waitingFlowCount" class="sidebar-link-badge" :aria-label="`${waitingFlowCount} 件流水线事项待处理`">{{ waitingFlowCount }}</span></button></nav>
+    <nav class="sidebar-links" aria-label="功能"><button class="sidebar-link" :aria-current="activePage === 'bots' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openBots')"><UiIcon name="cube" :size="16" /><span>Bot</span><span v-if="activeBotCount" class="sidebar-link-badge" :aria-label="`${activeBotCount} 个 Bot 任务进行中`">{{ activeBotCount }}</span></button><button class="sidebar-link" :aria-current="activePage === 'automations' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openAutomations')"><UiIcon name="clock" :size="16" /><span>自动化</span></button><button class="sidebar-link" :aria-current="activePage === 'memories' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openMemories')"><UiIcon name="memory" :size="16" /><span>记忆</span></button><button class="sidebar-link" :aria-current="activePage === 'flows' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openFlows')"><UiIcon name="branch" :size="16" /><span>流水线</span><span v-if="waitingFlowCount" class="sidebar-link-badge" :aria-label="`${waitingFlowCount} 件流水线事项待处理`">{{ waitingFlowCount }}</span></button></nav>
     <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索会话或正文" aria-label="搜索会话或正文" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
     <nav class="session-navigation" aria-label="会话列表">
       <div v-if="sessionGroups.length" class="session-section-label">工作区</div>

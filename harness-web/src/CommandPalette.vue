@@ -25,7 +25,7 @@ const emit = defineEmits<{
   selectSession: [id: string]
   openAutomations: []
   openMemories: []
-  openGroups: []
+  openBots: []
   openFlows: []
   openSettings: [section?: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents']
   toggleSidebar: []
@@ -66,7 +66,7 @@ const baseItems = computed<CommandPaletteItem[]>(() => {
     { id: 'action:toggle-theme', group: 'action', title: nextTheme.value.label, subtitle: `当前主题：${themePreference.value === 'system' ? '跟随系统' : themePreference.value === 'dark' ? '深色' : '明亮'}`, keywords: 'theme dark light 主题 明亮 深色 夜间', icon: nextTheme.value.icon },
     { id: 'action:toggle-sidebar', group: 'action', title: props.sidebarCollapsed ? '展开侧栏' : '收起侧栏', subtitle: '切换左侧会话导航栏显示状态', keywords: 'sidebar panel 侧栏 折叠 展开', icon: 'panel' },
     { id: 'page:flows', group: 'page', title: '打开流水线', subtitle: '查看与处理固定研发泳道流水线', keywords: 'flows pipeline 流水线 泳道', icon: 'branch', badge: props.waitingFlowCount ? String(props.waitingFlowCount) : undefined },
-    { id: 'page:groups', group: 'page', title: '打开群聊', subtitle: '多角色 AI 群聊与像素协作工坊', keywords: 'groups studio 群聊 协作 工坊', icon: 'users' },
+    { id: 'page:bots', group: 'page', title: '打开 Bot 团队', subtitle: '桌面 Bot 团队、后台任务、例行与小程序', keywords: 'bots team agent 团队 助手 小程序', icon: 'cube' },
     { id: 'page:memories', group: 'page', title: '打开长期记忆', subtitle: '浏览主题知识图谱与记忆条目', keywords: 'memory graph 记忆 图谱', icon: 'memory' },
     { id: 'page:automations', group: 'page', title: '打开自动化', subtitle: '管理定时任务与自动触发规则', keywords: 'automations cron schedule 自动化 定时', icon: 'clock' },
     { id: 'page:settings:models', group: 'page', title: '模型与供应商设置', subtitle: '配置模型名称、API Key 与思考深度', keywords: 'models provider api key 模型 设置 配置', icon: 'reasoning' },
@@ -163,7 +163,7 @@ function runItem(item: CommandPaletteItem) {
   if (item.id === 'action:toggle-sidebar') { emit('toggleSidebar'); return }
   if (item.id === 'action:toggle-explorer') { emit('toggleExplorer'); return }
   if (item.id === 'page:flows') { emit('openFlows'); return }
-  if (item.id === 'page:groups') { emit('openGroups'); return }
+  if (item.id === 'page:bots') { emit('openBots'); return }
   if (item.id === 'page:memories') { emit('openMemories'); return }
   if (item.id === 'page:automations') { emit('openAutomations'); return }
   if (item.id === 'page:settings:models') { emit('openSettings', 'models'); return }

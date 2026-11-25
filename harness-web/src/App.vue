@@ -22,8 +22,8 @@ import UiIcon from './UiIcon.vue'
 const SettingsPage = defineAsyncComponent(() => import('./SettingsPage.vue'))
 const AutomationsPage = defineAsyncComponent(() => import('./AutomationsPage.vue'))
 const MemoriesPage = defineAsyncComponent(() => import('./MemoriesPage.vue'))
-const GroupChatsPage = defineAsyncComponent(() => import('./GroupChatsPage.vue'))
 const FlowsPage = defineAsyncComponent(() => import('./FlowsPage.vue'))
+const BotsPage = defineAsyncComponent(() => import('./bots/BotsPage.vue'))
 const CommandPalette = defineAsyncComponent(() => import('./CommandPalette.vue'))
 const WorkspaceExplorerPanel = defineAsyncComponent(() => import('./WorkspaceExplorerPanel.vue'))
 import { modifierKeyLabel, preferences, shouldSendPrompt } from './preferences'
@@ -47,8 +47,8 @@ const model = computed(() => selectedProfile.value?.model)
 const showSettings = ref(false)
 const showAutomations = ref(false)
 const showMemories = ref(false)
-const showGroups = ref(false)
 const showFlows = ref(false)
+const showBots = ref(false)
 const showCommandPalette = ref(false)
 const showExplorer = ref(false)
 const savedExplorerWidth = Number(storageGet('harness.explorer.width'))
@@ -86,30 +86,31 @@ function onGlobalKeydown(event: KeyboardEvent) {
   event.preventDefault()
   showCommandPalette.value = !showCommandPalette.value
 }
-const activePage = computed<'chat' | 'automations' | 'memories' | 'groups' | 'flows'>(() =>
-  showAutomations.value ? 'automations' : showMemories.value ? 'memories' : showGroups.value ? 'groups' : showFlows.value ? 'flows' : 'chat',
+const activePage = computed<'chat' | 'automations' | 'memories' | 'flows' | 'bots'>(() =>
+  showBots.value ? 'bots' : showAutomations.value ? 'automations' : showMemories.value ? 'memories' : showFlows.value ? 'flows' : 'chat',
 )
-const groupPage = ref<{ openTask(id: string): Promise<void>; navigationBlocked: boolean }>()
 const flowPage = ref<{ openTask(flowId: string, itemId?: string): Promise<void> }>()
-const pendingGroupTaskId = ref('')
+const botsPage = ref<{ openTask(botId: string): Promise<void> }>()
 const pendingFlowTask = ref<{ flowId: string; itemId?: string }>()
-watch(groupPage, page => {
-  if (!page || !pendingGroupTaskId.value) return
-  const id = pendingGroupTaskId.value
-  pendingGroupTaskId.value = ''
-  void page.openTask(id)
-})
+const pendingBotTaskId = ref('')
 watch(flowPage, page => {
   if (!page || !pendingFlowTask.value) return
   const task = pendingFlowTask.value
   pendingFlowTask.value = undefined
   void page.openTask(task.flowId, task.itemId)
 })
+watch(botsPage, page => {
+  if (!page || !pendingBotTaskId.value) return
+  const id = pendingBotTaskId.value
+  pendingBotTaskId.value = ''
+  void page.openTask(id)
+})
 const waitingFlowCount = computed(() => taskActivity.value.active.filter(task => task.source === 'FLOW' && task.status.startsWith('WAITING_')).length)
-const taskNavigationBlocked = computed(() => submitting.value || loading.value || settingsBusy.value || workspaceChanging.value || !!groupPage.value?.navigationBlocked)
+const activeBotCount = computed(() => taskActivity.value.active.filter(task => task.source === 'BOT_TASK').length)
+const taskNavigationBlocked = computed(() => submitting.value || loading.value || settingsBusy.value || workspaceChanging.value)
 const queuedTask = ref<TaskActivity>()
 let disconnectTaskActivity = () => {}
-const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents'>('general')
+const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
 // 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
 watch(fontSize, value => {
@@ -127,16 +128,6 @@ const sidebarCollapsed = ref(window.innerWidth <= 780)
 const savedSidebarWidth = Number(storageGet('harness.sidebar.width'))
 const sidebarWidth = ref(Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0 ? Math.max(200, Math.min(400, savedSidebarWidth)) : 248)
 watch(sidebarWidth, value => storageSet('harness.sidebar.width', String(value)))
-// 群聊工作室需要整屏空间：进入时收起并锁定侧栏，离开时恢复原来的展开状态。
-const groupStudio = ref(false)
-let sidebarBeforeStudio = false
-function setGroupStudio(active: boolean) {
-  if (active === groupStudio.value) return
-  if (active) sidebarBeforeStudio = sidebarCollapsed.value
-  groupStudio.value = active
-  sidebarCollapsed.value = active || sidebarBeforeStudio || isMobile.value
-}
-watch(sidebarCollapsed, value => { if (groupStudio.value && !value) sidebarCollapsed.value = true })
 let titleRevision = 0
 // 仅同步标题，保留可能同时刷新的工作区和运行记录。
 function sessionRenamed(session: Session) {
@@ -289,7 +280,7 @@ function resizePrompt() {
   input.style.height = 'auto'
   input.style.height = `${Math.min(input.scrollHeight, 200)}px`
 }
-watch([fontSize, showSettings, showAutomations, showMemories, showGroups, showFlows], () => { if (!showSettings.value && !showAutomations.value && !showMemories.value && !showGroups.value && !showFlows.value) void nextTick(resizePrompt) })
+watch([fontSize, showSettings, showAutomations, showMemories, showFlows, showBots], () => { if (!showSettings.value && !showAutomations.value && !showMemories.value && !showFlows.value && !showBots.value) void nextTick(resizePrompt) })
 // 根据常规偏好处理发送，输入法确认回车保留给输入框。
 function onPromptKeydown(event: KeyboardEvent) {
   if (pluginCommandPicker.value?.keydown(event) || mentionPicker.value?.keydown(event)) return
@@ -339,7 +330,7 @@ async function workspacePicked(session: Session) {
     document.getElementById('composer-workspace')?.focus()
   }
 }
-function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents' = 'general', creating = false) {
+function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents' = 'general', creating = false) {
   if (workspaceChanging.value) return
   settingsSection.value = section
   creatingWorkspace.value = creating
@@ -354,8 +345,8 @@ function navigateSession(id: string) {
   if (isMobile.value) sidebarCollapsed.value = true
   showAutomations.value = false
   showMemories.value = false
-  showGroups.value = false
   showFlows.value = false
+  showBots.value = false
   if (id === selectedId.value && snapshot.value && !loading.value) closeSettings()
   else { clearComposerInputs(); void selectSession(id) }
 }
@@ -677,8 +668,8 @@ async function addSession(title: string, workspaceId: string) {
   sessions.value = [session, ...sessions.value]
   showAutomations.value = false
   showMemories.value = false
-  showGroups.value = false
   showFlows.value = false
+  showBots.value = false
   // 发送过渡中保留草稿快照，避免工作区等选项闪回空状态。
   await selectSession(session.id, !!launching.value)
   if (selectedId.value === session.id && snapshot.value?.session.id !== session.id) snapshot.value = null
@@ -764,32 +755,32 @@ function openAutomations() {
   if (isMobile.value) sidebarCollapsed.value = true
   showAutomations.value = true
   showMemories.value = false
-  showGroups.value = false
   showFlows.value = false
+  showBots.value = false
 }
 // 图谱作为独立工作台打开，原会话的草稿和实时连接继续保留。
 function openMemories() {
   if (isMobile.value) sidebarCollapsed.value = true
   showAutomations.value = false
   showMemories.value = true
-  showGroups.value = false
   showFlows.value = false
-}
-// 群聊作为独立页面打开，原会话的草稿和实时连接继续保留。
-function openGroups() {
-  if (isMobile.value) sidebarCollapsed.value = true
-  showAutomations.value = false
-  showMemories.value = false
-  showGroups.value = true
-  showFlows.value = false
+  showBots.value = false
 }
 // 流水线作为独立页面打开，原会话的草稿和实时连接继续保留。
 function openFlows() {
   if (isMobile.value) sidebarCollapsed.value = true
   showAutomations.value = false
   showMemories.value = false
-  showGroups.value = false
   showFlows.value = true
+  showBots.value = false
+}
+// Bot 团队作为独立三栏工作台打开，进入时收起外层侧栏提供完整空间。
+function openBots() {
+  sidebarCollapsed.value = true
+  showAutomations.value = false
+  showMemories.value = false
+  showFlows.value = false
+  showBots.value = true
 }
 async function openAutomationSession(id: string) {
   // 与侧栏会话入口的禁用条件一致，避免打断进行中的提交或切换。
@@ -813,17 +804,21 @@ async function openTask(task: TaskActivity) {
   if (taskNavigationBlocked.value) return
   queuedTask.value = undefined
   closeSettings()
-  if (task.groupId) {
-    pendingGroupTaskId.value = task.groupId
-    openGroups()
-    await nextTick()
-    if (groupPage.value && pendingGroupTaskId.value) {
-      const id = pendingGroupTaskId.value
-      pendingGroupTaskId.value = ''
-      await groupPage.value.openTask(id)
-    }
-  } else if (task.flowId) {
+  if (task.flowId) {
     await openFlowTask(task.flowId, task.flowItemId || task.id)
+  } else if (task.botId) {
+    if (task.status.startsWith('WAITING_') && task.sessionId) {
+      await openAutomationSession(task.sessionId)
+    } else {
+      pendingBotTaskId.value = task.botId
+      openBots()
+      await nextTick()
+      if (botsPage.value && pendingBotTaskId.value) {
+        const id = pendingBotTaskId.value
+        pendingBotTaskId.value = ''
+        await botsPage.value.openTask(id)
+      }
+    }
   } else {
     await openAutomationSession(task.sessionId)
   }
@@ -835,7 +830,7 @@ watch([prompt, () => snapshot.value?.runs.length, launching], () => { void nextT
 // 新建只切换到草稿；重复点击当前草稿入口时保留输入，不创建空会话。
 async function createWorkspaceSession(workspaceId: string) {
   if (loading.value || submitting.value || workspaceChanging.value) return
-  showAutomations.value = false; showMemories.value = false; showGroups.value = false; showFlows.value = false
+  showAutomations.value = false; showMemories.value = false; showFlows.value = false; showBots.value = false
   closeSettings()
   if (selectedId.value || !snapshot.value || snapshot.value.session.workspaceId !== workspaceId) {
     clearComposerInputs()
@@ -965,6 +960,7 @@ onUnmounted(() => {
       :selected-id="selectedId"
       :active-page="activePage"
       :waiting-flow-count="waitingFlowCount"
+      :active-bot-count="activeBotCount"
       v-model:collapsed="sidebarCollapsed"
       v-model:width="sidebarWidth"
       :is-mobile="isMobile"
@@ -980,13 +976,13 @@ onUnmounted(() => {
       @select-session="closeSettings(); navigateSession($event)"
       @open-automations="openAutomations"
       @open-memories="openMemories()"
-      @open-groups="openGroups"
       @open-flows="openFlows"
+      @open-bots="openBots"
       @open-settings="openSettings()"
       @session-renamed="sessionRenamed"
       @session-deleted="sessionDeleted"
     />
-    <main v-show="!showSettings && !showAutomations && !showMemories && !showGroups && !showFlows" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length && !launching, 'is-launching': launching }" :inert="isMobile && !sidebarCollapsed || undefined">
+    <main v-show="!showSettings && !showAutomations && !showMemories && !showFlows && !showBots" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length && !launching, 'is-launching': launching }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
         <div class="header-meta">
@@ -1049,7 +1045,7 @@ onUnmounted(() => {
             <ComposerAddMenu :disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging" :workspace="!!snapshot?.session.workspace" @files="addFiles" @mention="startMention" @command="startCommand" />
             <ComposerSelectors :profiles="profiles" :model-id="selectedProfileId" :effort="reasoningEffort" :workspace-id="snapshot?.session.workspaceId || ''" :workspaces="workspaces" :disabled="submitting || !!pending || loading || workspaceChanging" :workspace-disabled="!!current" :workspace-only="externalComposer" :approval-mode="approvalMode" @model="chooseProfile" @effort="reasoningEffort = $event" @approval="approvalMode = $event" @settings="openSettings('models')" @workspace="chooseWorkspace" @browse="browseWorkspace()" @edit="browseWorkspace(workspaces.find(value => value.id === snapshot?.session.workspaceId))" />
             <TokenUsageRing v-if="!externalComposer" :usage="snapshot?.usage" :estimated="latestContext?.tokens ?? 0" :max-tokens="latestContext?.maxTokens ?? 0" />
-            <PromptOptimizer v-if="!externalComposer" :text="prompt" :session-id="snapshot?.session.id || ''" :workspace="snapshot?.session.workspace || ''" :workspace-id="snapshot?.session.workspaceId || ''" :model-profile-id="selectedProfileId" :reasoning-effort="reasoningEffort" :mentions="draftMentions" :attachment-ids="draftAttachments.map(item => item.id)" :disabled="!model?.configured || !!current || submitting || !!pending || loading || workspaceChanging || attachmentsBlocked || showSettings || showAutomations || showMemories || showGroups" @busy="optimizingPrompt = $event" @error="optimizationError = $event" @apply="prompt = $event; nextTick(() => promptInput?.focus())" />
+            <PromptOptimizer v-if="!externalComposer" :text="prompt" :session-id="snapshot?.session.id || ''" :workspace="snapshot?.session.workspace || ''" :workspace-id="snapshot?.session.workspaceId || ''" :model-profile-id="selectedProfileId" :reasoning-effort="reasoningEffort" :mentions="draftMentions" :attachment-ids="draftAttachments.map(item => item.id)" :disabled="!model?.configured || !!current || submitting || !!pending || loading || workspaceChanging || attachmentsBlocked || showSettings || showAutomations || showMemories || showFlows || showBots" @busy="optimizingPrompt = $event" @error="optimizationError = $event" @apply="prompt = $event; nextTick(() => promptInput?.focus())" />
             <button v-if="current" type="button" class="send-button stop-button" :disabled="cancelling || current.status === 'CANCELLING'" :aria-label="current.status === 'CANCELLING' ? '正在停止' : '停止任务'" title="停止任务" @click="cancel"><UiIcon name="stop" :size="15" /></button>
             <button v-else type="submit" class="send-button" :class="{ 'is-ready': sendReady }" :disabled="optimizingPrompt || loading || submitting || workspaceChanging || (!pending && (!canUseDraftRoute || !hasDraftContent || attachmentsBlocked || (!!selectedId && !snapshot)))" :aria-label="pending && !submitting ? '重试提交' : '发送消息'" :title="pending && !submitting ? '重试提交' : sendShortcutHint"><UiIcon :name="pending && !submitting ? 'refresh' : 'arrow'" :size="18" /></button>
           </div>
@@ -1074,8 +1070,8 @@ onUnmounted(() => {
     </main>
     <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @open-flow="openFlowTask" @expand-sidebar="sidebarCollapsed = false" />
     <MemoriesPage v-if="showMemories" v-show="!showSettings" :workspaces="workspaces" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" @open-settings="openSettings('memory')" />
-    <GroupChatsPage v-if="showGroups" ref="groupPage" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @expand-sidebar="sidebarCollapsed = false" @studio="setGroupStudio" />
     <FlowsPage v-if="showFlows" ref="flowPage" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" />
+    <BotsPage v-if="showBots" ref="botsPage" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @expand-sidebar="sidebarCollapsed = false" @open-devices="openSettings('devices')" @open-models="openSettings('models')" />
     <DesktopUpdateNotice @details="openSettings('updates')" />
     <dialog ref="workspaceDialog" class="workspace-dialog settings-page" aria-labelledby="workspace-dialog-title" @cancel="workspaceChanging && $event.preventDefault()" @close="browsingWorkspace = false">
       <header class="inspector-header"><h2 id="workspace-dialog-title">{{ editingWorkspace ? '编辑工作区' : '新建工作区' }}</h2><button type="button" class="icon-button" :disabled="workspaceChanging" aria-label="关闭工作区设置" @click="closeWorkspaceDialog"><UiIcon name="close" :size="20" /></button></header>
@@ -1099,11 +1095,11 @@ onUnmounted(() => {
       @select-session="closeSettings(); navigateSession($event)"
       @open-automations="closeSettings(); openAutomations()"
       @open-memories="closeSettings(); openMemories()"
-      @open-groups="closeSettings(); openGroups()"
+      @open-bots="closeSettings(); openBots()"
       @open-flows="closeSettings(); openFlows()"
       @open-settings="openSettings($event)"
       @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
-      @toggle-explorer="closeSettings(); showAutomations = false; showMemories = false; showGroups = false; showFlows = false; showExplorer = !showExplorer"
+      @toggle-explorer="closeSettings(); showAutomations = false; showMemories = false; showFlows = false; showBots = false; showExplorer = !showExplorer"
       @export-markdown="exportCurrentSession"
     />
   </div>

@@ -1,5 +1,5 @@
 export interface TaskActivity {
-  id: string; sessionId: string; groupId: string; flowId?: string; flowItemId?: string; title: string; source: 'SESSION' | 'AUTOMATION' | 'GROUP' | 'FLOW'
+  id: string; sessionId: string; groupId?: string; flowId?: string; flowItemId?: string; botId?: string; title: string; source: 'SESSION' | 'AUTOMATION' | 'FLOW' | 'BOT_TASK'
   status: string; attentionKey: string; createdAt: string; updatedAt: string
 }
 export interface TaskActivitySnapshot {
@@ -11,7 +11,7 @@ const labels: Record<string, string> = {
   COMPLETED: '已完成', FAILED: '失败', TIMED_OUT: '超时', INTERRUPTED: '已中断', CANCELLED: '已取消', STOPPED: '已停止', SUPERSEDED: '已被新消息替代',
 }
 export const taskStatusLabel = (status: string) => labels[status] || status
-export const taskSourceLabel = (source: string) => ({ SESSION: '会话', AUTOMATION: '自动化', GROUP: '群聊', FLOW: '流水线' })[source] || '任务'
+export const taskSourceLabel = (source: string) => ({ SESSION: '会话', AUTOMATION: '自动化', FLOW: '流水线', BOT_TASK: 'Bot 任务' })[source] || '任务'
 /** 等待操作和错误有独立的视觉层级，取消中不等同于已经停止。 */
 export const taskTone = (status: string) => status.startsWith('WAITING_') ? 'waiting'
   : ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(status) ? 'error' : status === 'COMPLETED' ? 'success' : 'neutral'

@@ -24,7 +24,7 @@ test('task state labels distinguish waiting, cancellation and failures', () => {
   assert.equal(taskTone('WAITING_DECISION'), 'waiting')
   assert.equal(taskTone('TIMED_OUT'), 'error')
   assert.equal(taskTone('COMPLETED'), 'success')
-  assert.equal(taskSourceLabel('GROUP'), '群聊')
+  assert.equal(taskSourceLabel('BOT_TASK'), 'Bot 任务')
   assert.equal(taskSourceLabel('AUTOMATION'), '自动化')
   assert.equal(taskSourceLabel('FLOW'), '流水线')
 })

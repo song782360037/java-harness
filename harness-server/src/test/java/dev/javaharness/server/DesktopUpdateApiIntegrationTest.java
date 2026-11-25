@@ -6,7 +6,6 @@ import static org.mockito.Mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.automation.AutomationStore;
 import dev.javaharness.adapters.flow.FlowStore;
-import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.server.service.AutomationService;
 import dev.javaharness.server.service.DesktopUpdateGate;
 import dev.javaharness.spi.HarnessException;
@@ -77,8 +76,8 @@ class DesktopUpdateApiIntegrationTest {
     void recover() {
         gate.release();
         sessions.recoverInterruptedRuns();
-        jdbc.update("UPDATE harness_group_round SET status='STOPPED' WHERE status='RUNNING'");
         jdbc.update("UPDATE harness_flow_item SET status='STOPPED' WHERE status='RUNNING'");
+        jdbc.update("UPDATE harness_bot_task SET status='CANCELLED' WHERE status IN ('QUEUED','RUNNING')");
         jdbc.update("UPDATE harness_command SET status='INTERRUPTED'");
     }
 
@@ -136,17 +135,6 @@ class DesktopUpdateApiIntegrationTest {
         assertThat(sessions.run(run.id()).status()).isEqualTo(status);
         assertThat(gate.enter()).isTrue();
         gate.leave();
-    }
-
-    @Test
-    void groupPlanningWithoutMemberRunsPreventsPreparation() throws Exception {
-        var response =
-                post("/groups", "", "{\"name\":\"planning\",\"mode\":\"TASKS\",\"maxTurns\":3,\"templates\":[]}");
-        assertThat(response.statusCode()).isEqualTo(201);
-        String id = json.readTree(response.body()).path("group").path("id").asText();
-        new GroupStore(jdbc).startRound(id);
-        assertThat(post("/desktop/update/prepare", "desktop-test-token", "{}").statusCode())
-                .isEqualTo(409);
     }
 
     @Test

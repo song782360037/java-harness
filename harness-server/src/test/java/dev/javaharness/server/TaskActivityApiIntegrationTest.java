@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.flow.FlowStore;
-import dev.javaharness.adapters.group.GroupStore;
 import dev.javaharness.server.service.TaskActivityService;
 import dev.javaharness.spi.model.ModelInfo;
 import dev.javaharness.spi.run.RunStatus;
@@ -66,7 +65,6 @@ class TaskActivityApiIntegrationTest {
     @AfterEach
     void recover() {
         sessions.recoverInterruptedRuns();
-        jdbc.update("UPDATE harness_group_round SET status='STOPPED' WHERE status='RUNNING'");
         jdbc.update("UPDATE harness_flow_item SET status='STOPPED' WHERE status IN ('RUNNING','WAITING')");
     }
 
@@ -113,31 +111,6 @@ class TaskActivityApiIntegrationTest {
                 .doesNotContain(id);
         assertThat(activity.snapshot().recent())
                 .anyMatch(value -> value.id().equals(id) && value.status().equals("COMPLETED"));
-    }
-
-    @Test
-    void groupPlanningIsVisibleAndMemberRunsDoNotDuplicateTheRound() {
-        String group = UUID.randomUUID().toString();
-        String round = UUID.randomUUID().toString();
-        jdbc.update("""
-                INSERT INTO harness_group(id,name,color,host_profile_id,max_turns,created_at,revision)
-                VALUES (?,'协作组','#123456','default',3,?,0)
-                """, group, OffsetDateTime.now());
-        jdbc.update(
-                "INSERT INTO harness_group_round(id,group_id,status,turns,detail,created_at) VALUES (?,?,'RUNNING',0,'',?)",
-                round,
-                group,
-                OffsetDateTime.now());
-        assertThat(task(round).source()).isEqualTo("GROUP");
-        String member = run("隐藏成员");
-        String session = sessions.run(member).sessionId();
-        jdbc.update("UPDATE harness_session SET group_id=? WHERE id=?", group, session);
-        sessions.transition(member, RunStatus.RUNNING, "");
-        command(member);
-        assertThat(task(round).status()).isEqualTo("WAITING_APPROVAL");
-        assertThat(activity.snapshot().active())
-                .extracting(TaskActivityService.Task::id)
-                .doesNotContain(member);
     }
 
     @Test
@@ -206,34 +179,6 @@ class TaskActivityApiIntegrationTest {
         String active = run("仍在排队");
         assertThat(activity.snapshot().recent()).hasSize(50);
         assertThat(task(active).status()).isEqualTo("QUEUED");
-    }
-
-    @Test
-    void oldGroupEndingWithoutNewMessagesIsFirstEvenAfterFiftyOtherCompletions() {
-        String group = UUID.randomUUID().toString();
-        jdbc.update("""
-                INSERT INTO harness_group(id,name,color,host_profile_id,max_turns,created_at,revision)
-                VALUES (?,'长时间规划','#123456','default',3,?,0)
-                """, group, OffsetDateTime.now().minusDays(1));
-        var groups = new GroupStore(jdbc);
-        String round = groups.startRound(group).id();
-        jdbc.update(
-                "UPDATE harness_group_round SET created_at=?,state_updated_at=? WHERE id=?",
-                OffsetDateTime.now().minusDays(1),
-                OffsetDateTime.now().minusDays(1),
-                round);
-        for (int i = 0; i < 51; i++) {
-            String id = run("期间完成的任务" + i);
-            sessions.transition(id, RunStatus.RUNNING, "");
-            sessions.transition(id, RunStatus.COMPLETED, "");
-            jdbc.update(
-                    "UPDATE harness_run SET state_updated_at=? WHERE id=?",
-                    OffsetDateTime.now().minusHours(1),
-                    id);
-        }
-        groups.updateRound(round, "FAILED", 0, "规划失败");
-        assertThat(activity.snapshot().recent().getFirst().id()).isEqualTo(round);
-        assertThat(activity.snapshot().recent().getFirst().status()).isEqualTo("FAILED");
     }
 
     @Test
