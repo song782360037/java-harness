@@ -100,3 +100,20 @@ test('invalid signature never creates an installable update', async () => {
   assert.equal(controller.snapshot().phase, 'error')
   assert.deepEqual(events, [])
 })
+
+test('release notes accept string and multi-version array formats across update events', () => {
+  const { controller, updater } = setup()
+  updater.emit('update-available', {
+    version: '1.2.0',
+    releaseNotes: [
+      { version: '1.2.0', note: '<h2>新特性</h2><ul><li>支持更新说明渲染</li></ul>' },
+      { version: '1.1.0', note: '<p>修复已知问题</p>' },
+    ],
+  })
+  assert.equal(
+    controller.snapshot().releaseNotes,
+    '<h3>1.2.0</h3>\n<h2>新特性</h2><ul><li>支持更新说明渲染</li></ul>\n\n<h3>1.1.0</h3>\n<p>修复已知问题</p>',
+  )
+  updater.emit('update-downloaded', { version: '1.2.0' })
+  assert.ok(controller.snapshot().releaseNotes.includes('支持更新说明渲染'))
+})

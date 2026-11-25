@@ -1,3 +1,23 @@
+function escapeHtml(value) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** 兼容字符串与多版本数组格式的更新说明，空值返回空串。 */
+export function normalizeReleaseNotes(notes) {
+  if (typeof notes === 'string') return notes.trim()
+  if (!Array.isArray(notes)) return ''
+  const entries = notes
+    .filter(item => typeof item?.note === 'string' && item.note.trim())
+    .map(item => ({ version: typeof item.version === 'string' ? item.version.trim() : '', note: item.note.trim() }))
+  if (!entries.length) return ''
+  if (entries.length === 1) return entries[0].note
+  const html = entries.some(entry => /<(?:h[1-6]|p|ul|ol|li|div|blockquote|pre|table)\b/i.test(entry.note))
+  return entries.map(entry => {
+    if (!entry.version) return entry.note
+    return html ? `<h3>${escapeHtml(entry.version)}</h3>\n${entry.note}` : `### ${entry.version}\n\n${entry.note}`
+  }).join('\n\n')
+}
+
 /** 管理更新状态与安装顺序，不依赖 Electron，便于验证失败与重试路径。 */
 export class DesktopUpdates {
   constructor({ updater, version, supported, disabledReason = '', prepareInstall, onState, logger }) {
@@ -18,13 +38,14 @@ export class DesktopUpdates {
     updater.on('update-not-available', () => this.publish({ phase: 'current', lastChecked: new Date().toISOString() }))
     updater.on('update-available', info => {
       this.downloaded = false
-      const releaseNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : ''
+      const releaseNotes = normalizeReleaseNotes(info?.releaseNotes)
       this.publish({ phase: 'downloading', targetVersion: info.version, releaseNotes, percent: 0, error: '', lastChecked: new Date().toISOString() })
     })
     updater.on('download-progress', progress => this.publish({ percent: Math.max(0, Math.min(100, progress.percent)) }))
     updater.on('update-downloaded', info => {
       this.downloaded = true
-      this.publish({ phase: 'ready', targetVersion: info.version, percent: 100, error: '' })
+      const releaseNotes = normalizeReleaseNotes(info?.releaseNotes) || this.state.releaseNotes
+      this.publish({ phase: 'ready', targetVersion: info.version, releaseNotes, percent: 100, error: '' })
     })
     updater.on('error', error => this.fail(error))
   }

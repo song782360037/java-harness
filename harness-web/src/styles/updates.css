@@ -2,8 +2,17 @@
 .update-progress { padding: 0 0 20px; }
 .update-progress progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .update-notes { padding: 18px 0; font-size: var(--font-caption); }
-.update-notes summary { cursor: pointer; color: var(--text); }
-.update-notes pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font: inherit; color: var(--muted); }
+.update-notes summary { cursor: pointer; color: var(--text); font-weight: 550; }
+.update-notes-body { margin-top: 12px; color: var(--muted); font-size: var(--font-caption); line-height: 1.75; }
+.update-notes-body h1, .update-notes-body h2, .update-notes-body h3, .update-notes-body h4, .update-notes-body h5, .update-notes-body h6 { color: var(--text); margin: 16px 0 8px; }
+.update-notes-body h1, .update-notes-body h2 { font-size: var(--font-body); }
+.update-notes-body h3, .update-notes-body h4, .update-notes-body h5, .update-notes-body h6 { font-size: var(--font-caption); }
+.update-notes-body p { margin: 0 0 10px; }
+.update-notes-body ul, .update-notes-body ol { padding-left: 20px; margin: 6px 0 12px; }
+.update-notes-body li { padding-left: 2px; margin: 4px 0; }
+.update-notes-body strong { color: var(--text); font-weight: 600; }
+.update-notes-body code { color: var(--text); font-size: inherit; }
+.update-notes-body pre { margin: 12px 0; padding: 10px 12px; font-size: inherit; }
 .desktop-update-notice { position: fixed; z-index: 120; bottom: 24px; right: 24px; width: min(390px, calc(100vw - 48px)); padding: 18px 20px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-shadow: var(--popover-shadow); font-size: var(--font-caption); line-height: 1.7; }
 .desktop-update-notice > strong { display: block; font-weight: 550; }
 .desktop-update-notice > p { color: var(--danger); margin: 8px 0; }

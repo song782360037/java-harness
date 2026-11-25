@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { runUpdateAction, updateBusy, updateError, updateState, updateStatus } from './desktopUpdates'
+import { renderReleaseNotes } from './markdown'
+
+const releaseNotesHtml = computed(() => renderReleaseNotes(updateState.value?.releaseNotes || ''))
 </script>
 <template>
   <section class="general-settings" aria-label="关于与更新">
@@ -12,6 +16,6 @@ import { runUpdateAction, updateBusy, updateError, updateState, updateStatus } f
     </div>
     <div v-if="updateState?.phase === 'downloading'" class="update-progress"><progress :value="updateState.percent" max="100" aria-label="更新下载进度"></progress></div>
     <p v-if="updateError || updateState?.error" class="dialog-error" role="alert">{{ updateError || updateState?.error }}</p>
-    <details v-if="updateState?.releaseNotes" class="update-notes"><summary>版本 {{ updateState.targetVersion }} 更新说明</summary><pre>{{ updateState.releaseNotes }}</pre></details>
+    <details v-if="releaseNotesHtml" class="update-notes"><summary>版本 {{ updateState?.targetVersion }} 更新说明</summary><div class="update-notes-body markdown-content" v-html="releaseNotesHtml"></div></details>
   </section>
 </template>
