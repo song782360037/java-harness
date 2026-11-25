@@ -124,7 +124,7 @@ npm --prefix harness-web run build
 sh ./mvnw -B -ntp -Pweb clean verify
 
 # 3. 启动本地服务
-java -jar harness-server/target/harness-server-0.3.1.jar
+java -jar harness-server/target/harness-server-0.3.2.jar
 ```
 
 启动后在浏览器访问 <http://127.0.0.1:8080/>，数据默认写入启动目录下的 `data/`。
