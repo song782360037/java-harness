@@ -13,6 +13,8 @@ const props = defineProps<{
   waitingFlowCount: number
   sidebarCollapsed: boolean
   canExport: boolean
+  canExplore: boolean
+  explorerOpen: boolean
   navigationDisabled: boolean
 }>()
 
@@ -27,6 +29,7 @@ const emit = defineEmits<{
   openFlows: []
   openSettings: [section?: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents']
   toggleSidebar: []
+  toggleExplorer: []
   exportMarkdown: []
 }>()
 
@@ -56,6 +59,9 @@ const baseItems = computed<CommandPaletteItem[]>(() => {
     { id: 'action:new-session', group: 'action', title: '新建对话', subtitle: '开始新的空白任务', keywords: 'new chat create 新建 任务 对话', icon: 'plus' },
     ...(props.canExport
       ? [{ id: 'action:export-md', group: 'action' as const, title: '导出当前会话为 Markdown', subtitle: '将当前会话的提问与回复保存为 .md 文件', keywords: 'export markdown download md 导出 下载 归档', icon: 'download' }]
+      : []),
+    ...(props.canExplore
+      ? [{ id: 'action:toggle-explorer', group: 'action' as const, title: props.explorerOpen ? '关闭工作区文件浏览栏' : '打开工作区文件浏览栏', subtitle: '浏览项目目录树并预览源码', keywords: 'files tree explorer code preview 文件 目录 代码 预览', icon: 'folder' }]
       : []),
     { id: 'action:toggle-theme', group: 'action', title: nextTheme.value.label, subtitle: `当前主题：${themePreference.value === 'system' ? '跟随系统' : themePreference.value === 'dark' ? '深色' : '明亮'}`, keywords: 'theme dark light 主题 明亮 深色 夜间', icon: nextTheme.value.icon },
     { id: 'action:toggle-sidebar', group: 'action', title: props.sidebarCollapsed ? '展开侧栏' : '收起侧栏', subtitle: '切换左侧会话导航栏显示状态', keywords: 'sidebar panel 侧栏 折叠 展开', icon: 'panel' },
@@ -155,6 +161,7 @@ function runItem(item: CommandPaletteItem) {
   if (item.id === 'action:export-md') { emit('exportMarkdown'); return }
   if (item.id === 'action:toggle-theme') { setTheme(nextTheme.value.value); return }
   if (item.id === 'action:toggle-sidebar') { emit('toggleSidebar'); return }
+  if (item.id === 'action:toggle-explorer') { emit('toggleExplorer'); return }
   if (item.id === 'page:flows') { emit('openFlows'); return }
   if (item.id === 'page:groups') { emit('openGroups'); return }
   if (item.id === 'page:memories') { emit('openMemories'); return }

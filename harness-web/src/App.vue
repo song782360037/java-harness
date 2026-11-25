@@ -25,6 +25,7 @@ const MemoriesPage = defineAsyncComponent(() => import('./MemoriesPage.vue'))
 const GroupChatsPage = defineAsyncComponent(() => import('./GroupChatsPage.vue'))
 const FlowsPage = defineAsyncComponent(() => import('./FlowsPage.vue'))
 const CommandPalette = defineAsyncComponent(() => import('./CommandPalette.vue'))
+const WorkspaceExplorerPanel = defineAsyncComponent(() => import('./WorkspaceExplorerPanel.vue'))
 import { modifierKeyLabel, preferences, shouldSendPrompt } from './preferences'
 import { isPaletteShortcut } from './commandPalette'
 import { downloadSessionMarkdown } from './sessionExport'
@@ -49,6 +50,31 @@ const showMemories = ref(false)
 const showGroups = ref(false)
 const showFlows = ref(false)
 const showCommandPalette = ref(false)
+const showExplorer = ref(false)
+const savedExplorerWidth = Number(storageGet('harness.explorer.width'))
+const explorerWidth = ref(Number.isFinite(savedExplorerWidth) && savedExplorerWidth > 0 ? Math.max(320, Math.min(760, savedExplorerWidth)) : 420)
+watch(explorerWidth, value => storageSet('harness.explorer.width', String(value)))
+const explorerDirectories = computed(() => {
+  const workspace = workspaces.value.find(value => value.id === snapshot.value?.session.workspaceId)
+  if (workspace?.directories.length) return workspace.directories
+  const raw = snapshot.value?.session.workspace || ''
+  if (!raw) return []
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+    } catch { return [] }
+  }
+  return [raw]
+})
+const explorerChangeRevision = computed(() => Object.values(changeRevisions.value).reduce((sum, value) => sum + value, 0))
+function mentionFromExplorer(entry: FileEntry) {
+  const next = addMention(draftMentions.value, entry)
+  if (!next) { error.value = `每条消息最多引用 ${MAX_MENTIONS} 个文件或目录`; return }
+  draftMentions.value = next
+  if (isMobile.value) showExplorer.value = false
+  void nextTick(() => promptInput.value?.focus())
+}
 function exportCurrentSession() {
   if (!snapshot.value?.runs.length) return
   const workspaceName = workspaces.value.find(value => value.id === snapshot.value?.session.workspaceId)?.name || ''
@@ -965,6 +991,7 @@ onUnmounted(() => {
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
         <div class="header-meta">
           <span v-if="selectedId && !connected" class="connection" title="正在重新连接">连接中</span>
+          <button v-if="snapshot?.session.workspace" type="button" class="icon-button header-explorer-button" :class="{ active: showExplorer }" :aria-pressed="showExplorer" aria-label="切换工作区文件浏览栏" title="工作区文件与代码预览" @click="showExplorer = !showExplorer"><UiIcon name="folder" :size="16" /></button>
           <button v-if="snapshot?.runs.length" type="button" class="icon-button" aria-label="导出当前会话为 Markdown" title="导出为 Markdown" @click="exportCurrentSession"><UiIcon name="download" :size="16" /></button>
           <button type="button" class="header-command-button" :disabled="workspaceChanging || settingsBusy" aria-label="打开快速命令面板" :title="`快速命令与全文搜索 (${modifierKeyLabel} + K)`" @click="showCommandPalette = true"><UiIcon name="search" :size="14" /><kbd>{{ modifierKeyLabel }} K</kbd></button>
         </div>
@@ -1031,6 +1058,18 @@ onUnmounted(() => {
         <div v-if="!snapshot?.runs.length && !loading && !launching" class="suggestion-list"><button v-for="item in suggestions" :key="item.title" :disabled="optimizingPrompt || submitting || !!pending" @click="useSuggestion(item.prompt)"><UiIcon :name="item.icon" :size="18" /><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><UiIcon class="suggestion-arrow" name="chevron" :size="13" /></button></div>
       </div>
       </div>
+      <WorkspaceExplorerPanel
+        v-if="showExplorer && snapshot?.session.workspace"
+        :session-id="snapshot?.session.id"
+        :workspace-id="snapshot?.session.workspaceId"
+        :workspace="snapshot.session.workspace"
+        :directories="explorerDirectories"
+        v-model:width="explorerWidth"
+        :change-revision="explorerChangeRevision"
+        :mention-disabled="optimizingPrompt || submitting || !!pending || loading || workspaceChanging"
+        @close="showExplorer = false"
+        @mention="mentionFromExplorer"
+      />
       </div>
     </main>
     <AutomationsPage v-if="showAutomations" v-show="!showSettings" :workspaces="workspaces" :profiles="profiles" :sidebar-collapsed="sidebarCollapsed" :default-workspace-id="snapshot?.session.workspaceId || ''" :default-profile-id="selectedProfileId" :inert="isMobile && !sidebarCollapsed || undefined" @open-session="openAutomationSession" @open-flow="openFlowTask" @expand-sidebar="sidebarCollapsed = false" />
@@ -1051,6 +1090,8 @@ onUnmounted(() => {
       :waiting-flow-count="waitingFlowCount"
       :sidebar-collapsed="sidebarCollapsed"
       :can-export="!!snapshot?.runs.length"
+      :can-explore="!!snapshot?.session.workspace"
+      :explorer-open="showExplorer"
       :navigation-disabled="loading || submitting || settingsBusy || workspaceChanging"
       @close="showCommandPalette = false"
       @create-session="createSession"
@@ -1062,12 +1103,17 @@ onUnmounted(() => {
       @open-flows="closeSettings(); openFlows()"
       @open-settings="openSettings($event)"
       @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
+      @toggle-explorer="closeSettings(); showAutomations = false; showMemories = false; showGroups = false; showFlows = false; showExplorer = !showExplorer"
       @export-markdown="exportCurrentSession"
     />
   </div>
 </template>
 
 <style scoped>
+.header-explorer-button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .header-command-button {
   display: inline-flex;
   align-items: center;

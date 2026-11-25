@@ -1,6 +1,7 @@
 package dev.javaharness.server.web;
 
 import dev.javaharness.adapters.attachment.AttachmentStore.Attachment;
+import dev.javaharness.adapters.workspace.WorkspaceBrowser;
 import dev.javaharness.adapters.workspace.WorkspaceFileSearch;
 import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.GroupChatService;
@@ -52,6 +53,40 @@ public class ComposerController {
     public List<WorkspaceFileSearch.Entry> workspaceFiles(
             @PathVariable String id, @RequestParam(defaultValue = "") String q) {
         return inputs.searchInWorkspace(id, q);
+    }
+
+    /** 浏览会话绑定工作区的目录树。 */
+    @GetMapping("/sessions/{id}/tree")
+    public WorkspaceBrowser.DirectoryView sessionTree(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "1") int root,
+            @RequestParam(defaultValue = "") String path) {
+        groups.requireOrdinary(id);
+        return inputs.listDirectory(id, root, path);
+    }
+
+    /** 只读预览会话绑定工作区中的单个文件。 */
+    @GetMapping("/sessions/{id}/file")
+    public WorkspaceBrowser.FilePreview sessionFile(
+            @PathVariable String id, @RequestParam(defaultValue = "1") int root, @RequestParam String path) {
+        groups.requireOrdinary(id);
+        return inputs.previewFile(id, root, path);
+    }
+
+    /** 草稿态按工作区浏览目录树，不创建会话。 */
+    @GetMapping("/workspaces/{id}/tree")
+    public WorkspaceBrowser.DirectoryView workspaceTree(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "1") int root,
+            @RequestParam(defaultValue = "") String path) {
+        return inputs.listWorkspaceDirectory(id, root, path);
+    }
+
+    /** 草稿态按工作区预览单个文件，不创建会话。 */
+    @GetMapping("/workspaces/{id}/file")
+    public WorkspaceBrowser.FilePreview workspaceFile(
+            @PathVariable String id, @RequestParam(defaultValue = "1") int root, @RequestParam String path) {
+        return inputs.previewWorkspaceFile(id, root, path);
     }
 
     @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
