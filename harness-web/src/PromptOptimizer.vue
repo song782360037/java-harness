@@ -49,6 +49,7 @@ async function optimize() {
   <button type="button" class="icon-button optimize-trigger" :disabled="disabled || busy || !text.trim()" aria-label="优化提示词" title="结合对话上下文和相关记忆优化提示词" @click="optimize"><UiIcon name="wand" :size="18" /></button>
 </template>
 <style scoped>
-.optimize-trigger { width: 32px; height: 32px; flex-shrink: 0; color: var(--muted); border-radius: var(--radius-md); }
-@media (max-width: 780px) { .optimize-trigger { width: 40px; height: 40px; } }
+.optimize-trigger { width: 32px; height: 32px; min-height: 32px; flex-shrink: 0; color: var(--muted); border-radius: var(--radius-md); }
+.optimize-trigger:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 780px) { .optimize-trigger { width: 40px; height: 40px; min-height: 40px; } }
 </style>

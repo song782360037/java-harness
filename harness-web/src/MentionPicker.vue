@@ -96,8 +96,8 @@ defineExpose({ keydown, open, activeId })
   </section>
 </template>
 <style scoped>
-.mention-menu { position: absolute; z-index: 12; left: 0; right: 0; bottom: calc(100% + 8px); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); color: var(--text); display: flex; flex-direction: column; overflow: hidden; }
-header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; font-size: var(--font-caption); color: var(--muted); }
+.mention-menu { position: absolute; z-index: 12; left: 0; right: 0; bottom: calc(100% + 8px); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); color: var(--text); display: flex; flex-direction: column; overflow: hidden; animation: pop-in .15s ease-out; }
+header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px 9px; margin-bottom: 4px; border-bottom: 0.5px solid var(--border); font-size: var(--font-caption); color: var(--muted); }
 header > span { display: flex; align-items: center; gap: 6px; font-weight: 550; }
 .mention-options { overflow-y: auto; min-height: 0; max-height: min(280px, 36dvh); overscroll-behavior: contain; }
 .mention-options button { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: var(--radius-md); color: var(--muted); }

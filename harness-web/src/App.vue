@@ -1113,27 +1113,36 @@ onUnmounted(() => {
 .header-explorer-button.active {
   background: var(--accent-soft);
   color: var(--accent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .header-command-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
+  gap: 7px;
+  height: 30px;
+  min-height: 30px;
   padding: 0 9px;
   border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--surface);
+  background: var(--subtle);
   color: var(--muted);
   font-size: 12px;
   cursor: pointer;
 }
 .header-command-button:hover:not(:disabled) {
   border-color: var(--border-strong);
+  background: var(--surface);
   color: var(--text);
+  box-shadow: var(--card-shadow);
 }
 .header-command-button kbd {
+  padding: 1px 5px;
+  border: 0.5px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
   font-family: inherit;
-  font-size: 11px;
-  color: inherit;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--muted);
 }
 </style>

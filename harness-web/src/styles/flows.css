@@ -7,8 +7,8 @@
 .flows-page .primary, .flow-actions > button:not(.icon-button) { display: inline-flex; align-items: center; gap: 6px; }
 
 .flow-list { display: flex; flex-direction: column; gap: 6px; padding: 18px 12px 18px 18px; border-right: 0.5px solid var(--border); }
-.flow-list-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 11px 13px; background: var(--surface); border-radius: var(--radius-md); }
-.flow-list-item[aria-current] { background: var(--selected); border-color: var(--border-strong); }
+.flow-list-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 11px 13px; background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--card-shadow); }
+.flow-list-item[aria-current] { background: var(--selected); border-color: color-mix(in srgb, var(--accent) 32%, var(--border-strong)); }
 .flow-list-item > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .flow-list-item strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
 .flow-list-item small { color: var(--muted); font-size: var(--font-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -31,9 +31,9 @@
 .flow-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .flow-title > .flow-actions { flex-shrink: 0; flex-wrap: nowrap; }
 .flow-main > .dialog-error { margin: 0; }
-.flow-canvas { overflow: auto; padding: 16px; flex-shrink: 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
-.flow-revise { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--composer-shadow); }
-.flow-revise:focus-within { border-color: var(--accent); }
+.flow-canvas { overflow: auto; padding: 18px; flex-shrink: 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background-color: var(--surface); background-image: radial-gradient(color-mix(in srgb, var(--border-strong) 62%, transparent) .8px, transparent .8px); background-size: 22px 22px; box-shadow: var(--card-shadow); }
+.flow-revise { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--composer-shadow); transition: border-color .16s ease, box-shadow .16s ease; }
+.flow-revise:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring), var(--composer-shadow); }
 .flow-revise textarea { flex: 1; min-width: 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--text); font: inherit; line-height: 1.6; padding: 6px 0; }
 .flow-revise button { flex-shrink: 0; }
 
@@ -47,7 +47,7 @@
 .flow-edge .flow-arrow { fill: var(--faint); stroke-width: 1; }
 .flow-edge.back path:not(.flow-arrow) { stroke-dasharray: 4 4; }
 .flow-edge-label { position: absolute; transform: translate(-50%, -50%); padding: 0 7px; border: 0.5px solid var(--border-strong); border-radius: 20px; background: var(--surface); color: var(--muted); font-size: 11px; line-height: 18px; white-space: nowrap; pointer-events: none; }
-.flow-node { position: absolute; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 8px 12px; text-align: left; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-sizing: border-box; min-height: 0; font: inherit; box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 6%, transparent); transition: border-color 0.15s, box-shadow 0.15s; }
+.flow-node { position: absolute; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 8px 12px; text-align: left; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-sizing: border-box; min-height: 0; font: inherit; box-shadow: var(--card-shadow); transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
 .flow-node strong { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; }
 .flow-node strong > .ui-icon { flex-shrink: 0; color: var(--faint); }
 .flow-node strong > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -58,7 +58,7 @@
 .flow-node.human strong > .ui-icon { color: var(--warning); }
 .flow-node.end { border-style: dashed; box-shadow: none; }
 .flow-node.end strong { color: var(--muted); }
-button.flow-node:hover:not(:disabled) { border-color: var(--accent); background: var(--surface); }
+button.flow-node:hover:not(:disabled) { border-color: var(--accent); background: var(--surface); box-shadow: var(--card-shadow-hover); transform: translateY(-1px); }
 button.flow-node.trigger:hover:not(:disabled) { background: var(--accent-soft); }
 .flow-node.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
 .flow-node.current { border-color: var(--info); box-shadow: 0 0 0 3px var(--info-bg); }

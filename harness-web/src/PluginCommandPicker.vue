@@ -101,8 +101,9 @@ defineExpose({ keydown, open, activeId })
 <style scoped>
 .command-group { padding: 6px 10px 4px; color: var(--muted); font-size: var(--font-caption); font-weight: 550; }
 .command-group.has-divider { margin-top: 4px; padding-top: 8px; border-top: 0.5px solid var(--border); }
-.slash-command-menu { position: absolute; z-index: 12; left: 0; right: 0; bottom: calc(100% + 8px); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); color: var(--text); display: flex; flex-direction: column; overflow: hidden; }
+.slash-command-menu { position: absolute; z-index: 12; left: 0; right: 0; bottom: calc(100% + 8px); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); color: var(--text); display: flex; flex-direction: column; overflow: hidden; animation: pop-in .15s ease-out; }
 header, footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; font-size: var(--font-caption); color: var(--muted); }
+header { border-bottom: 0.5px solid var(--border); margin-bottom: 4px; }
 header > span { display: flex; align-items: center; gap: 6px; font-weight: 550; }
 header small, footer { font-size: var(--font-caption); }
 footer { border-top: 0.5px solid var(--border); margin-top: 6px; flex-wrap: wrap; }

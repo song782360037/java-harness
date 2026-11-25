@@ -1,15 +1,15 @@
 .file-changes { margin: 22px 0; }
 .file-changes > h3 { display: flex; gap: 8px; align-items: center; font-size: var(--font-caption); font-weight: 600; }
 .file-changes > h3 > span { color: var(--muted); font-weight: 400; }
-.file-change-card { margin: 12px 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
+.file-change-card { margin: 12px 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); box-shadow: var(--card-shadow); }
 .file-change-heading { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--subtle); border-bottom: 0.5px solid var(--border); }
-.file-change-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; text-align: left; background: transparent; border: 0; padding: 5px 0; font-size: var(--font-caption); }
+.file-change-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; text-align: left; background: transparent; border: 0; padding: 5px 0; font-size: var(--font-caption); font-weight: 550; }
 .file-change-toggle > span { overflow-wrap: anywhere; }
-.file-change-toggle > small { color: var(--muted); white-space: nowrap; }
-.change-status { font-size: var(--font-caption); white-space: nowrap; color: var(--muted); }
-.change-status.applied { color: var(--success); }
-.change-status.conflict, .change-status.uncertain { color: var(--danger); }
-.change-status.pending { color: var(--warning); }
+.file-change-toggle > small { color: var(--muted); font-weight: 400; white-space: nowrap; }
+.change-status { padding: 2px 8px; border-radius: 999px; background: var(--surface); font-size: var(--font-caption); font-weight: 550; white-space: nowrap; color: var(--muted); }
+.change-status.applied { color: var(--success); background: var(--success-bg); }
+.change-status.conflict, .change-status.uncertain { color: var(--danger); background: var(--danger-bg); }
+.change-status.pending { color: var(--warning); background: var(--warning-bg); }
 .diff-format, .change-detail { color: var(--muted); font-size: var(--font-caption); line-height: 1.7; margin: 10px 12px; overflow-wrap: anywhere; }
 .diff-scroll { max-height: 440px; overflow: auto; border-block: 0.5px solid var(--border); }
 .diff-table { width: 100%; border-collapse: collapse; font: var(--font-caption)/1.75 ui-monospace, 'Cascadia Code', Consolas, monospace; }

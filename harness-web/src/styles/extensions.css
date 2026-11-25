@@ -3,7 +3,7 @@
 .extensions-content .settings-title-row { display: none; }
 .extension-center { height: 100%; min-height: 0; display: flex; flex-direction: column; color: var(--text); }
 /* 与下方列表区预留相同的滚动条宽度，页签与标题左边缘保持对齐。 */
-.extension-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; justify-content: space-between; padding: 10px max(var(--settings-gutter, 28px), calc((100% - var(--settings-column, 1144px)) / 2)); flex-shrink: 0; scrollbar-gutter: stable both-edges; background: var(--surface); border-bottom: 0.5px solid var(--border); }
+.extension-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; justify-content: space-between; padding: 10px max(var(--settings-gutter, 28px), calc((100% - var(--settings-column, 1144px)) / 2)); flex-shrink: 0; scrollbar-gutter: stable both-edges; background: var(--header-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 0.5px solid var(--border); }
 /* 右侧给全局固定的任务中心入口留位，避免盖住工具按钮。 */
 .extension-toolbar { padding-right: max(160px, calc((100% - var(--settings-column, 1144px)) / 2)); }
 .extension-tabs, .extension-tools { display: flex; align-items: center; gap: 6px; }
@@ -34,8 +34,8 @@
 .extension-center h2 small { font-size: var(--font-caption); color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .extension-recommendations { margin-bottom: 28px; padding-bottom: 28px; border-bottom: 0.5px solid var(--border); }
 .extension-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.extension-row { position: relative; display: flex; align-items: flex-start; min-width: 0; gap: 12px; min-height: 88px; width: 100%; padding: 14px; border: 0.5px solid var(--border); background: var(--surface); text-align: left; color: var(--text); border-radius: var(--radius-lg); }
-.extension-row:hover, .extension-row:focus-visible, .extension-row:focus-within { background: var(--subtle); border-color: var(--border-strong); }
+.extension-row { position: relative; display: flex; align-items: flex-start; min-width: 0; gap: 12px; min-height: 88px; width: 100%; padding: 14px; border: 0.5px solid var(--border); background: var(--surface); text-align: left; color: var(--text); border-radius: var(--radius-lg); box-shadow: var(--card-shadow); transition: transform .18s cubic-bezier(.22, 1, .36, 1), border-color .16s ease, box-shadow .18s ease, background-color .16s ease; }
+.extension-row:hover, .extension-row:focus-visible, .extension-row:focus-within { background: var(--surface); border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong)); box-shadow: var(--card-shadow-hover); transform: translateY(-1.5px); }
 .extension-row:focus-within { z-index: 3; }
 .extension-row-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; min-height: 56px; border: 0; padding: 0; background: transparent; text-align: left; color: inherit; }
 .extension-row .extension-row-main:hover:not(:disabled) { background: transparent; }

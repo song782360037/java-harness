@@ -1,14 +1,14 @@
 .artifacts { margin: 22px 0; }
 .artifacts > h3 { display: flex; gap: 8px; align-items: center; font-size: var(--font-caption); font-weight: 600; }
 .artifacts > h3 > span { color: var(--muted); font-weight: 400; }
-.artifact-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
-.artifact-card { --tone: var(--muted); --tone-bg: var(--subtle); display: flex; align-items: center; min-width: 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.artifact-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.artifact-card { --tone: var(--muted); --tone-bg: var(--subtle); display: flex; align-items: center; min-width: 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--card-shadow); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .artifact-card.code { --tone: var(--info); --tone-bg: var(--info-bg); }
 .artifact-card.doc { --tone: var(--accent); --tone-bg: var(--accent-soft); }
 .artifact-card.data { --tone: var(--source-violet); }
 .artifact-card.web { --tone: var(--source-rose); }
 .artifact-card.script { --tone: var(--warning); --tone-bg: var(--warning-bg); }
-.artifact-card:hover:not(.stale) { border-color: var(--border-strong); }
+.artifact-card:hover:not(.stale) { border-color: var(--border-strong); box-shadow: var(--card-shadow-hover); transform: translateY(-1px); }
 .artifact-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 4px 9px 10px; border: 0; background: transparent; text-align: left; }
 .artifact-icon { flex-shrink: 0; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--tone-bg); color: var(--tone); }
 .artifact-text { min-width: 0; display: grid; gap: 2px; }

@@ -45,7 +45,7 @@ const label = computed(() => `上下文已用 ${percent(ratio.value)}，${used.v
 </template>
 <style scoped>
 .token-usage { position: relative; display: flex; align-items: center; align-self: center; }
-.token-ring { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--accent); cursor: default; }
+.token-ring { display: grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--accent); cursor: default; }
 .token-ring:hover, .token-ring:focus-visible { background: var(--subtle); }
 .warning .token-ring { color: var(--warning); }
 .danger .token-ring { color: var(--danger); }

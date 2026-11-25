@@ -1,22 +1,34 @@
 .markdown-content { font-size: 1rem; line-height: 1.8; overflow-wrap: anywhere; }
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
-.markdown-content p { margin: 0 0 16px; }
-.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { line-height: 1.45; font-weight: 600; margin: 28px 0 12px; }
+.markdown-content p { margin: 0 0 15px; }
+.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { line-height: 1.42; font-weight: 620; letter-spacing: -.015em; margin: 26px 0 12px; }
 .markdown-content h1 { font-size: var(--font-title); }
-.markdown-content h2 { font-size: var(--font-heading); }
+.markdown-content h2 { font-size: var(--font-heading); padding-bottom: 6px; border-bottom: 0.5px solid var(--border); }
 .markdown-content h3 { font-size: calc(16rem / 14); }
 .markdown-content h4, .markdown-content h5, .markdown-content h6 { font-size: var(--font-body); }
 .markdown-content ul, .markdown-content ol { padding-left: 24px; margin: 12px 0 18px; }
 .markdown-content li { padding-left: 4px; margin: 5px 0; }
+.markdown-content li::marker { color: var(--faint); }
 .markdown-content li p { margin: 5px 0; }
-.markdown-content code { font-family: ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace; font-size: var(--font-caption); background: var(--subtle); border: 0.5px solid var(--border); border-radius: 4px; padding: 1px 4px; }
-.markdown-content pre { background: var(--subtle); border: 0.5px solid var(--border); border-radius: var(--radius-lg); margin: 20px 0; padding: 16px 18px; overflow-x: auto; line-height: 1.75; font-size: var(--font-body); }
+.markdown-content code { font-family: ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace; font-size: max(12px, 0.88em); background: color-mix(in srgb, var(--accent-soft) 50%, var(--subtle)); border: 0.5px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+.markdown-content pre { background: var(--code-bg); border: 0.5px solid var(--border); border-radius: var(--radius-lg); margin: 18px 0; padding: 15px 18px; overflow-x: auto; line-height: 1.72; font-size: max(12.5px, 0.92em); box-shadow: var(--card-shadow); }
 .markdown-content pre code { background: transparent; border: 0; padding: 0; font-size: inherit; }
-.markdown-content a { color: var(--info); text-underline-offset: 3px; }
-.markdown-content blockquote { color: var(--muted); padding: 8px 14px; margin: 20px 0; background: var(--subtle); border-radius: var(--radius-sm); }
+.markdown-content .md-code-block { margin: 18px 0; border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--code-bg); box-shadow: var(--card-shadow); }
+.markdown-content .md-code-block pre { margin: 0; border: 0; border-radius: 0; box-shadow: none; padding: 14px 18px; background: transparent; }
+.markdown-content .md-code-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px 6px 14px; border-bottom: 0.5px solid var(--border); background: color-mix(in srgb, var(--subtle) 78%, var(--surface)); }
+.markdown-content .md-code-lang { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 11px; font-weight: 550; letter-spacing: .03em; text-transform: lowercase; color: var(--muted); }
+.markdown-content .md-code-copy { min-height: 24px; padding: 2px 9px; border: 0.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); font-size: 11px; line-height: 1.5; }
+.markdown-content .md-code-copy:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); background: var(--hover); }
+.markdown-content .md-code-copy.copied { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); background: var(--success-bg); color: var(--success); }
+.markdown-content a { color: var(--info); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.markdown-content a:hover { text-decoration-thickness: 2px; }
+.markdown-content blockquote { color: var(--muted); padding: 10px 16px; margin: 18px 0; background: color-mix(in srgb, var(--accent-soft) 32%, var(--subtle)); border-left: 3px solid var(--accent); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
 .markdown-content blockquote p:last-child { margin-bottom: 0; }
-.markdown-content table { display: block; overflow-x: auto; border-collapse: collapse; width: 100%; margin: 18px 0; font-size: var(--font-caption); }
-.markdown-content th, .markdown-content td { border: 0.5px solid var(--border); padding: 9px 12px; text-align: left; min-width: 90px; }
-.markdown-content th { background: var(--subtle); font-weight: 600; }
+.markdown-content table { display: block; overflow-x: auto; border-collapse: separate; border-spacing: 0; width: 100%; margin: 18px 0; font-size: var(--font-caption); border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--card-shadow); }
+.markdown-content th, .markdown-content td { border-right: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border); padding: 9px 13px; text-align: left; min-width: 90px; }
+.markdown-content tr > :last-child { border-right: 0; }
+.markdown-content tbody tr:last-child > * { border-bottom: 0; }
+.markdown-content th { background: var(--subtle); font-weight: 600; color: var(--text); }
+.markdown-content tbody tr:hover td { background: color-mix(in srgb, var(--hover) 55%, transparent); }
 .markdown-content hr { border: 0; border-top: 0.5px solid var(--border); margin: 26px 0; }

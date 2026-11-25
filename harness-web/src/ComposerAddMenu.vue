@@ -48,9 +48,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside))
 </template>
 <style scoped>
 .composer-add { position: relative; flex-shrink: 0; }
-.composer-add-button { width: 32px; height: 32px; border-radius: var(--radius-md); color: var(--muted); }
+.composer-add-button { width: 32px; height: 32px; min-height: 32px; border-radius: var(--radius-md); color: var(--muted); }
 .composer-add-button[aria-expanded=true] { background: var(--accent-soft); color: var(--accent); }
-.composer-add-menu { position: absolute; z-index: 13; left: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(300px, calc(100vw - 48px)); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); display: flex; flex-direction: column; }
+.composer-add-menu { position: absolute; z-index: 13; left: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(300px, calc(100vw - 48px)); padding: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--popover-shadow); display: flex; flex-direction: column; animation: pop-in .15s ease-out; }
 .composer-add-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; background: transparent; border-radius: var(--radius-md); text-align: left; color: var(--muted); }
 .composer-add-menu button:hover:not(:disabled), .composer-add-menu button:focus-visible { background: var(--accent-soft); color: var(--accent); outline: 0; }
 .composer-add-menu button:disabled { opacity: .5; cursor: not-allowed; }

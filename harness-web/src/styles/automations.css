@@ -1,8 +1,11 @@
-.sidebar-links { margin: -4px 0 10px; }
-.sidebar-link { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; border: 0; background: transparent; color: var(--sidebar-text); text-align: left; padding: 7px 12px; border-radius: var(--radius-md); font-size: var(--font-body); }
-.sidebar-link > .ui-icon { color: var(--sidebar-muted); }
-.sidebar-link:hover:not(:disabled) { background: var(--sidebar-hover); }
-.sidebar-link[aria-current] { background: var(--sidebar-selected); font-weight: 550; }
+.sidebar-links { margin: -2px 0 10px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar-link { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; border: 0; background: transparent; color: var(--sidebar-muted); text-align: left; padding: 7px 12px; border-radius: var(--radius-md); font-size: var(--font-body); }
+.sidebar-link > .ui-icon { color: var(--sidebar-muted); transition: color .15s ease; }
+.sidebar-link:hover:not(:disabled) { background: var(--sidebar-hover); color: var(--sidebar-text); }
+.sidebar-link:hover:not(:disabled) > .ui-icon { color: var(--sidebar-text); }
+.sidebar-link[aria-current] { background: var(--sidebar-selected); color: var(--sidebar-text); font-weight: 560; }
+.sidebar-link[aria-current]::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--accent); }
+.sidebar-link[aria-current] > .ui-icon { color: var(--accent); }
 .sidebar-link-badge { margin-left: auto; flex-shrink: 0; min-width: 18px; padding: 0 6px; border-radius: 999px; font-size: var(--font-caption); font-weight: 600; line-height: 18px; text-align: center; color: var(--warning); background: var(--warning-bg); }
 
 .automations-page .automation-create { display: inline-flex; align-items: center; gap: 6px; }
@@ -12,15 +15,15 @@
 .automations-empty h2 { margin: 4px 0 0; font-size: var(--font-heading); font-weight: 600; color: var(--text); }
 .automations-empty p { margin: 0 0 8px; line-height: 1.7; }
 .automations-empty .primary { display: inline-flex; align-items: center; gap: 6px; }
-.automation-list { display: flex; flex-direction: column; gap: 6px; align-self: start; }
-.automation-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 11px 13px; background: var(--surface); border-radius: var(--radius-md); }
-.automation-item[aria-current] { background: var(--selected); border-color: var(--border-strong); }
+.automation-list { display: flex; flex-direction: column; gap: 7px; align-self: start; }
+.automation-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 11px 13px; background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--card-shadow); }
+.automation-item[aria-current] { background: var(--selected); border-color: color-mix(in srgb, var(--accent) 32%, var(--border-strong)); }
 .automation-item-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.automation-item-title strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.automation-item-title strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
 .automation-item small { color: var(--muted); font-size: var(--font-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.automation-state { flex-shrink: 0; font-size: var(--font-caption); color: var(--success); background: var(--success-bg); padding: 1px 8px; border-radius: 20px; }
+.automation-state { flex-shrink: 0; font-size: var(--font-caption); font-weight: 550; color: var(--success); background: var(--success-bg); padding: 1px 8px; border-radius: 20px; }
 .automation-state.paused { color: var(--muted); background: var(--subtle); }
-.automation-detail { min-width: 0; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 20px 22px; align-self: start; }
+.automation-detail { min-width: 0; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 22px 24px; box-shadow: var(--card-shadow); align-self: start; }
 .automation-detail-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .automation-detail-heading h2 { margin: 0; font-size: var(--font-heading); font-weight: 600; overflow-wrap: anywhere; }
 .automation-detail-heading p { margin: 6px 0 0; color: var(--muted); font-size: var(--font-caption); }

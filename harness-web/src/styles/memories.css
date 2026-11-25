@@ -12,7 +12,7 @@
 .memories-page .memory-settings-link { border-color: var(--border); }
 
 /* 工具栏 */
-.memory-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 0.5px solid var(--border); background: var(--surface); }
+.memory-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 0.5px solid var(--border); background: var(--header-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .memory-toolbar select, .memory-relation-form select, .memory-relation-form input, .memory-editor input, .memory-editor textarea, .memory-editor select { min-width: 0; min-height: 34px; padding: 7px 10px; border: 0.5px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: inherit; font-size: var(--font-caption); }
 .memory-toolbar select:focus, .memory-relation-form select:focus, .memory-relation-form input:focus, .memory-editor input:focus, .memory-editor textarea:focus, .memory-editor select:focus { border-color: var(--accent); }
 .memory-toolbar > select { width: 160px; max-width: 200px; }
@@ -39,9 +39,10 @@
 .memory-graph-hint { position: absolute; top: 14px; left: 18px; max-width: calc(100% - 36px); color: var(--muted); font-size: var(--font-caption); pointer-events: none; }
 .memory-categories { display: flex; flex-direction: column; flex: 0 0 188px; gap: 2px; padding: 18px 10px 12px; overflow-y: auto; scrollbar-gutter: stable; border-right: 0.5px solid var(--border); background: var(--surface); }
 .memory-section-label { margin: 0 10px 12px; font-size: var(--font-caption); font-weight: 550; color: var(--faint); overflow-wrap: anywhere; }
-.memories-page .memory-categories > button { justify-content: flex-start; gap: 9px; min-height: 34px; border-color: transparent; background: transparent; color: var(--text); }
+.memories-page .memory-categories > button { position: relative; justify-content: flex-start; gap: 9px; min-height: 34px; border-color: transparent; background: transparent; color: var(--text); }
 .memories-page .memory-categories > button:hover:not(:disabled) { background: var(--hover); }
-.memories-page .memory-categories > button.active, .memories-page .memory-categories > button.active:hover:not(:disabled) { background: var(--selected); font-weight: 550; }
+.memories-page .memory-categories > button.active, .memories-page .memory-categories > button.active:hover:not(:disabled) { background: var(--selected); font-weight: 560; }
+.memories-page .memory-categories > button.active::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--accent); }
 .memory-categories button span { flex: 1; overflow: hidden; text-overflow: ellipsis; text-align: left; white-space: nowrap; }
 .memory-categories i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .memory-categories small { font-size: var(--font-caption); color: var(--faint); font-variant-numeric: tabular-nums; }
@@ -73,9 +74,10 @@
 .memory-empty .memory-primary { margin-top: 6px; }
 
 /* 列表视图 */
-.memory-list { display: flex; flex-direction: column; gap: 8px; height: 100%; padding: 16px 20px; overflow: auto; box-sizing: border-box; }
-.memories-page .memory-list > button { display: block; flex-shrink: 0; width: 100%; padding: 14px 16px; border: 0.5px solid var(--border); border-radius: var(--radius-md); text-align: left; }
-.memories-page .memory-list > button.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--surface); }
+.memory-list { display: flex; flex-direction: column; gap: 9px; height: 100%; padding: 16px 20px; overflow: auto; box-sizing: border-box; }
+.memories-page .memory-list > button { display: block; flex-shrink: 0; width: 100%; padding: 14px 16px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); text-align: left; box-shadow: var(--card-shadow); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background-color .16s ease; }
+.memories-page .memory-list > button:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); box-shadow: var(--card-shadow-hover); transform: translateY(-1px); }
+.memories-page .memory-list > button.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--card-shadow-hover); background: var(--surface); }
 .memory-list-meta { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--muted); font-size: var(--font-caption); }
 .memory-list-meta small { font-size: var(--font-caption); color: var(--faint); }
 .memory-list strong { font-size: var(--font-body); font-weight: 550; overflow-wrap: anywhere; }
@@ -144,7 +146,7 @@
 .memory-settings .preference-select { width: 220px; }
 .memory-settings .dialog-error { margin: 28px 0 0; }
 .memory-settings-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 16px; }
-.memory-processing { margin-top: 28px; padding: 20px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.memory-processing { margin-top: 24px; padding: 20px 22px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--card-shadow); }
 .memory-processing-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .memory-processing h2 { margin: 0; font-size: var(--font-body); font-weight: 600; }
 .memory-processing-state { padding: 2px 10px; border-radius: 20px; background: var(--subtle); color: var(--muted); font-size: var(--font-caption); }

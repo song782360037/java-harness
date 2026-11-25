@@ -21,8 +21,8 @@ defineEmits<{ remove: [key: string]; removeMention: [entry: FileEntry] }>()
 </template>
 <style scoped>
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; padding: 0; list-style: none; }
-li { display: flex; align-items: center; gap: 8px; max-width: 240px; min-width: 0; padding: 5px 4px 5px 6px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); color: var(--muted); }
-li.mention { color: var(--accent); }
+li { display: flex; align-items: center; gap: 8px; max-width: 240px; min-width: 0; padding: 5px 5px 5px 8px; border: 0.5px solid var(--border); border-radius: var(--radius-md); background: var(--subtle); color: var(--muted); box-shadow: var(--card-shadow); }
+li.mention { color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); }
 li.has-error { border-color: var(--danger); color: var(--danger); }
 li.uploading { opacity: .7; }
 img { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
@@ -31,6 +31,6 @@ strong, small { display: block; overflow: hidden; text-overflow: ellipsis; white
 strong { font-size: var(--font-caption); font-weight: 550; color: var(--text); }
 small { font-size: var(--font-caption); }
 li.has-error small { color: inherit; white-space: normal; }
-.icon-button { width: 24px; height: 24px; flex-shrink: 0; }
-@media (max-width: 780px) { .icon-button { width: 36px; height: 36px; } }
+.icon-button { width: 24px; height: 24px; min-height: 24px; padding: 4px; flex-shrink: 0; }
+@media (max-width: 780px) { .icon-button { width: 36px; height: 36px; min-height: 36px; } }
 </style>
