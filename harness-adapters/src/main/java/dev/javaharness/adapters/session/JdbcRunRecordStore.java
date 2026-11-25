@@ -9,6 +9,7 @@ import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunInput;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.run.RunStep;
+import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionStore;
 import dev.javaharness.spi.session.SessionUsage;
 import dev.javaharness.spi.session.UsageEntry;
@@ -18,7 +19,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Function;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -383,5 +386,80 @@ final class JdbcRunRecordStore {
                         JdbcSessionStore.optionalInstant(rs, "reasoning_at"),
                         JdbcSessionStore.optionalInstant(rs, "finished_at")),
                 runId);
+    }
+
+    /** 在普通可见会话的标题与顶层对话内容中检索关键字，每个会话保留最相关的一条命中摘要。 */
+    List<SessionStore.SearchHit> searchSessions(String query, int limit, RowMapper<Session> sessionMapper) {
+        String normalized = query == null ? "" : query.strip();
+        if (normalized.isEmpty()) return List.of();
+        int capped = Math.max(1, Math.min(limit, 50));
+        String pattern = "%" + escapeLike(normalized) + "%";
+        var hits = new LinkedHashMap<String, SessionStore.SearchHit>();
+        var titleMatches = jdbc.query("""
+                SELECT * FROM harness_session
+                WHERE group_id IS NULL AND flow_id IS NULL
+                  AND LOWER(title) LIKE LOWER(?) ESCAPE '\\'
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """, sessionMapper, pattern, capped);
+        for (Session session : titleMatches) {
+            hits.put(session.id(), new SessionStore.SearchHit(session, "title", session.title(), session.createdAt()));
+        }
+        if (hits.size() < capped) {
+            var runMatches = jdbc.query(
+                    """
+                    SELECT s.id, s.title, s.created_at, s.workspace, s.model_profile_id, s.reasoning_effort,
+                           s.workspace_id, s.approval_mode,
+                           r.prompt AS matched_prompt, r.output AS matched_output, r.created_at AS matched_at
+                    FROM harness_run r
+                    JOIN harness_session s ON s.id = r.session_id
+                    WHERE s.group_id IS NULL AND s.flow_id IS NULL
+                      AND r.parent_run_id IS NULL
+                      AND (LOWER(r.prompt) LIKE LOWER(?) ESCAPE '\\' OR LOWER(r.output) LIKE LOWER(?) ESCAPE '\\')
+                    ORDER BY r.created_at DESC, r.id DESC
+                    LIMIT ?
+                    """,
+                    (rs, row) -> {
+                        Session session = sessionMapper.mapRow(rs, row);
+                        String prompt = rs.getString("matched_prompt");
+                        String output = rs.getString("matched_output");
+                        Instant matchedAt = JdbcSessionStore.instant(rs, "matched_at");
+                        boolean inPrompt = containsIgnoreCase(prompt, normalized);
+                        String matchedIn = inPrompt ? "prompt" : "output";
+                        String source = inPrompt ? prompt : output;
+                        return new SessionStore.SearchHit(session, matchedIn, snippet(source, normalized), matchedAt);
+                    },
+                    pattern,
+                    pattern,
+                    capped * 3);
+            for (SessionStore.SearchHit hit : runMatches) {
+                hits.putIfAbsent(hit.session().id(), hit);
+                if (hits.size() >= capped) break;
+            }
+        }
+        return List.copyOf(hits.values());
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private static boolean containsIgnoreCase(String text, String query) {
+        return text != null && text.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
+    }
+
+    private static String snippet(String text, String query) {
+        if (text == null || text.isBlank()) return "";
+        String flat = text.replaceAll("\\s+", " ").strip();
+        int max = 110;
+        if (flat.length() <= max) return flat;
+        int index = flat.toLowerCase(Locale.ROOT).indexOf(query.toLowerCase(Locale.ROOT));
+        if (index < 0) index = 0;
+        int start = Math.max(0, index - 36);
+        int end = Math.min(flat.length(), start + max);
+        if (end - start < max && start > 0) start = Math.max(0, end - max);
+        if (start > 0 && Character.isLowSurrogate(flat.charAt(start))) start++;
+        if (end < flat.length() && Character.isHighSurrogate(flat.charAt(end - 1))) end--;
+        return (start > 0 ? "…" : "") + flat.substring(start, end).strip() + (end < flat.length() ? "…" : "");
     }
 }

@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -85,6 +86,13 @@ public class SessionController {
     @GetMapping("/sessions")
     public List<Session> sessions() {
         return store.sessions();
+    }
+
+    @GetMapping("/sessions/search")
+    public List<SessionStore.SearchHit> search(
+            @RequestParam(name = "q", defaultValue = "") String query,
+            @RequestParam(name = "limit", defaultValue = "20") int limit) {
+        return store.searchSessions(query, limit);
     }
 
     @PostMapping(value = "/sessions", consumes = MediaType.APPLICATION_JSON_VALUE)

@@ -27,6 +27,9 @@ public interface SessionStore {
     /** 会话在某个工作区下的滚动历史摘要，覆盖合格历史的前 coveredTurns 轮，截止于 throughRunId。 */
     record CompactedHistory(String throughRunId, int coveredTurns, String summary) {}
 
+    /** 跨会话全文检索命中项：返回所属会话、命中位置（title / prompt / output）、摘要片段与命中时间。 */
+    record SearchHit(Session session, String matchedIn, String snippet, Instant matchedAt) {}
+
     Session createSession(String title);
 
     Session createSession(String title, String workspace);
@@ -50,6 +53,11 @@ public interface SessionStore {
     void deleteSession(String sessionId);
 
     List<Session> sessions();
+
+    /** 在普通可见会话的标题、提问与回复中检索关键字；空白查询返回空列表。 */
+    default List<SearchHit> searchSessions(String query, int limit) {
+        return List.of();
+    }
 
     SessionSnapshot snapshot(String sessionId);
 

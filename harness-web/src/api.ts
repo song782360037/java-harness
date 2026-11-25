@@ -2,6 +2,7 @@ export type RunStatus = 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED'
   | 'CANCELLED' | 'FAILED' | 'TIMED_OUT' | 'INTERRUPTED'
 export type ApprovalMode = 'MANUAL' | 'SMART' | 'FULL_ACCESS'
 export interface Session { id: string; title: string; createdAt: string; workspace: string; workspaceId: string; modelProfileId: string; reasoningEffort: string; approvalMode: ApprovalMode }
+export interface SessionSearchHit { session: Session; matchedIn: 'title' | 'prompt' | 'output'; snippet: string; matchedAt: string }
 export const approvalModeOptions: { value: ApprovalMode; label: string; description: string }[] = [
   { value: 'MANUAL', label: '手动', description: '命令与外部工具逐一确认' },
   { value: 'SMART', label: '智能', description: '安全动作自动批准，文件修改直接写入' },

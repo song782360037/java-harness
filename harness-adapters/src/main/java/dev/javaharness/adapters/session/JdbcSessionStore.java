@@ -278,6 +278,11 @@ public final class JdbcSessionStore implements SessionStore {
                 SESSION_MAPPER);
     }
 
+    @Override
+    public synchronized List<SearchHit> searchSessions(String query, int limit) {
+        return records.searchSessions(query, limit, SESSION_MAPPER);
+    }
+
     private List<Session> allSessions() {
         return jdbc.query("SELECT * FROM harness_session ORDER BY created_at DESC, id DESC", SESSION_MAPPER);
     }

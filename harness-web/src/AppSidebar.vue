@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import type { Session, Workspace } from './api'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { api, type Session, type SessionSearchHit, type Workspace } from './api'
 import SessionDeleteDialog from './SessionDeleteDialog.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import SidebarResize from './SidebarResize.vue'
@@ -40,6 +40,39 @@ const emit = defineEmits<{
 }>()
 
 const sessionSearch = ref('')
+const contentHits = ref<SessionSearchHit[]>([])
+let contentSearchTimer: number | undefined
+let contentSearchRevision = 0
+const contentSnippets = computed(() => {
+  const map = new Map<string, string>()
+  if (!sessionSearch.value.trim()) return map
+  for (const hit of contentHits.value) {
+    if (hit.matchedIn !== 'title' && hit.snippet) {
+      map.set(hit.session.id, `${hit.matchedIn === 'prompt' ? '提问：' : '回复：'}${hit.snippet}`)
+    }
+  }
+  return map
+})
+
+watch(sessionSearch, value => {
+  clearTimeout(contentSearchTimer)
+  const trimmed = value.trim()
+  if (!trimmed) {
+    contentSearchRevision++
+    contentHits.value = []
+    return
+  }
+  const currentRevision = ++contentSearchRevision
+  contentSearchTimer = window.setTimeout(async () => {
+    try {
+      const hits = await api<SessionSearchHit[]>(`/sessions/search?q=${encodeURIComponent(trimmed)}&limit=20`)
+      if (currentRevision === contentSearchRevision) contentHits.value = hits
+    } catch {
+      if (currentRevision === contentSearchRevision) contentHits.value = []
+    }
+  }, 220)
+})
+
 const collapsedGroups = ref(new Set<string>())
 const sessionMenuId = ref('')
 const sessionMenuElement = ref<HTMLElement>()
@@ -54,14 +87,16 @@ let deleteTrigger: HTMLElement | null = null
 
 const sessionGroups = computed(() => {
   const groups = new Map<string, { label: string; icon: string; color: string; directories: string[]; sessions: Session[] }>()
-  const query = sessionSearch.value.toLowerCase()
+  const query = sessionSearch.value.trim().toLowerCase()
+  const matchedIds = new Set(contentHits.value.map(hit => hit.session.id))
   for (const workspace of props.workspaces) {
     if (!query || `${workspace.name} ${workspace.directories.join(' ')}`.toLowerCase().includes(query))
       groups.set(workspace.id, { label: workspace.name, icon: workspace.icon, color: workspace.color, directories: workspace.directories, sessions: [] })
   }
   for (const session of props.sessions) {
     const workspace = props.workspaces.find(value => value.id === session.workspaceId)
-    if (!`${session.title} ${workspace?.name || ''} ${session.workspace}`.toLowerCase().includes(query)) continue
+    const localMatch = !query || `${session.title} ${workspace?.name || ''} ${session.workspace}`.toLowerCase().includes(query)
+    if (!localMatch && !matchedIds.has(session.id)) continue
     const key = session.workspaceId || ''
     if (!groups.has(key)) groups.set(key, { label: workspace?.name || '最近会话', icon: workspace?.icon || 'folder', color: workspace?.color || '', directories: workspace?.directories || [], sessions: [] })
     groups.get(key)!.sessions.push(session)
@@ -177,6 +212,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  clearTimeout(contentSearchTimer)
   document.removeEventListener('keydown', onEscape)
   document.removeEventListener('pointerdown', outsideSessionMenu)
   document.removeEventListener('focusin', focusOutsideSessionMenu)
@@ -190,13 +226,13 @@ onUnmounted(() => {
   <aside v-show="!showSettings" class="sidebar" :inert="collapsed || undefined">
     <div class="sidebar-primary"><button class="new-session" :disabled="loading || submitting || settingsBusy || workspaceChanging" @click="emit('createSession')"><UiIcon name="plus" :size="17" /><span>新的任务</span></button><button class="icon-button collapse-sidebar" aria-label="收起侧栏" title="收起侧栏" @click="emit('update:collapsed', true)"><UiIcon name="panel" :size="16" /></button></div>
     <nav class="sidebar-links" aria-label="功能"><button class="sidebar-link" :aria-current="activePage === 'automations' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openAutomations')"><UiIcon name="clock" :size="16" /><span>自动化</span></button><button class="sidebar-link" :aria-current="activePage === 'memories' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openMemories')"><UiIcon name="memory" :size="16" /><span>记忆</span></button><button class="sidebar-link" :aria-current="activePage === 'groups' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openGroups')"><UiIcon name="users" :size="16" /><span>群聊</span></button><button class="sidebar-link" :aria-current="activePage === 'flows' ? 'page' : undefined" :disabled="settingsBusy || workspaceChanging" @click="emit('openFlows')"><UiIcon name="branch" :size="16" /><span>流水线</span><span v-if="waitingFlowCount" class="sidebar-link-badge" :aria-label="`${waitingFlowCount} 件流水线事项待处理`">{{ waitingFlowCount }}</span></button></nav>
-    <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索" aria-label="搜索会话" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
+    <label class="session-search"><UiIcon name="search" :size="16" /><input v-model="sessionSearch" placeholder="搜索会话或正文" aria-label="搜索会话或正文" /><button v-if="sessionSearch" class="icon-button" aria-label="清空搜索" @click="sessionSearch = ''"><UiIcon name="close" :size="14" /></button></label>
     <nav class="session-navigation" aria-label="会话列表">
       <div v-if="sessionGroups.length" class="session-section-label">工作区</div>
       <section v-for="[path, group] in sessionGroups" :key="path" class="session-group" :class="{ collapsed: collapsedGroups.has(path) && !sessionSearch }">
         <h2 class="workspace-group-heading"><button class="group-toggle" :title="group.directories.join('\n') || group.label" :aria-expanded="!collapsedGroups.has(path) || !!sessionSearch" @click="toggleGroup(path)"><UiIcon v-if="path" :name="group.icon" :style="{ color: group.color }" :size="16" /><span>{{ group.label }}</span></button><button v-if="path" class="icon-button workspace-add" :disabled="loading || submitting || workspaceChanging" :aria-label="`在 ${group.label} 新建会话`" title="新建会话" @click="emit('createWorkspaceSession', path)"><UiIcon name="plus" :size="14" /></button></h2>
         <div v-for="session in group.sessions" v-show="!collapsedGroups.has(path) || !!sessionSearch" :key="session.id" class="session-row" :class="{ selected: session.id === selectedId && activePage === 'chat', 'menu-open': sessionMenuId === session.id }">
-          <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId && activePage === 'chat' ? 'page' : undefined" :title="session.title" @click="emit('selectSession', session.id)"><span>{{ session.title }}</span><span v-if="session.id === selectedId && currentRunning" class="activity-dot" aria-label="任务运行中"></span></button>
+          <button class="session-item" :disabled="submitting || loading || settingsBusy || workspaceChanging" :aria-current="session.id === selectedId && activePage === 'chat' ? 'page' : undefined" :title="contentSnippets.get(session.id) || session.title" @click="emit('selectSession', session.id)"><span class="session-item-copy"><span class="session-item-title">{{ session.title }}</span><small v-if="contentSnippets.get(session.id)" class="session-item-snippet">{{ contentSnippets.get(session.id) }}</small></span><span v-if="session.id === selectedId && currentRunning" class="activity-dot" aria-label="任务运行中"></span></button>
           <button class="icon-button session-more" :disabled="loading || workspaceChanging" :aria-label="`更多操作：${session.title}`" title="更多操作" aria-haspopup="menu" :aria-expanded="sessionMenuId === session.id" :aria-controls="sessionMenuId === session.id ? `session-menu-${session.id}` : undefined" @click="toggleSessionMenu(session, $event)"><UiIcon name="more" :size="16" /></button>
         </div>
       </section>
@@ -214,3 +250,23 @@ onUnmounted(() => {
   <SessionRenameDialog v-if="renamingSession" :session="renamingSession" @saved="emit('sessionRenamed', $event)" @close="closeRename" />
   <SessionDeleteDialog v-if="deletingSession" :session="deletingSession" @deleted="emit('sessionDeleted', $event)" @close="closeDelete" />
 </template>
+
+<style scoped>
+.session-item-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.session-item-title,
+.session-item-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-item-snippet {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+</style>

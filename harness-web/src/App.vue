@@ -3,7 +3,7 @@ import DesktopUpdateNotice from './DesktopUpdateNotice.vue'
 import TaskCenter from './TaskCenter.vue'
 import { connectTaskActivity, taskActivity } from './taskActivity'
 import type { TaskActivity } from './taskActivityModel'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppSidebar from './AppSidebar.vue'
 import ChatRunCard from './ChatRunCard.vue'
 import PluginCommandPicker from './PluginCommandPicker.vue'
@@ -13,16 +13,21 @@ import MentionPicker from './MentionPicker.vue'
 import ComposerAddMenu from './ComposerAddMenu.vue'
 import ComposerAttachments from './ComposerAttachments.vue'
 import PromptOptimizer from './PromptOptimizer.vue'
-import SettingsPage from './SettingsPage.vue'
-import AutomationsPage from './AutomationsPage.vue'
-import MemoriesPage from './MemoriesPage.vue'
-import GroupChatsPage from './GroupChatsPage.vue'
-import FlowsPage from './FlowsPage.vue'
 import ComposerSelectors from './ComposerSelectors.vue'
 import TokenUsageRing from './TokenUsageRing.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import UiIcon from './UiIcon.vue'
+
+// 独立二级页面按需加载，显著减小工作台首屏主包体积。
+const SettingsPage = defineAsyncComponent(() => import('./SettingsPage.vue'))
+const AutomationsPage = defineAsyncComponent(() => import('./AutomationsPage.vue'))
+const MemoriesPage = defineAsyncComponent(() => import('./MemoriesPage.vue'))
+const GroupChatsPage = defineAsyncComponent(() => import('./GroupChatsPage.vue'))
+const FlowsPage = defineAsyncComponent(() => import('./FlowsPage.vue'))
+const CommandPalette = defineAsyncComponent(() => import('./CommandPalette.vue'))
 import { modifierKeyLabel, preferences, shouldSendPrompt } from './preferences'
+import { isPaletteShortcut } from './commandPalette'
+import { downloadSessionMarkdown } from './sessionExport'
 import { api, ApiError, isActive, normalizeReasoningDepth, upload, type Run, type RunEvent,
   type Session, type Snapshot, type Submission, type ModelProfile, type Workspace, type ApprovalMode } from './api'
 import { addMention, attachmentProblem, attachmentsOnlyPrompt, droppedFiles, isImage, isLongPaste, mentionLabel, MAX_ATTACHMENTS, MAX_MENTIONS, nextPastedName, removeFileMentionQuery,
@@ -43,11 +48,37 @@ const showAutomations = ref(false)
 const showMemories = ref(false)
 const showGroups = ref(false)
 const showFlows = ref(false)
+const showCommandPalette = ref(false)
+function exportCurrentSession() {
+  if (!snapshot.value?.runs.length) return
+  const workspaceName = workspaces.value.find(value => value.id === snapshot.value?.session.workspaceId)?.name || ''
+  downloadSessionMarkdown(snapshot.value, workspaceName)
+}
+function onGlobalKeydown(event: KeyboardEvent) {
+  if (!isPaletteShortcut(event)) return
+  if (workspaceChanging.value || settingsBusy.value || browsingWorkspace.value) return
+  event.preventDefault()
+  showCommandPalette.value = !showCommandPalette.value
+}
 const activePage = computed<'chat' | 'automations' | 'memories' | 'groups' | 'flows'>(() =>
   showAutomations.value ? 'automations' : showMemories.value ? 'memories' : showGroups.value ? 'groups' : showFlows.value ? 'flows' : 'chat',
 )
 const groupPage = ref<{ openTask(id: string): Promise<void>; navigationBlocked: boolean }>()
 const flowPage = ref<{ openTask(flowId: string, itemId?: string): Promise<void> }>()
+const pendingGroupTaskId = ref('')
+const pendingFlowTask = ref<{ flowId: string; itemId?: string }>()
+watch(groupPage, page => {
+  if (!page || !pendingGroupTaskId.value) return
+  const id = pendingGroupTaskId.value
+  pendingGroupTaskId.value = ''
+  void page.openTask(id)
+})
+watch(flowPage, page => {
+  if (!page || !pendingFlowTask.value) return
+  const task = pendingFlowTask.value
+  pendingFlowTask.value = undefined
+  void page.openTask(task.flowId, task.itemId)
+})
 const waitingFlowCount = computed(() => taskActivity.value.active.filter(task => task.source === 'FLOW' && task.status.startsWith('WAITING_')).length)
 const taskNavigationBlocked = computed(() => submitting.value || loading.value || settingsBusy.value || workspaceChanging.value || !!groupPage.value?.navigationBlocked)
 const queuedTask = ref<TaskActivity>()
@@ -741,9 +772,14 @@ async function openAutomationSession(id: string) {
   navigateSession(id)
 }
 async function openFlowTask(flowId: string, itemId?: string) {
+  pendingFlowTask.value = { flowId, itemId }
   openFlows()
   await nextTick()
-  await flowPage.value?.openTask(flowId, itemId)
+  if (flowPage.value && pendingFlowTask.value) {
+    const task = pendingFlowTask.value
+    pendingFlowTask.value = undefined
+    await flowPage.value.openTask(task.flowId, task.itemId)
+  }
 }
 /** 通知在提交过程中到达时暂存跳转，避免中断提交或丢失群聊草稿。 */
 async function openTask(task: TaskActivity) {
@@ -752,9 +788,14 @@ async function openTask(task: TaskActivity) {
   queuedTask.value = undefined
   closeSettings()
   if (task.groupId) {
+    pendingGroupTaskId.value = task.groupId
     openGroups()
     await nextTick()
-    await groupPage.value?.openTask(task.groupId)
+    if (groupPage.value && pendingGroupTaskId.value) {
+      const id = pendingGroupTaskId.value
+      pendingGroupTaskId.value = ''
+      await groupPage.value.openTask(id)
+    }
   } else if (task.flowId) {
     await openFlowTask(task.flowId, task.flowItemId || task.id)
   } else {
@@ -872,6 +913,7 @@ onMounted(() => {
   void initialize().finally(() => { disconnectTaskActivity = connectTaskActivity(task => { void openTask(task) }) })
   mobileLayout.addEventListener('change', onLayoutChange)
   window.addEventListener('focus', reloadSessions)
+  window.addEventListener('keydown', onGlobalKeydown)
   document.addEventListener('visibilitychange', resumeStream)
   window.addEventListener('online', resumeStream)
 })
@@ -884,6 +926,7 @@ onUnmounted(() => {
   window.removeEventListener('online', resumeStream)
   mobileLayout.removeEventListener('change', onLayoutChange)
   window.removeEventListener('focus', reloadSessions)
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 </script>
 
@@ -908,7 +951,7 @@ onUnmounted(() => {
       :has-pending="!!pending"
       @create-session="createSession"
       @create-workspace-session="createWorkspaceSession"
-      @select-session="navigateSession"
+      @select-session="closeSettings(); navigateSession($event)"
       @open-automations="openAutomations"
       @open-memories="openMemories()"
       @open-groups="openGroups"
@@ -920,7 +963,11 @@ onUnmounted(() => {
     <main v-show="!showSettings && !showAutomations && !showMemories && !showGroups && !showFlows" class="main-panel" :class="{ 'is-welcome': !snapshot?.runs.length && !launching, 'is-launching': launching }" :inert="isMobile && !sidebarCollapsed || undefined">
       <header class="workspace-header">
         <div class="workspace-title"><button v-if="sidebarCollapsed" class="icon-button" aria-label="展开侧栏" title="展开侧栏" @click="sidebarCollapsed = false"><UiIcon name="panel" /></button><span class="header-breadcrumb">工作台 <span aria-hidden="true">/</span></span><h1>{{ snapshot?.session.title || '新对话' }}</h1></div>
-        <div class="header-meta"><span v-if="selectedId && !connected" class="connection" title="正在重新连接">连接中</span></div>
+        <div class="header-meta">
+          <span v-if="selectedId && !connected" class="connection" title="正在重新连接">连接中</span>
+          <button v-if="snapshot?.runs.length" type="button" class="icon-button" aria-label="导出当前会话为 Markdown" title="导出为 Markdown" @click="exportCurrentSession"><UiIcon name="download" :size="16" /></button>
+          <button type="button" class="header-command-button" :disabled="workspaceChanging || settingsBusy" aria-label="打开快速命令面板" :title="`快速命令与全文搜索 (${modifierKeyLabel} + K)`" @click="showCommandPalette = true"><UiIcon name="search" :size="14" /><kbd>{{ modifierKeyLabel }} K</kbd></button>
+        </div>
       </header>
       <div v-if="error" class="error-banner" role="alert">{{ error }} <button @click="selectedId ? selectSession(selectedId) : initialize()">重新连接</button></div>
       <div class="workbench-body"><div class="chat-panel">
@@ -996,5 +1043,51 @@ onUnmounted(() => {
       <WorkspaceSettings v-if="browsingWorkspace" :session-id="snapshot?.session.id" initial-path="" :initial-workspace="editingWorkspace" :disabled="workspaceSyncing || !!current || submitting || !!pending || loading" @busy="workspaceSaving = $event" @saved="workspacePicked" @cancel="closeWorkspaceDialog" />
     </dialog>
     <SettingsPage v-if="showSettings" :initial-profile-id="selectedProfileId" :initial-section="settingsSection" :session="snapshot?.session" :workspaces="workspaces" :creating-workspace="creatingWorkspace" :workspace-disabled="!!current || submitting || !!pending || loading" @close="closeSettings" @busy="settingsBusy = $event" @saved="settingsSaved" @deleted="profileDeleted" @changed="loadProfiles().catch(() => {})" @workspace-saved="workspacePicked" />
+    <CommandPalette
+      v-if="showCommandPalette"
+      :sessions="sessions"
+      :workspaces="workspaces"
+      :selected-id="selectedId"
+      :waiting-flow-count="waitingFlowCount"
+      :sidebar-collapsed="sidebarCollapsed"
+      :can-export="!!snapshot?.runs.length"
+      :navigation-disabled="loading || submitting || settingsBusy || workspaceChanging"
+      @close="showCommandPalette = false"
+      @create-session="createSession"
+      @create-workspace-session="createWorkspaceSession"
+      @select-session="closeSettings(); navigateSession($event)"
+      @open-automations="closeSettings(); openAutomations()"
+      @open-memories="closeSettings(); openMemories()"
+      @open-groups="closeSettings(); openGroups()"
+      @open-flows="closeSettings(); openFlows()"
+      @open-settings="openSettings($event)"
+      @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
+      @export-markdown="exportCurrentSession"
+    />
   </div>
 </template>
+
+<style scoped>
+.header-command-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.header-command-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.header-command-button kbd {
+  font-family: inherit;
+  font-size: 11px;
+  color: inherit;
+}
+</style>
