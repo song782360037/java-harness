@@ -4,7 +4,7 @@ import { api } from './api'
 import { cacheRate, chartBars, compactTokens, dayTotal, heatmapWeeks, type UsageStatistics } from './usage'
 import UiIcon from './UiIcon.vue'
 const ranges = [{ days: 1, label: '今天' }, { days: 7, label: '7 天' }, { days: 30, label: '30 天' }, { days: 0, label: '全部' }] as const
-const colors: Record<string, string> = { harness: 'var(--usage-harness)', 'claude-code': 'var(--usage-claude)', codex: 'var(--usage-codex)', workbuddy: 'var(--usage-workbuddy)', qoder: 'var(--usage-qoder)' }
+const colors: Record<string, string> = { harness: 'var(--usage-harness)', 'claude-code': 'var(--usage-claude)', codex: 'var(--usage-codex)', workbuddy: 'var(--usage-workbuddy)', qoder: 'var(--usage-qoder)', antigravity: 'var(--usage-antigravity)' }
 const days = ref<number>(7)
 const rangeLabel = computed(() => ({ 1: '今天', 7: '近 7 天', 30: '近 30 天', 0: '全部时间' }[days.value]))
 const stats = ref<UsageStatistics | null>(null)
@@ -131,7 +131,7 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
           </tbody>
         </table>
       </div>
-      <p class="settings-footnote">外部 agent 用量读取自本机会话日志，输入 tokens 含缓存命中；Qoder 内置模型只计 credits。</p>
+      <p class="settings-footnote">外部 agent 用量读取自本机会话日志，输入 tokens 含缓存命中；Qoder 内置模型只计 credits；Antigravity 仅统计生成了会话记录（transcript）的对话。</p>
     </div>
   </section>
 </template>

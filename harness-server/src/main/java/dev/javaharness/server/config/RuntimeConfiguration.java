@@ -81,8 +81,23 @@ public class RuntimeConfiguration {
     }
 
     @Bean
-    UsageStatisticsService usageStatisticsService(SessionStore sessions, @Value("${user.home}") String home) {
-        return new UsageStatisticsService(sessions, new LocalAgentUsageReader(Path.of(home)), ZoneId.systemDefault());
+    UsageStatisticsService usageStatisticsService(
+            SessionStore sessions,
+            @Value("${user.home}") String home,
+            @Value("${harness.usage.cache-file:}") String cacheFile) {
+        return new UsageStatisticsService(
+                sessions,
+                new LocalAgentUsageReader(Path.of(home), cacheFile.isBlank() ? null : Path.of(cacheFile)),
+                ZoneId.systemDefault());
+    }
+
+    /** 启动后在后台预读本机 agent 日志，避免首次打开使用统计时等待全量解析。 */
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> warmUpUsageStatistics(
+            UsageStatisticsService usage, @Value("${harness.usage.warm-up:true}") boolean enabled) {
+        return event -> {
+            if (enabled) usage.warmUp();
+        };
     }
 
     @Bean

@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * 使用统计：合并本项目的用量台账与本机 Claude Code、Codex、WorkBuddy、Qoder 日志，按来源、模型和自然日（本机时区）汇总 token。
+ * 使用统计：合并本项目的用量台账与本机 Claude Code、Codex、WorkBuddy、Qoder、Antigravity 日志，按来源、模型和自然日（本机时区）汇总 token。
  */
 public final class UsageStatisticsService {
     public static final String HARNESS = "harness";
@@ -32,13 +32,16 @@ public final class UsageStatisticsService {
             LocalAgentUsageReader.WORKBUDDY,
             "WorkBuddy",
             LocalAgentUsageReader.QODER,
-            "Qoder");
+            "Qoder",
+            LocalAgentUsageReader.ANTIGRAVITY,
+            "Antigravity");
     private static final List<String> SOURCES = List.of(
             HARNESS,
             LocalAgentUsageReader.CLAUDE_CODE,
             LocalAgentUsageReader.CODEX,
             LocalAgentUsageReader.WORKBUDDY,
-            LocalAgentUsageReader.QODER);
+            LocalAgentUsageReader.QODER,
+            LocalAgentUsageReader.ANTIGRAVITY);
     private final SessionStore store;
     private final LocalAgentUsageReader agents;
     private final ZoneId zone;
@@ -80,6 +83,22 @@ public final class UsageStatisticsService {
         this.store = store;
         this.agents = agents;
         this.zone = zone;
+    }
+
+    /** 在后台线程预读本机 agent 日志，首次打开统计页时直接命中缓存；读取失败不影响启动。 */
+    public void warmUp() {
+        Thread thread = new Thread(
+                () -> {
+                    try {
+                        agents.warmUp();
+                    } catch (RuntimeException e) {
+                        // The statistics request reads the logs again and reports its own errors.
+                    }
+                },
+                "usage-warm-up");
+        thread.setDaemon(true);
+        thread.setPriority(Thread.MIN_PRIORITY);
+        thread.start();
     }
 
     /** 统计最近 days 个自然日（含今天）；days 为 0 时统计全部。 */

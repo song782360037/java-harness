@@ -38,6 +38,10 @@ harness:
     directory: ${HARNESS_PLUGIN_DIRECTORY:./data/plugins}
   settings:
     key-file: ${HARNESS_SETTINGS_KEY_FILE:./data/settings.key}
+  usage:
+    # 本机 agent 日志的解析结果缓存，重启后只需重新解析有变化的文件；留空则只缓存在内存中。
+    cache-file: ${HARNESS_USAGE_CACHE_FILE:./data/usage-cache.bin}
+    warm-up: ${HARNESS_USAGE_WARM_UP:true}
   session-naming:
     enabled: ${HARNESS_SESSION_NAMING_ENABLED:true}
   automations:

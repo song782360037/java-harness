@@ -182,6 +182,84 @@ class UsageStatisticsTest {
     }
 
     @Test
+    void antigravityTranscriptsCountPlannerStepsWithCacheOnce() throws Exception {
+        Path brain = home.resolve(".gemini/antigravity/brain");
+        String step = """
+                {"step_index":%d,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"%s",\
+                "model":"gemini-x","input_tokens":%d,"cache_read_tokens":%d,"output_tokens":%d,"thinking":"x",\
+                "tool_calls":[{"name":"run_command","args":{"CommandLine":"echo \\"input_tokens\\""}}]}""";
+        write(
+                brain.resolve("c1/.system_generated/logs/transcript.jsonl"),
+                "{\"step_index\":0,\"type\":\"USER_INPUT\",\"created_at\":\"" + now
+                        + "\",\"content\":\"input_tokens\"}",
+                step.formatted(1, now, 2000, 14000, 300),
+                // A step occasionally appears twice in the transcript.
+                step.formatted(1, now, 2000, 14000, 300),
+                step.formatted(2, now, 100, 0, 5),
+                "{\"step_index\":3,\"type\":\"GENERIC\",\"created_at\":\"" + now + "\",\"input_tokens\":7}");
+        // The same step index in another conversation is a different call.
+        write(brain.resolve("c2/.system_generated/logs/transcript.jsonl"), step.formatted(1, now, 10, 0, 1));
+        // Only the per-conversation transcript is read; other files under brain/ are ignored.
+        write(brain.resolve("c2/notes.jsonl"), step.formatted(9, now, 999, 0, 9));
+        Files.createDirectories(brain.resolve("c3"));
+
+        var reader = new LocalAgentUsageReader(home);
+        assertThat(reader.available(LocalAgentUsageReader.ANTIGRAVITY)).isTrue();
+        assertThat(reader.usageSince(Instant.EPOCH))
+                .extracting(
+                        LocalAgentUsageReader.AgentUsage::source,
+                        LocalAgentUsageReader.AgentUsage::model,
+                        LocalAgentUsageReader.AgentUsage::inputTokens,
+                        LocalAgentUsageReader.AgentUsage::outputTokens,
+                        LocalAgentUsageReader.AgentUsage::cachedTokens)
+                .containsExactlyInAnyOrder(
+                        tuple("antigravity", "gemini-x", 16000L, 300L, 14000L),
+                        tuple("antigravity", "gemini-x", 100L, 5L, 0L),
+                        tuple("antigravity", "gemini-x", 10L, 1L, 0L));
+    }
+
+    @Test
+    void parsedLogsArePersistedAndOnlyChangedFilesAreReparsed() throws Exception {
+        Path cacheFile = home.resolve("cache/usage.bin");
+        Path log = home.resolve(".claude/projects/p/a.jsonl");
+        Path other = home.resolve(".claude/projects/p/b.jsonl");
+        write(log, claude("m1", now, "claude-x", 8));
+        write(other, claude("m2", now, "claude-y", 3));
+        var first = new LocalAgentUsageReader(home, cacheFile);
+        assertThat(first.usageSince(Instant.EPOCH)).hasSize(2);
+        await(cacheFile);
+
+        // Same size and timestamp: a restarted reader must trust the cache instead of reparsing the edited bytes.
+        var modified = Files.getLastModifiedTime(log);
+        Files.writeString(log, claude("m1", now, "claude-z", 8) + "\n");
+        Files.setLastModifiedTime(log, modified);
+        Files.delete(other);
+        var restarted = new LocalAgentUsageReader(home, cacheFile);
+        assertThat(restarted.usageSince(Instant.EPOCH))
+                .extracting(LocalAgentUsageReader.AgentUsage::model, LocalAgentUsageReader.AgentUsage::at)
+                .containsExactly(tuple("claude-x", now));
+
+        Files.setLastModifiedTime(log, java.nio.file.attribute.FileTime.fromMillis(modified.toMillis() + 1000));
+        assertThat(restarted.usageSince(Instant.EPOCH))
+                .extracting(LocalAgentUsageReader.AgentUsage::model)
+                .containsExactly("claude-z");
+
+        // A damaged cache file is ignored and rebuilt from the logs.
+        Thread.sleep(300);
+        Files.write(cacheFile, new byte[] {1, 2, 3});
+        assertThat(new LocalAgentUsageReader(home, cacheFile).usageSince(Instant.EPOCH))
+                .extracting(LocalAgentUsageReader.AgentUsage::model)
+                .containsExactly("claude-z");
+    }
+
+    private static void await(Path file) throws InterruptedException {
+        for (int i = 0; i < 200 && !Files.exists(file); i++) Thread.sleep(25);
+        assertThat(file).exists();
+        // Let the background writer release the file before it is replaced.
+        Thread.sleep(100);
+    }
+
+    @Test
     void statisticsMergeSourcesByModelAndZeroFilledDays() throws Exception {
         jdbc.update(
                 "INSERT INTO harness_usage_ledger VALUES (?,?,?,?,?,?,?,?)",
@@ -221,7 +299,8 @@ class UsageStatisticsTest {
                         tuple("claude-code", true, 1L),
                         tuple("codex", false, 0L),
                         tuple("workbuddy", false, 0L),
-                        tuple("qoder", false, 0L));
+                        tuple("qoder", false, 0L),
+                        tuple("antigravity", false, 0L));
         assertThat(week.models())
                 .extracting(UsageStatisticsService.Model::model)
                 .containsExactly("local-model", "claude-x");
