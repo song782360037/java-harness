@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { resolvedTheme } from '../theme'
+import { resolvedColorScheme } from '../theme'
 import { deskIdleActivity, renderBotAvatarInner, type BotCard, type DeskIdleActivity } from './api'
 
 const props = defineProps<{
@@ -28,7 +28,7 @@ const isFailed = computed(() => props.card.status === 'FAILED')
 const idleMode = computed<DeskIdleActivity>(() => deskIdleActivity(props.card.bot.id, now.value))
 const avatarMarkup = computed(() => renderBotAvatarInner(props.card.bot.shape, props.card.bot.color))
 const hour = computed(() => new Date(now.value).getHours())
-const isDark = computed(() => resolvedTheme.value === 'dark')
+const isDark = computed(() => resolvedColorScheme.value === 'dark')
 const wallColor = computed(() => (isDark.value ? '#1b221e' : '#f3f6f4'))
 const frameColor = computed(() => (isDark.value ? '#37443d' : '#cfd8d1'))
 const deskWoodColor = computed(() => (isDark.value ? '#4a3a2d' : '#d7c3a8'))

@@ -1,6 +1,6 @@
 /* 图谱主题色：浅色主题加深以保证文字对比度，深色主题使用柔和亮色。 */
 :root { --memory-1: #23786d; --memory-2: #6e56a8; --memory-3: #8a6417; --memory-4: #315f9f; --memory-5: #b04a6f; --memory-6: #4b7a2a; }
-:root[data-theme='dark'] { --memory-1: #73cfc5; --memory-2: #c4a0f0; --memory-3: #e7c779; --memory-4: #86bbef; --memory-5: #e69cbb; --memory-6: #a5cf86; }
+:root[data-color-scheme='dark'], :root[data-theme='dark'], :root[data-theme='midnight'], :root[data-theme='espresso'], :root[data-theme='nebula'] { --memory-1: #73cfc5; --memory-2: #c4a0f0; --memory-3: #e7c779; --memory-4: #86bbef; --memory-5: #e69cbb; --memory-6: #a5cf86; }
 
 .memories-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: var(--page); }
 .memories-page button, .memory-editor button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 12px; border: 0.5px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font-size: var(--font-caption); cursor: pointer; transition: background-color .15s, border-color .15s, transform .12s ease; }

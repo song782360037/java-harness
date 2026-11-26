@@ -3,7 +3,14 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type Session, type SessionSearchHit, type Workspace } from './api'
 import { filterPaletteItems, mergeContentHits, PALETTE_GROUP_LABELS, type CommandPaletteItem, type PaletteGroup } from './commandPalette'
 import { modifierKeyLabel } from './preferences'
-import { resolvedTheme, setTheme, themePreference, type ThemePreference } from './theme'
+import {
+  THEME_OPTIONS,
+  getThemeOption,
+  resolvedColorScheme,
+  setTheme,
+  themePreference,
+  type ThemePreference,
+} from './theme'
 import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{
@@ -27,7 +34,7 @@ const emit = defineEmits<{
   openMemories: []
   openBots: []
   openFlows: []
-  openSettings: [section?: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents']
+  openSettings: [section?: 'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'memory' | 'updates' | 'plugins' | 'agents']
   toggleSidebar: []
   toggleExplorer: []
   exportMarkdown: []
@@ -43,14 +50,11 @@ const contentHits = ref<SessionSearchHit[]>([])
 let searchTimer: number | undefined
 let searchRevision = 0
 
+const currentThemeLabel = computed(() => getThemeOption(themePreference.value).label)
+
 const nextTheme = computed<{ value: ThemePreference; label: string; icon: string }>(() => {
-  if (themePreference.value === 'system') {
-    return resolvedTheme.value === 'dark'
-      ? { value: 'light', label: '切换到明亮主题', icon: 'sun' }
-      : { value: 'dark', label: '切换到深色主题', icon: 'moon' }
-  }
-  return themePreference.value === 'dark'
-    ? { value: 'light', label: '切换到明亮主题', icon: 'sun' }
+  return resolvedColorScheme.value === 'dark'
+    ? { value: 'light', label: '切换到浅色主题', icon: 'sun' }
     : { value: 'dark', label: '切换到深色主题', icon: 'moon' }
 })
 
@@ -63,15 +67,30 @@ const baseItems = computed<CommandPaletteItem[]>(() => {
     ...(props.canExplore
       ? [{ id: 'action:toggle-explorer', group: 'action' as const, title: props.explorerOpen ? '关闭工作区文件浏览栏' : '打开工作区文件浏览栏', subtitle: '浏览项目目录树并预览源码', keywords: 'files tree explorer code preview 文件 目录 代码 预览', icon: 'folder' }]
       : []),
-    { id: 'action:toggle-theme', group: 'action', title: nextTheme.value.label, subtitle: `当前主题：${themePreference.value === 'system' ? '跟随系统' : themePreference.value === 'dark' ? '深色' : '明亮'}`, keywords: 'theme dark light 主题 明亮 深色 夜间', icon: nextTheme.value.icon },
+    { id: 'action:toggle-theme', group: 'action', title: nextTheme.value.label, subtitle: `当前主题：${currentThemeLabel.value}`, keywords: 'theme dark light 主题 明亮 浅色 深色 夜间', icon: nextTheme.value.icon },
     { id: 'action:toggle-sidebar', group: 'action', title: props.sidebarCollapsed ? '展开侧栏' : '收起侧栏', subtitle: '切换左侧会话导航栏显示状态', keywords: 'sidebar panel 侧栏 折叠 展开', icon: 'panel' },
     { id: 'page:flows', group: 'page', title: '打开流水线', subtitle: '查看与处理固定研发泳道流水线', keywords: 'flows pipeline 流水线 泳道', icon: 'branch', badge: props.waitingFlowCount ? String(props.waitingFlowCount) : undefined },
     { id: 'page:bots', group: 'page', title: '打开 Bot 团队', subtitle: '桌面 Bot 团队、后台任务、例行与小程序', keywords: 'bots team agent 团队 助手 小程序', icon: 'cube' },
     { id: 'page:memories', group: 'page', title: '打开长期记忆', subtitle: '浏览主题知识图谱与记忆条目', keywords: 'memory graph 记忆 图谱', icon: 'memory' },
     { id: 'page:automations', group: 'page', title: '打开自动化', subtitle: '管理定时任务与自动触发规则', keywords: 'automations cron schedule 自动化 定时', icon: 'clock' },
+    { id: 'page:settings:appearance', group: 'page', title: '外观与主题设置', subtitle: `当前主题：${currentThemeLabel.value} · 切换多种浅色与深色主题`, keywords: 'appearance theme color palette 外观 主题 配色 皮肤 换肤', icon: 'palette' },
     { id: 'page:settings:models', group: 'page', title: '模型与供应商设置', subtitle: '配置模型名称、API Key 与思考深度', keywords: 'models provider api key 模型 设置 配置', icon: 'reasoning' },
     { id: 'page:settings:general', group: 'page', title: '打开设置与偏好', subtitle: '外观、快捷键、工作区、审批与扩展管理', keywords: 'settings preferences 设置 偏好 扩展 插件', icon: 'settings' },
   ]
+  if (query.value.trim()) {
+    for (const option of THEME_OPTIONS) {
+      items.push({
+        id: `theme:${option.value}`,
+        group: 'action',
+        title: `切换主题：${option.label}`,
+        subtitle: option.description,
+        keywords: `theme 主题 换肤 配色 ${option.keywords}`,
+        icon: option.scheme === 'dark' ? 'moon' : 'sun',
+        color: option.swatches[2],
+        badge: themePreference.value === option.value ? '当前' : undefined,
+      })
+    }
+  }
   for (const workspace of props.workspaces) {
     items.push({
       id: `workspace:${workspace.id}`,
@@ -160,12 +179,14 @@ function runItem(item: CommandPaletteItem) {
   if (item.id === 'action:new-session') { if (!props.navigationDisabled) emit('createSession'); return }
   if (item.id === 'action:export-md') { emit('exportMarkdown'); return }
   if (item.id === 'action:toggle-theme') { setTheme(nextTheme.value.value); return }
+  if (item.id.startsWith('theme:')) { setTheme(item.id.slice('theme:'.length) as ThemePreference); return }
   if (item.id === 'action:toggle-sidebar') { emit('toggleSidebar'); return }
   if (item.id === 'action:toggle-explorer') { emit('toggleExplorer'); return }
   if (item.id === 'page:flows') { emit('openFlows'); return }
   if (item.id === 'page:bots') { emit('openBots'); return }
   if (item.id === 'page:memories') { emit('openMemories'); return }
   if (item.id === 'page:automations') { emit('openAutomations'); return }
+  if (item.id === 'page:settings:appearance') { emit('openSettings', 'appearance'); return }
   if (item.id === 'page:settings:models') { emit('openSettings', 'models'); return }
   if (item.id === 'page:settings:general') { emit('openSettings', 'general'); return }
   if (item.id.startsWith('workspace:')) { if (!props.navigationDisabled) emit('createWorkspaceSession', item.id.slice('workspace:'.length)); return }

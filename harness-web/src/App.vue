@@ -110,7 +110,7 @@ const activeBotCount = computed(() => taskActivity.value.active.filter(task => t
 const taskNavigationBlocked = computed(() => submitting.value || loading.value || settingsBusy.value || workspaceChanging.value)
 const queuedTask = ref<TaskActivity>()
 let disconnectTaskActivity = () => {}
-const settingsSection = ref<'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents'>('general')
+const settingsSection = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents'>('general')
 const fontSize = computed(() => ({ small: 13, standard: 14, large: 16 })[preferences.value.chatFontSize])
 // 根字号控制全局文字，辅助文字仍保留最小可读尺寸。
 watch(fontSize, value => {
@@ -330,7 +330,7 @@ async function workspacePicked(session: Session) {
     document.getElementById('composer-workspace')?.focus()
   }
 }
-function openSettings(section: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents' = 'general', creating = false) {
+function openSettings(section: 'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents' = 'general', creating = false) {
   if (workspaceChanging.value) return
   settingsSection.value = section
   creatingWorkspace.value = creating

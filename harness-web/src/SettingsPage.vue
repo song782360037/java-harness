@@ -12,7 +12,7 @@ import ApprovalSettings from './ApprovalSettings.vue'
 import MemorySettings from './MemorySettings.vue'
 import BotLanSettings from './bots/BotLanSettings.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
 const currentWorkspace = computed(() => props.workspaces.find(workspace => workspace.id === props.session?.workspaceId))
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
 const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory' | 'devices' | 'updates'>(props.initialSection === 'agents' ? 'plugins' : props.initialSection)
