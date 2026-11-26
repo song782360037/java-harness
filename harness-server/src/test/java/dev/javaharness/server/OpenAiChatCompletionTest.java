@@ -392,7 +392,7 @@ class OpenAiChatCompletionTest {
                         case "missing-stop" -> "data: [DONE]\n\n";
                         case "malformed" -> "data: {not-json}\n\n";
                         case "error" -> "data: {\"error\":{\"message\":\"secret-upstream-body\"}}\n\n";
-                        case "oversize" -> "data: " + "x".repeat(70_000);
+                        case "oversize" -> "data: " + "x".repeat(1_050_000);
                         default -> chunk("", mode) + "data: [DONE]\n\n";
                     });
         });
@@ -987,11 +987,24 @@ class OpenAiChatCompletionTest {
             headers(exchange);
             String valid =
                     "{\"index\":0,\"id\":\"a\",\"type\":\"function\",\"function\":{\"name\":\"list_directory\",\"arguments\":\"{}\"}}";
+            if (mode.equals("oversize")) {
+                write(
+                        exchange,
+                        toolChunk(
+                                "[{\"index\":0,\"id\":\"a\",\"type\":\"function\",\"function\":{\"name\":\"list_directory\",\"arguments\":\"\"}}]",
+                                null));
+                String slice = "x".repeat(65_536);
+                for (int i = 0; i < 16; i++) {
+                    write(exchange, toolChunk("[{\"index\":0,\"function\":{\"arguments\":\"" + slice + "\"}}]", null));
+                }
+                write(exchange, toolChunk("[{\"index\":0,\"function\":{\"arguments\":\"x\"}}]", "tool_calls"));
+                write(exchange, "data: [DONE]\n\n");
+                return;
+            }
             String items = switch (mode) {
                 case "missing-id" -> valid.replace("\"id\":\"a\",", "");
                 case "duplicate" -> valid + "," + valid.replace("\"index\":0", "\"index\":1");
                 case "index" -> valid.replace("\"index\":0", "\"index\":-1");
-                case "oversize" -> valid.replace("{}", "x".repeat(16385));
                 case "type" -> valid.replace("\"type\":\"function\"", "\"type\":\"custom\"");
                 case "wrong-field" -> valid.replace("\"arguments\":\"{}\"", "\"arguments\":{}");
                 default -> valid;
@@ -1016,7 +1029,143 @@ class OpenAiChatCompletionTest {
             assertThat(store.tools(run.id())).isEmpty();
             if (mode.equals("index")) assertThat(run.detail()).contains("index", "非负整数");
             if (mode.equals("type")) assertThat(run.detail()).contains("type", "function");
+            if (mode.equals("oversize")) assertThat(run.detail()).contains("arguments", "超过大小限制");
+            if (mode.equals("wrong-field")) assertThat(run.detail()).contains("arguments", "格式无效");
             assertThat(calls).hasValue(1);
+        }
+    }
+
+    @Test
+    void largeToolArgumentsAboveLegacy16kAndRepeatedIdNameDeltasSucceed() throws Exception {
+        String html = "<!doctype html><html><body>" + "<div>待办看板</div>\n".repeat(2_000) + "</body></html>";
+        String argsJson = new ObjectMapper().writeValueAsString(java.util.Map.of("name", "每日待办看板", "html", html));
+        assertThat(argsJson.length()).isGreaterThan(32_000);
+        AtomicReference<ToolCall> executedCall = new AtomicReference<>();
+        dev.javaharness.spi.workspace.WorkspaceTools customTools = new dev.javaharness.spi.workspace.WorkspaceTools() {
+            @Override
+            public String workspace() {
+                return "";
+            }
+
+            @Override
+            public List<dev.javaharness.spi.tool.ToolDefinition> definitions() {
+                return List.of(new dev.javaharness.spi.tool.ToolDefinition(
+                        "save_app",
+                        "Save single-file HTML mini app",
+                        java.util.Map.of("type", "object", "properties", java.util.Map.of())));
+            }
+
+            @Override
+            public Result execute(ToolCall call, dev.javaharness.spi.model.ModelProvider.Cancellation cancellation) {
+                executedCall.set(call);
+                return new Result(true, "saved");
+            }
+        };
+        serve(exchange -> {
+            headers(exchange);
+            if (calls.get() == 1) {
+                write(exchange, chunk("先写主文件：", null));
+                // Repeat the full id and name on every streamed delta chunk like compatible gateways do.
+                for (int offset = 0; offset < argsJson.length(); offset += 1024) {
+                    int end = Math.min(offset + 1024, argsJson.length());
+                    String slice = argsJson.substring(offset, end);
+                    write(
+                            exchange,
+                            toolChunk(
+                                    "[" + toolDelta(0, "call_large_html_01", "save_app", slice) + "]",
+                                    end == argsJson.length() ? "tool_calls" : null));
+                }
+                write(exchange, "data: [DONE]\n\n");
+            } else {
+                write(exchange, chunk("已完成写入", "stop") + "data: [DONE]\n\n");
+            }
+        });
+        try (var model = provider();
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(10), 64_000, customTools, 8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(run.output()).isEqualTo("先写主文件：已完成写入");
+            assertThat(executedCall.get()).isNotNull();
+            assertThat(executedCall.get().id()).isEqualTo("call_large_html_01");
+            assertThat(executedCall.get().name()).isEqualTo("save_app");
+            assertThat(executedCall.get().arguments()).isEqualTo(argsJson);
+            assertThat(store.tools(run.id()))
+                    .singleElement()
+                    .extracting(ToolExecution::callId, ToolExecution::name, ToolExecution::status)
+                    .containsExactly("call_large_html_01", "save_app", "COMPLETED");
+        }
+    }
+
+    @Test
+    void oversizeToolArgumentsPreservePartialOutputAndReportFieldLimit(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            write(exchange, chunk("先写主文件：", null));
+            write(
+                    exchange,
+                    toolChunk(
+                            "[{\"index\":0,\"id\":\"call_over\",\"type\":\"function\",\"function\":{\"name\":\"list_directory\",\"arguments\":\"\"}}]",
+                            null));
+            String slice = "a".repeat(65_536);
+            for (int i = 0; i < 16; i++) {
+                write(exchange, toolChunk("[{\"index\":0,\"function\":{\"arguments\":\"" + slice + "\"}}]", null));
+            }
+            write(exchange, toolChunk("[{\"index\":0,\"function\":{\"arguments\":\"z\"}}]", "tool_calls"));
+            write(exchange, "data: [DONE]\n\n");
+        });
+        try (var model = provider();
+                var engine = new DefaultAgentEngine(
+                        store,
+                        model,
+                        Duration.ofSeconds(10),
+                        32000,
+                        new LocalWorkspaceTools(directory, Duration.ofSeconds(5)),
+                        8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(run.output()).isEqualTo("先写主文件：");
+            assertThat(run.detail()).contains("响应解析失败", "arguments", "超过大小限制", "已保留部分输出");
+            assertThat(store.tools(run.id())).isEmpty();
+        }
+    }
+
+    @Test
+    void turnWideTotalToolArgumentsCapRejectsExcessAcrossMultipleCalls(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            String slice = "a".repeat(65_536);
+            for (int callIdx = 0; callIdx < 3; callIdx++) {
+                write(
+                        exchange,
+                        toolChunk(
+                                "[{\"index\":" + callIdx + ",\"id\":\"call_" + callIdx
+                                        + "\",\"type\":\"function\",\"function\":{\"name\":\"list_directory\",\"arguments\":\"\"}}]",
+                                null));
+                // 12 * 65536 = 786432 per call (< 1 MiB); 3 calls = 2359296 (> 2 MiB turn cap).
+                for (int chunkIdx = 0; chunkIdx < 12; chunkIdx++) {
+                    write(
+                            exchange,
+                            toolChunk(
+                                    "[{\"index\":" + callIdx + ",\"function\":{\"arguments\":\"" + slice + "\"}}]",
+                                    null));
+                }
+            }
+            write(exchange, "data: [DONE]\n\n");
+        });
+        try (var model = provider();
+                var engine = new DefaultAgentEngine(
+                        store,
+                        model,
+                        Duration.ofSeconds(10),
+                        32000,
+                        new LocalWorkspaceTools(directory, Duration.ofSeconds(5)),
+                        8)) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(run.detail()).contains("响应解析失败", "总大小超过限制");
+            assertThat(store.tools(run.id())).isEmpty();
         }
     }
 }

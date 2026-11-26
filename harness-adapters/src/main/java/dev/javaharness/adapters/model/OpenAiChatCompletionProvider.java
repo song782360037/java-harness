@@ -52,7 +52,8 @@ import java.util.function.Consumer;
 /** OpenAI-compatible streaming Chat Completions, including bounded function-call deltas and safe retries. */
 public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCloseable {
     private static final System.Logger LOG = System.getLogger(OpenAiChatCompletionProvider.class.getName());
-    private static final int EVENT_LIMIT = 65_536;
+    private static final int EVENT_LIMIT = 1_048_576;
+    private static final int TOTAL_ARGUMENTS_LIMIT = 2 * ToolCall.MAX_ARGUMENTS_LENGTH;
     public static final int DEFAULT_MAX_RETRIES = 3;
     public static final Duration DEFAULT_RETRY_BASE_DELAY = Duration.ofMillis(500);
     private static final Duration MAX_RETRY_DELAY = Duration.ofSeconds(10);
@@ -551,22 +552,19 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
     private static final class TurnState {
         final StringBuilder text = new StringBuilder();
         final TreeMap<Integer, CallDelta> calls = new TreeMap<>();
+        int totalArgumentChars;
         ModelUsage usage;
         boolean timed;
         long firstAt, lastAt;
 
-        ModelTurn result() throws ModelException {
+        ModelTurn result() {
             var completed = new ArrayList<ToolCall>();
             var ids = new HashSet<String>();
             for (var entry : calls.entrySet()) {
                 CallDelta call = entry.getValue();
-                try {
-                    var value = new ToolCall(call.id.toString(), call.name.toString(), call.arguments.toString());
-                    if (!ids.add(value.id())) throw new IllegalArgumentException();
-                    completed.add(value);
-                } catch (IllegalArgumentException error) {
-                    throw new ModelException("响应解析失败：模型工具调用格式无效");
-                }
+                var value = new ToolCall(call.id.toString(), call.name.toString(), call.arguments.toString());
+                if (!ids.add(value.id())) throw new IllegalArgumentException("Duplicate tool call id");
+                completed.add(value);
             }
             var reported = usage == null
                     ? null
@@ -576,6 +574,23 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                             usage.cachedTokens(),
                             timed ? (lastAt - firstAt) / 1_000_000 : 0);
             return new ModelTurn(text.toString(), completed, reported);
+        }
+    }
+
+    private ModelTurn finishTurn(
+            ModelRequest request, TurnState state, AttemptTracker tracker, int attempt, int maxAttempts)
+            throws ModelException {
+        try {
+            return state.result();
+        } catch (IllegalArgumentException error) {
+            logParse(
+                    request,
+                    "tool-call",
+                    attempt,
+                    maxAttempts,
+                    "invalidCompletedCall,toolCalls=" + state.calls.size(),
+                    tracker);
+            throw new ModelException(withPartial("响应解析失败：模型工具调用格式无效", tracker.emittedText));
         }
     }
 
@@ -619,7 +634,7 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                             logParse(request, "missing-stop", attempt, maxAttempts, "doneWithoutFinishReason", tracker);
                             throw new ModelException(withPartial("响应解析失败：模型流缺少正常结束原因", tracker.emittedText));
                         }
-                        return state.result();
+                        return finishTurn(request, state, tracker, attempt, maxAttempts);
                     }
                     stopped = consume(request, event, stopped, state, tracker, attempt, maxAttempts);
                 }
@@ -775,15 +790,34 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
                     throw new ModelException("单步模型返回的工具调用超过 " + ToolCall.MAX_BATCH_SIZE + " 个解析上限");
                 }
                 var call = state.calls.computeIfAbsent(index.asInt(), ignored -> new CallDelta());
-                append(call.id, item.get("id"), 128);
+                appendToolField(
+                        request,
+                        "id",
+                        call.id,
+                        item.get("id"),
+                        ToolCall.MAX_ID_LENGTH,
+                        true,
+                        tracker,
+                        attempt,
+                        maxAttempts);
                 JsonNode function = item.get("function");
                 if (function != null && !function.isNull()) {
                     if (!function.isObject()) {
                         logParse(request, "tool-call", attempt, maxAttempts, "functionNotObject", tracker);
-                        throw new ModelException("响应解析失败：工具函数格式无效");
+                        throw new ModelException(withPartial("响应解析失败：工具函数格式无效", tracker.emittedText));
                     }
-                    append(call.name, function.get("name"), 64);
-                    append(call.arguments, function.get("arguments"), 16384);
+                    appendToolField(
+                            request,
+                            "name",
+                            call.name,
+                            function.get("name"),
+                            ToolCall.MAX_NAME_LENGTH,
+                            true,
+                            tracker,
+                            attempt,
+                            maxAttempts);
+                    appendToolArguments(
+                            request, state, call.arguments, function.get("arguments"), tracker, attempt, maxAttempts);
                 }
             }
         }
@@ -822,7 +856,7 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
         String reason = finish.asText();
         if (reason.equals("stop") && state.calls.isEmpty()) return true;
         if (reason.equals("tool_calls") && !state.calls.isEmpty()) {
-            state.result();
+            finishTurn(request, state, tracker, attempt, maxAttempts);
             return true;
         }
         logUpstream(
@@ -971,11 +1005,96 @@ public final class OpenAiChatCompletionProvider implements ModelProvider, AutoCl
         }
     }
 
-    private static void append(StringBuilder target, JsonNode value, int limit) throws ModelException {
+    private void appendToolField(
+            ModelRequest request,
+            String field,
+            StringBuilder target,
+            JsonNode value,
+            int limit,
+            boolean dedupeRepeat,
+            AttemptTracker tracker,
+            int attempt,
+            int maxAttempts)
+            throws ModelException {
         if (value == null || value.isNull()) return;
-        if (!value.isTextual() || target.length() + value.asText().length() > limit)
-            throw new ModelException("响应解析失败：工具调用字段无效或超过大小限制");
-        target.append(value.asText());
+        if (!value.isTextual()) {
+            logParse(
+                    request,
+                    "tool-call",
+                    attempt,
+                    maxAttempts,
+                    "field=" + field + ",nodeType=" + value.getNodeType().name(),
+                    tracker);
+            throw new ModelException(withPartial("响应解析失败：工具调用 " + field + " 字段格式无效", tracker.emittedText));
+        }
+        String piece = value.asText();
+        if (piece.isEmpty()) return;
+        // Some OpenAI-compatible gateways repeat the full id/name on every streamed delta chunk.
+        if (dedupeRepeat && !target.isEmpty() && CharSequence.compare(target, piece) == 0) return;
+        long nextLen = (long) target.length() + piece.length();
+        if (nextLen > limit) {
+            logParse(
+                    request,
+                    "tool-call",
+                    attempt,
+                    maxAttempts,
+                    "field=" + field + ",len=" + nextLen + ",limit=" + limit,
+                    tracker);
+            throw new ModelException(
+                    withPartial("响应解析失败：工具调用 " + field + " 字段超过大小限制（上限 " + limit + " 字符）", tracker.emittedText));
+        }
+        target.append(piece);
+    }
+
+    private void appendToolArguments(
+            ModelRequest request,
+            TurnState state,
+            StringBuilder target,
+            JsonNode value,
+            AttemptTracker tracker,
+            int attempt,
+            int maxAttempts)
+            throws ModelException {
+        if (value == null || value.isNull()) return;
+        if (!value.isTextual()) {
+            logParse(
+                    request,
+                    "tool-call",
+                    attempt,
+                    maxAttempts,
+                    "field=arguments,nodeType=" + value.getNodeType().name(),
+                    tracker);
+            throw new ModelException(withPartial("响应解析失败：工具调用 arguments 字段格式无效", tracker.emittedText));
+        }
+        String piece = value.asText();
+        if (piece.isEmpty()) return;
+        long nextCallLen = (long) target.length() + piece.length();
+        if (nextCallLen > ToolCall.MAX_ARGUMENTS_LENGTH) {
+            logParse(
+                    request,
+                    "tool-call",
+                    attempt,
+                    maxAttempts,
+                    "field=arguments,len=" + nextCallLen + ",limit=" + ToolCall.MAX_ARGUMENTS_LENGTH,
+                    tracker);
+            throw new ModelException(withPartial(
+                    "响应解析失败：工具调用 arguments 字段超过大小限制（上限 " + ToolCall.MAX_ARGUMENTS_LENGTH + " 字符）",
+                    tracker.emittedText));
+        }
+        long nextTotalLen = (long) state.totalArgumentChars + piece.length();
+        if (nextTotalLen > TOTAL_ARGUMENTS_LIMIT) {
+            logParse(
+                    request,
+                    "tool-call",
+                    attempt,
+                    maxAttempts,
+                    "field=arguments,totalLen=" + nextTotalLen + ",totalLimit=" + TOTAL_ARGUMENTS_LIMIT,
+                    tracker);
+            throw new ModelException(
+                    withPartial("响应解析失败：单步工具调用参数总大小超过限制（上限 " + TOTAL_ARGUMENTS_LIMIT + " 字符）", tracker.emittedText));
+        }
+        target.append(piece);
+        state.totalArgumentChars += piece.length();
     }
 
     @Override

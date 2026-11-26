@@ -122,9 +122,9 @@ SSE 事件名 `run-event`，id 为会话内单调 seq。STATE 携带状态与原
 
 剩余时间不足以预留约 20%（最多 30 秒）的收尾时间时，引擎停止执行新工具，剩余调用保存为 SKIPPED 并配对结果，随后发起一次不带工具的收尾请求；收尾请求仍计入总超时。取消、总超时、上下文和输出限制始终生效；不设轮数上限不代表无限时间或无限上下文。命令审批等待仍计入任务总超时。
 
-HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工作区仅发送 model、stream=true、messages；有工作区额外发送标准函数 tools。支持流式 tool_calls 的 index/id/function.name/function.arguments 分片累积，按 index 排序；索引必须为非负 int，可不连续，其数值不代表调用数量。单次响应最多累积 256 个不同索引（跨所有分片），超过时失败且不执行该批，避免无限累积。每个 ID 最多 128 字符、名称 64、参数 16384，拒绝重复 ID、非法索引和类型，并分别提示 index、type 或数量上限，避免混淆。工具参数必须是 JSON 对象且只含定义字段。正常文本需要 finish_reason=stop + [DONE]；工具响应需要非空调用、finish_reason=tool_calls + [DONE]。
+HTTP 请求基础地址追加 `/chat/completions`，保留网关前缀。无工作区仅发送 model、stream=true、messages；有工作区额外发送标准函数 tools。支持流式 tool_calls 的 index/id/function.name/function.arguments 分片累积，按 index 排序；索引必须为非负 int，可不连续，其数值不代表调用数量。单次响应最多累积 256 个不同索引（跨所有分片），超过时失败且不执行该批，避免无限累积。每个 ID 最多 128 字符、名称 64、单次参数 1048576 字符（单步所有调用参数总计上限 2097152 字符），兼容后续分片重复携带相同 id/name 的网关，拒绝重复 ID、非法索引和类型，并分别提示字段、index、type 或数量上限，避免混淆。工具参数必须是 JSON 对象且只含定义字段。正常文本需要 finish_reason=stop + [DONE]；工具响应需要非空调用、finish_reason=tool_calls + [DONE]。
 
-支持角色、空内容及 usage-only 分段。EOF、缺失结束标记、非法 JSON、超长事件、HTTP 错误、非 SSE、长度截断、过滤和 refusal 都会失败并保留已提交文本。单事件最大 65536 字符，回答按不拆分代理对的 4096 字符分段入库，总输出最多 100000 字符。不保存 reasoning_content，不附加厂商扩展或固定生成 token 上限；仅在用户选择具体强度时发送标准 reasoning_effort。
+支持角色、空内容及 usage-only 分段。EOF、缺失结束标记、非法 JSON、超长事件、HTTP 错误、非 SSE、长度截断、过滤和 refusal 都会失败并保留已提交文本。单事件最大 1048576 字符，回答按不拆分代理对的 4096 字符分段入库，总输出最多 100000 字符。不保存 reasoning_content，不附加厂商扩展或固定生成 token 上限；仅在用户选择具体强度时发送标准 reasoning_effort。
 
 默认总超时 600 秒覆盖整个循环（已保存的模型配置保持原值），HTTP 连接超时 10 秒，单工具默认 5 秒。终止本机请求不能保证撤销上游计费。读取工具在操作之间检查截止时间；文件提案在进入持久化前检查取消、并在存储锁内再次校验 RUNNING，不保证强行中断磁盘或数据库 I/O。工具目录、排除规则、预算及配置方法见 README“启用工作区”。本版支持文件修改审核与命令审批，没有通用审批扩展、多用户隔离、操作系统沙箱或跨进程协调，不应用于不可信进程可恶意改写的文件系统。
 
