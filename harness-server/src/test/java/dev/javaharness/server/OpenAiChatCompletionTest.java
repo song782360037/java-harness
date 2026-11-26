@@ -105,12 +105,18 @@ class OpenAiChatCompletionTest {
     }
 
     private OpenAiChatCompletionProvider provider() {
+        return provider(OpenAiChatCompletionProvider.DEFAULT_MAX_RETRIES, Duration.ofMillis(10));
+    }
+
+    private OpenAiChatCompletionProvider provider(int maxRetries, Duration retryBaseDelay) {
         return new OpenAiChatCompletionProvider(
                 URI.create("http://127.0.0.1:" + upstream.getAddress().getPort()),
                 "test-only-key",
                 "org/example-model:latest",
                 true,
-                Duration.ofSeconds(2));
+                Duration.ofSeconds(2),
+                maxRetries,
+                retryBaseDelay);
     }
 
     private static void headers(HttpExchange exchange) throws IOException {
@@ -253,10 +259,20 @@ class OpenAiChatCompletionTest {
                 var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
             String session = store.createSession("图片").id();
             Run run = settled(engine.submit(
-                            session, UUID.randomUUID().toString(), "这是什么", "NORMAL", ModelSelection.DEFAULT, null, input)
+                            session,
+                            UUID.randomUUID().toString(),
+                            "这是什么",
+                            "NORMAL",
+                            ModelSelection.DEFAULT,
+                            null,
+                            input)
                     .run());
             assertThat(run.status()).isEqualTo(RunStatus.COMPLETED);
-            var content = new ObjectMapper().readTree(body.get()).path("messages").get(0).path("content");
+            var content = new ObjectMapper()
+                    .readTree(body.get())
+                    .path("messages")
+                    .get(0)
+                    .path("content");
             assertThat(content.get(0).path("type").asText()).isEqualTo("text");
             assertThat(content.get(0).path("text").asText()).isEqualTo(input.context() + "这是什么");
             assertThat(content.get(1).path("image_url").path("url").asText())
@@ -267,7 +283,11 @@ class OpenAiChatCompletionTest {
             assertThat(rejected.status()).isEqualTo(RunStatus.FAILED);
             assertThat(rejected.detail()).contains("不支持图片输入");
             // Text-only history is unaffected by the image rejection hint.
-            var history = new ObjectMapper().readTree(body.get()).path("messages").get(0).path("content");
+            var history = new ObjectMapper()
+                    .readTree(body.get())
+                    .path("messages")
+                    .get(0)
+                    .path("content");
             assertThat(history.isTextual()).isTrue();
         }
     }
@@ -382,13 +402,17 @@ class OpenAiChatCompletionTest {
             assertThat(run.status()).isEqualTo(RunStatus.FAILED);
             assertThat(run.output()).isEqualTo(mode.equals("wrong-type") ? "" : "已保存");
             assertThat(run.detail()).doesNotContain("secret", "test-only-key");
+            if (mode.equals("malformed") || mode.equals("wrong-type") || mode.equals("missing-stop"))
+                assertThat(run.detail()).contains("响应解析失败");
+            if (mode.equals("error")) assertThat(run.detail()).contains("上游模型在响应流中返回错误");
+            if (mode.equals("eof")) assertThat(run.detail()).contains("上游模型数据流提前结束");
             assertThat(calls).hasValue(1);
         }
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {401, 402, 429, 500, 302})
-    void httpErrorsAreSanitizedAndNeverRetriedOrRedirected(int status) throws Exception {
+    @ValueSource(ints = {401, 402, 403, 404, 302})
+    void nonRetryableHttpErrorsAreSanitizedAndNeverRetriedOrRedirected(int status) throws Exception {
         serve(exchange -> {
             exchange.getResponseHeaders().set("Location", "/chat/completions");
             exchange.sendResponseHeaders(status, 0);
@@ -399,6 +423,142 @@ class OpenAiChatCompletionTest {
             Run run = settled(submit(engine));
             assertThat(run.status()).isEqualTo(RunStatus.FAILED);
             assertThat(run.detail()).doesNotContain("secret", "test-only-key");
+            assertThat(calls).hasValue(1);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {408, 429, 500, 502, 503, 504})
+    void transientHttpErrorsAreRetriedAndSanitizedWhenExhausted(int status) throws Exception {
+        serve(exchange -> {
+            exchange.sendResponseHeaders(status, 0);
+            write(exchange, "secret-upstream-body");
+        });
+        try (var model = provider(2, Duration.ofMillis(10));
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(run.detail()).contains("上游模型").doesNotContain("secret", "test-only-key");
+            assertThat(calls).hasValue(3);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http-502", "http-429", "sse-error", "sse-error-after-reasoning", "empty-eof"})
+    void transientUpstreamFailuresRecoverAutomaticallyBeforeTextIsEmitted(String mode) throws Exception {
+        serve(exchange -> {
+            if (calls.get() <= 2) {
+                if (mode.equals("http-502")) {
+                    exchange.sendResponseHeaders(502, -1);
+                    return;
+                }
+                if (mode.equals("http-429")) {
+                    exchange.getResponseHeaders().set("Retry-After", "0");
+                    exchange.sendResponseHeaders(429, -1);
+                    return;
+                }
+                headers(exchange);
+                if (mode.equals("sse-error-after-reasoning")) {
+                    write(
+                            exchange,
+                            "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"首次思考\"}}]}\n\n");
+                }
+                if (mode.equals("sse-error") || mode.equals("sse-error-after-reasoning")) {
+                    write(
+                            exchange,
+                            "data: {\"error\":{\"type\":\"server_error\",\"message\":\"secret-transient\"}}\n\n");
+                }
+                return;
+            }
+            headers(exchange);
+            if (mode.equals("sse-error-after-reasoning")) {
+                write(exchange, "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"重试思考\"}}]}\n\n");
+            }
+            write(exchange, chunk("重试成功", "stop") + "data: [DONE]\n\n");
+        });
+        try (var model = provider(3, Duration.ofMillis(10));
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(run.output()).isEqualTo("重试成功");
+            assertThat(calls).hasValue(3);
+            if (mode.equals("sse-error-after-reasoning")) {
+                assertThat(store.steps(run.id()))
+                        .singleElement()
+                        .extracting(RunStep::reasoning)
+                        .asString()
+                        .contains("首次思考", "重试思考");
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"non-retryable-sse-error", "malformed-json", "non-object-json", "invalid-utf8"})
+    void parseAndDeterministicClientErrorsAreDistinguishedAndNeverRetried(String mode) throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            switch (mode) {
+                case "non-retryable-sse-error" ->
+                    write(
+                            exchange,
+                            "data: {\"error\":{\"type\":\"invalid_request_error\",\"message\":\"secret\"}}\n\n");
+                case "malformed-json" -> write(exchange, "data: {not-json}\n\n");
+                case "non-object-json" -> write(exchange, "data: [1,2,3]\n\n");
+                case "invalid-utf8" -> {
+                    exchange.getResponseBody().write("data: ".getBytes(StandardCharsets.UTF_8));
+                    exchange.getResponseBody().write(new byte[] {(byte) 0xff, (byte) 0xfe});
+                    exchange.getResponseBody().write("\n\n".getBytes(StandardCharsets.UTF_8));
+                    exchange.getResponseBody().flush();
+                }
+            }
+        });
+        try (var model = provider(3, Duration.ofMillis(10));
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).isEqualTo(RunStatus.FAILED);
+            assertThat(calls).hasValue(1);
+            assertThat(run.detail()).doesNotContain("secret", "test-only-key");
+            if (mode.equals("non-retryable-sse-error")) assertThat(run.detail()).contains("上游模型在响应流中返回错误");
+            else assertThat(run.detail()).contains("响应解析失败");
+        }
+    }
+
+    @Test
+    void compatibleGatewayQuirksNullErrorEmptyFinishReasonAndTrailingUsageSucceed() throws Exception {
+        serve(exchange -> {
+            headers(exchange);
+            write(
+                    exchange,
+                    "data: {\"error\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"兼容\"},\"finish_reason\":\"\"}]}\n\n"
+                            + "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"完成\"},\"finish_reason\":\"stop\"}]}\n\n"
+                            + "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":null}],"
+                            + "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}\n\n"
+                            + "data: [DONE] \n\n");
+        });
+        try (var model = provider();
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(5))) {
+            Run run = settled(submit(engine));
+            assertThat(run.status()).as(run.detail()).isEqualTo(RunStatus.COMPLETED);
+            assertThat(run.output()).isEqualTo("兼容完成");
+            assertThat(store.snapshot(run.sessionId()).usage().inputTokens()).isEqualTo(10);
+            assertThat(store.snapshot(run.sessionId()).usage().outputTokens()).isEqualTo(5);
+            assertThat(calls).hasValue(1);
+        }
+    }
+
+    @Test
+    void cancellationInterruptsRetryBackoffPromptly() throws Exception {
+        var firstAttempt = new CountDownLatch(1);
+        serve(exchange -> {
+            firstAttempt.countDown();
+            exchange.sendResponseHeaders(503, -1);
+        });
+        try (var model = provider(3, Duration.ofSeconds(5));
+                var engine = new DefaultAgentEngine(store, model, Duration.ofSeconds(10))) {
+            Run run = submit(engine);
+            assertThat(firstAttempt.await(3, TimeUnit.SECONDS)).isTrue();
+            engine.cancel(run.id());
+            assertThat(settled(run).status()).isEqualTo(RunStatus.CANCELLED);
             assertThat(calls).hasValue(1);
         }
     }
@@ -651,7 +811,11 @@ class OpenAiChatCompletionTest {
                             .path("name")
                             .asText())
                     .isEqualTo("read_tool_output");
-            assertThat(request.path("tools").get(4).path("function").path("name").asText())
+            assertThat(request.path("tools")
+                            .get(4)
+                            .path("function")
+                            .path("name")
+                            .asText())
                     .isEqualTo("delegate_task");
             assertThat(request.path("tools").get(0).path("type").asText()).isEqualTo("function");
             if (calls.get() == 1) {
