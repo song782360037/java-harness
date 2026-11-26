@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import DesktopUpdateNotice from './DesktopUpdateNotice.vue'
+import StartupSplash from './StartupSplash.vue'
 import TaskCenter from './TaskCenter.vue'
 import { connectTaskActivity, taskActivity } from './taskActivity'
+import { finishStartupSplash, previewStartupAnimation, startupSplash } from './startupAnimation'
 import type { TaskActivity } from './taskActivityModel'
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppSidebar from './AppSidebar.vue'
@@ -51,6 +53,13 @@ const showFlows = ref(false)
 const showBots = ref(false)
 const showCommandPalette = ref(false)
 const showExplorer = ref(false)
+const splashRevealing = ref(false)
+let splashRevealTimer: number | undefined
+function onSplashReveal() {
+  clearTimeout(splashRevealTimer)
+  splashRevealing.value = true
+  splashRevealTimer = window.setTimeout(() => { splashRevealing.value = false }, 560)
+}
 const savedExplorerWidth = Number(storageGet('harness.explorer.width'))
 const explorerWidth = ref(Number.isFinite(savedExplorerWidth) && savedExplorerWidth > 0 ? Math.max(320, Math.min(760, savedExplorerWidth)) : 420)
 watch(explorerWidth, value => storageSet('harness.explorer.width', String(value)))
@@ -81,6 +90,7 @@ function exportCurrentSession() {
   downloadSessionMarkdown(snapshot.value, workspaceName)
 }
 function onGlobalKeydown(event: KeyboardEvent) {
+  if (startupSplash.value.mode !== 'none') return
   if (!isPaletteShortcut(event)) return
   if (workspaceChanging.value || settingsBusy.value || browsingWorkspace.value) return
   event.preventDefault()
@@ -942,7 +952,7 @@ onUnmounted(() => {
   disconnectTaskActivity()
   revision++
   source?.close()
-  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer)
+  clearTimeout(reconnectTimer); clearTimeout(watchdogTimer); clearTimeout(refreshTimer); clearTimeout(splashRevealTimer)
   document.removeEventListener('visibilitychange', resumeStream)
   window.removeEventListener('online', resumeStream)
   mobileLayout.removeEventListener('change', onLayoutChange)
@@ -952,7 +962,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
+  <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed, 'is-splash-revealing': splashRevealing }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <TaskCenter :disabled="taskNavigationBlocked" @open-task="openTask" />
     <AppSidebar
       :sessions="sessions"
@@ -1101,8 +1111,17 @@ onUnmounted(() => {
       @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
       @toggle-explorer="closeSettings(); showAutomations = false; showMemories = false; showFlows = false; showBots = false; showExplorer = !showExplorer"
       @export-markdown="exportCurrentSession"
+      @preview-splash="previewStartupAnimation()"
     />
   </div>
+  <StartupSplash
+    v-if="startupSplash.mode !== 'none'"
+    :key="startupSplash.runId"
+    :mode="startupSplash.mode"
+    :style-name="startupSplash.style"
+    @reveal="onSplashReveal"
+    @done="finishStartupSplash"
+  />
 </template>
 
 <style scoped>

@@ -19,12 +19,24 @@ async function boot({ saved = null, blocked = false, writesBlocked = false } = {
     storageChange(value, key = 'harness.preferences', area = storage) { listeners.get('storage')({ key, newValue: value, storageArea: area }) },
   }
 }
-const defaults = { sendShortcut: 'modifier-enter', chatFontSize: 'standard', autoScroll: true }
+const defaults = {
+  sendShortcut: 'modifier-enter',
+  chatFontSize: 'standard',
+  autoScroll: true,
+  startupAnimation: true,
+  startupAnimationStyle: 'orbital',
+}
 
 test('defaults preserve existing behavior and saved choices survive reopening', async () => {
   const app = await boot()
   assert.deepEqual(app.preferences.value, defaults)
-  const selected = { sendShortcut: 'enter', chatFontSize: 'large', autoScroll: false }
+  const selected = {
+    sendShortcut: 'enter',
+    chatFontSize: 'large',
+    autoScroll: false,
+    startupAnimation: false,
+    startupAnimationStyle: 'prism',
+  }
   app.updatePreferences(selected)
   assert.deepEqual(app.preferences.value, selected)
   const reopened = await boot({ saved: app.stored() })
@@ -33,11 +45,19 @@ test('defaults preserve existing behavior and saved choices survive reopening', 
   assert.deepEqual(reopened.preferences.value, { ...selected, chatFontSize: 'small' })
 })
 test('invalid and partial persisted values use safe per-field defaults', async () => {
-  for (const saved of ['invalid json', 'null', 'false', '[]', '{"sendShortcut":"unknown","chatFontSize":99,"autoScroll":"false"}']) {
+  for (const saved of [
+    'invalid json',
+    'null',
+    'false',
+    '[]',
+    '{"sendShortcut":"unknown","chatFontSize":99,"autoScroll":"false","startupAnimation":"no","startupAnimationStyle":"laser"}',
+  ]) {
     assert.deepEqual((await boot({ saved })).preferences.value, defaults)
   }
   const app = await boot({ saved: '{"autoScroll":false}' })
   assert.deepEqual(app.preferences.value, { ...defaults, autoScroll: false })
+  const styled = await boot({ saved: '{"startupAnimation":false,"startupAnimationStyle":"terminal"}' })
+  assert.deepEqual(styled.preferences.value, { ...defaults, startupAnimation: false, startupAnimationStyle: 'terminal' })
 })
 test('storage failures still apply changes and report that they are not saved', async () => {
   for (const options of [{ blocked: true }, { writesBlocked: true }]) {

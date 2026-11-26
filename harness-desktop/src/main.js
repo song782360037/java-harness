@@ -11,6 +11,7 @@ import { DesktopUpdates } from './updates.mjs'
 import { backupUpdateData, closeBackendForUpdate } from './update-backup.mjs'
 import { readUpdatePolicy } from './update-policy.mjs'
 import { createTaskActivity } from './task-activity.mjs'
+import { createStartupPreferencesStore, resolveDesktopSplashMode } from './startup-preferences.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const STARTUP_TIMEOUT_MS = 120_000
@@ -30,6 +31,8 @@ let taskActivity = null
 let exitRequested = false
 let pendingTask = null
 let taskNavigationReady = false
+let startupPreferences = null
+let pendingSplashMode = 'none'
 const updateToken = randomUUID()
 
 if (!app.requestSingleInstanceLock()) {
@@ -56,17 +59,45 @@ async function start() {
     Menu.setApplicationMenu(null)
   }
   if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'dev.javaharness.desktop' : process.execPath)
-  mainWindow = createWindow()
+  startupPreferences = createStartupPreferencesStore(app.getPath('userData'))
+  registerStartupIpc()
+  const loadingStartedAt = Date.now()
+  mainWindow = createWindow(startupPreferences.snapshot())
   try {
     backendUrl = process.env.HARNESS_DESKTOP_BACKEND_URL || (await startBackend())
     await waitForHealth(backendUrl)
     backendReady = true
+    const startup = startupPreferences.snapshot()
+    pendingSplashMode = resolveDesktopSplashMode(startup.enabled, Date.now() - loadingStartedAt)
     initializeUpdates()
     taskActivity = createTaskActivity({ app, ipcMain, url: backendUrl, getWindow: () => mainWindow, showWindow, openTask })
     await mainWindow.loadURL(backendUrl)
   } catch (error) {
     fatal('Java Harness 启动失败', error.message)
   }
+}
+
+/** 启动动画配置由主进程持久化，工作台首帧同步读取并与加载页衔接。 */
+function registerStartupIpc() {
+  const isTrustedFrame = event => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !backendUrl) return false
+    try { return new URL(event.senderFrame.url).origin === new URL(backendUrl).origin }
+    catch { return false }
+  }
+  ipcMain.on('startup:bootstrap', event => {
+    if (!isTrustedFrame(event)) { event.returnValue = null; return }
+    const mode = pendingSplashMode
+    pendingSplashMode = 'none'
+    event.returnValue = { ...startupPreferences.snapshot(), mode }
+  })
+  ipcMain.handle('startup:get', event => {
+    if (!isTrustedFrame(event)) throw new Error('无效的启动动画请求')
+    return startupPreferences.snapshot()
+  })
+  ipcMain.handle('startup:set', (event, patch) => {
+    if (!isTrustedFrame(event)) throw new Error('无效的启动动画请求')
+    return startupPreferences.save(patch)
+  })
 }
 
 /** 从托盘或通知恢复已有窗口，保留当前页面与草稿。 */
@@ -92,18 +123,20 @@ function fatal(title, message) {
   app.quit()
 }
 
-function createWindow() {
+function createWindow(startup = { enabled: true, style: 'orbital' }) {
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 960,
     minHeight: 640,
     title: 'Java Harness',
-    backgroundColor: '#252A28',
+    backgroundColor: '#141917',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(here, 'preload.cjs') },
   })
   // 开发模式下后端可能立即就绪，loadURL 会中断加载页，忽略这次中断。
-  window.loadFile(path.join(here, 'loading.html')).catch(() => {})
+  window.loadFile(path.join(here, 'loading.html'), {
+    query: { animate: startup.enabled ? '1' : '0', style: startup.style || 'orbital' },
+  }).catch(() => {})
   window.webContents.on('did-start-loading', () => { taskNavigationReady = false })
   // 只允许停留在本地后端页面，其他链接交给系统浏览器。
   window.webContents.setWindowOpenHandler(({ url }) => {

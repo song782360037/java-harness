@@ -1,12 +1,24 @@
 import { computed, shallowRef } from 'vue'
 import type { TaskActivity, TaskActivitySnapshot } from './taskActivityModel'
 
+import type { StartupAnimationStyle } from './preferences'
+
+export type StartupAnimationConfig = {
+  enabled: boolean
+  style: StartupAnimationStyle
+}
+export type StartupBootstrap = StartupAnimationConfig & {
+  mode: 'none' | 'full' | 'handoff'
+}
 export type UpdateState = {
   revision: number; supported: boolean; disabledReason: string; version: string
   phase: 'disabled' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'installing' | 'error'
   targetVersion: string; releaseNotes: string; percent: number; lastChecked: string; error: string; restartRequired: boolean
 }
 export type DesktopBridge = {
+  getStartupBootstrap?(): StartupBootstrap | null
+  getStartupAnimation?(): Promise<StartupAnimationConfig>
+  setStartupAnimation?(patch: Partial<StartupAnimationConfig>): Promise<StartupAnimationConfig>
   getTaskActivity?(): Promise<TaskActivitySnapshot>
   setTaskNotifications?(enabled: boolean): Promise<TaskActivitySnapshot>
   takePendingTask?(): Promise<TaskActivity | null>

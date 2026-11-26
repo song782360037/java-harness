@@ -1,14 +1,22 @@
 import { readonly, ref } from 'vue'
 
+export type StartupAnimationStyle = 'orbital' | 'prism' | 'terminal'
+
 export interface Preferences {
   sendShortcut: 'modifier-enter' | 'enter'
   // 沿用旧存储字段，既有字号选择现在作用于整个工作台。
   chatFontSize: 'small' | 'standard' | 'large'
   autoScroll: boolean
+  startupAnimation: boolean
+  startupAnimationStyle: StartupAnimationStyle
 }
 const key = 'harness.preferences'
 // 快捷键提示只显示当前平台的修饰键，实际判定仍同时接受 Ctrl 和 ⌘。
 export const modifierKeyLabel = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl'
+
+export function normalizeStartupAnimationStyle(value: unknown): StartupAnimationStyle {
+  return value === 'prism' || value === 'terminal' ? value : 'orbital'
+}
 
 // 逐项校验浏览器偏好，旧值或无效值恢复为当前默认值。
 export function normalizePreferences(value: unknown): Preferences {
@@ -17,6 +25,8 @@ export function normalizePreferences(value: unknown): Preferences {
     sendShortcut: saved.sendShortcut === 'enter' ? 'enter' : 'modifier-enter',
     chatFontSize: saved.chatFontSize === 'small' || saved.chatFontSize === 'large' ? saved.chatFontSize : 'standard',
     autoScroll: typeof saved.autoScroll === 'boolean' ? saved.autoScroll : true,
+    startupAnimation: typeof saved.startupAnimation === 'boolean' ? saved.startupAnimation : true,
+    startupAnimationStyle: normalizeStartupAnimationStyle(saved.startupAnimationStyle),
   }
 }
 const state = ref(normalizePreferences(null))

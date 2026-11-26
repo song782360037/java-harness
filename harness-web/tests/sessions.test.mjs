@@ -50,7 +50,15 @@ function boot() {
     new Function('require', 'module', 'exports', output)(name => {
       if (name === 'vue') return { ...vue, onMounted() {}, onUnmounted() {} }
       if (name.endsWith('.vue')) return {}
-      if (name === './preferences') return { preferences: vue.ref({ chatFontSize: 'standard', autoScroll: true, sendShortcut: 'enter' }), shouldSendPrompt: () => true }
+      if (name === './preferences') {
+        const pref = vue.ref({ chatFontSize: 'standard', autoScroll: true, sendShortcut: 'enter', startupAnimation: false, startupAnimationStyle: 'orbital' })
+        return {
+          preferences: pref,
+          normalizeStartupAnimationStyle: value => value === 'prism' || value === 'terminal' ? value : 'orbital',
+          updatePreferences: patch => { pref.value = { ...pref.value, ...patch } },
+          shouldSendPrompt: () => true,
+        }
+      }
       if (name.startsWith('.')) {
         const exports = load(resolve(dirname(path), `${name}.ts`))
         return name === './api' ? { ...exports, api: request } : exports

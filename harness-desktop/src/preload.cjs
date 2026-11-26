@@ -1,7 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-// 只公开固定更新操作，不允许页面指定下载地址、安装路径或任意 IPC 通道。
+// 只公开固定桌面能力，不允许页面指定下载地址、安装路径或任意 IPC 通道。
 contextBridge.exposeInMainWorld('harnessDesktop', {
+  getStartupBootstrap: () => ipcRenderer.sendSync('startup:bootstrap'),
+  getStartupAnimation: () => ipcRenderer.invoke('startup:get'),
+  setStartupAnimation: patch => ipcRenderer.invoke('startup:set', patch),
   getTaskActivity: () => ipcRenderer.invoke('tasks:state'),
   setTaskNotifications: enabled => ipcRenderer.invoke('tasks:notifications', enabled),
   takePendingTask: () => ipcRenderer.invoke('tasks:ready'),

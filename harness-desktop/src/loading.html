@@ -1,28 +1,348 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-animate="1" data-style="orbital">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
   <title>Java Harness</title>
   <style>
-    html, body { height: 100%; margin: 0; }
+    :root {
+      --bg: #141917;
+      --bg-deep: #0e1311;
+      --accent: #8dd9b6;
+      --accent-bright: #c5f5de;
+      --ink: #f5f4ee;
+      --muted: rgba(232, 238, 233, .62);
+      --faint: rgba(232, 238, 233, .36);
+      --line: rgba(141, 217, 182, .14);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); }
     body {
-      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
-      background: radial-gradient(60% 50% at 50% 42%, rgba(159, 216, 181, 0.1), transparent 72%), #181d1a;
-      color: #e8eee9;
-      font: 500 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", sans-serif;
-      letter-spacing: .01em;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink);
+      font: 500 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+      user-select: none;
+      background:
+        radial-gradient(56% 48% at 50% 45%, rgba(141, 217, 182, .16), transparent 72%),
+        radial-gradient(36% 32% at 50% 45%, rgba(141, 217, 182, .08), transparent 64%),
+        linear-gradient(180deg, var(--bg), var(--bg-deep));
     }
-    .bar { width: 168px; height: 3px; border-radius: 999px; background: rgba(232, 238, 233, .12); overflow: hidden; }
+    .grid {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(to right, rgba(141, 217, 182, .055) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(141, 217, 182, .055) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at 50% 48%, rgba(0, 0, 0, .9) 0%, rgba(0, 0, 0, .28) 54%, transparent 82%);
+      -webkit-mask-image: radial-gradient(circle at 50% 48%, rgba(0, 0, 0, .9) 0%, rgba(0, 0, 0, .28) 54%, transparent 82%);
+      pointer-events: none;
+      opacity: 0;
+      animation: grid-fade .9s ease-out .1s forwards;
+    }
+    .fx-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .prism-ribbons, .prism-seam, .hud-corners, .scan-beam {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+    }
+    html[data-style="prism"] .prism-ribbons {
+      display: block;
+      background:
+        linear-gradient(118deg, transparent 24%, rgba(141, 217, 182, .12) 45%, rgba(124, 182, 247, .12) 52%, transparent 72%),
+        linear-gradient(-118deg, transparent 30%, rgba(197, 245, 222, .08) 50%, transparent 70%);
+      animation: prism-drift 4.2s ease-in-out infinite alternate;
+    }
+    html[data-style="prism"] .prism-seam {
+      display: block;
+      inset: 0 auto 0 50%;
+      width: 1px;
+      transform: translateX(-50%);
+      background: linear-gradient(180deg, transparent, rgba(141, 217, 182, .55) 35%, rgba(197, 245, 222, .9) 50%, rgba(141, 217, 182, .55) 65%, transparent);
+      box-shadow: 0 0 22px rgba(141, 217, 182, .45);
+      animation: seam-pulse 2.2s ease-in-out infinite;
+    }
+    html[data-style="terminal"] .hud-corners {
+      display: block;
+    }
+    .hud-corners i {
+      position: absolute;
+      width: 26px;
+      height: 26px;
+      border-color: rgba(141, 217, 182, .42);
+      border-style: solid;
+      border-width: 0;
+    }
+    .hud-corners i:nth-child(1) { top: 28px; left: 28px; border-top-width: 1.5px; border-left-width: 1.5px; }
+    .hud-corners i:nth-child(2) { top: 28px; right: 28px; border-top-width: 1.5px; border-right-width: 1.5px; }
+    .hud-corners i:nth-child(3) { bottom: 28px; left: 28px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+    .hud-corners i:nth-child(4) { bottom: 28px; right: 28px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+    html[data-style="terminal"] .scan-beam {
+      display: block;
+      height: 2px;
+      inset: 0 0 auto 0;
+      background: linear-gradient(90deg, transparent, rgba(141, 217, 182, .7), transparent);
+      box-shadow: 0 0 24px rgba(141, 217, 182, .55);
+      animation: scan-sweep 2.6s cubic-bezier(.4, 0, .2, 1) infinite;
+    }
+    .stage {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      padding: 24px;
+    }
+    .emblem-wrap {
+      position: relative;
+      width: 176px;
+      height: 176px;
+      display: grid;
+      place-items: center;
+    }
+    .rings {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+    .ring-outer {
+      transform-origin: 88px 88px;
+      animation: spin-cw 14s linear infinite;
+    }
+    .ring-inner {
+      transform-origin: 88px 88px;
+      animation: spin-ccw 9.5s linear infinite;
+    }
+    .halo {
+      position: absolute;
+      width: 108px;
+      height: 108px;
+      border-radius: 30px;
+      background: radial-gradient(circle, rgba(141, 217, 182, .34), transparent 72%);
+      filter: blur(18px);
+      animation: halo-breathe 2.4s ease-in-out infinite;
+    }
+    .badge {
+      position: relative;
+      width: 84px;
+      height: 84px;
+      border-radius: 22px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, rgba(42, 50, 46, .95), rgba(24, 30, 27, .98));
+      border: 1px solid rgba(141, 217, 182, .34);
+      box-shadow:
+        0 18px 42px rgba(0, 0, 0, .48),
+        0 0 36px rgba(141, 217, 182, .16),
+        inset 0 1px 0 rgba(255, 255, 255, .14);
+      animation: badge-in .7s cubic-bezier(.22, 1, .36, 1) both;
+    }
+    .logo {
+      width: 52px;
+      height: 52px;
+      overflow: visible;
+    }
+    .bracket {
+      stroke: var(--ink);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 28;
+      stroke-dashoffset: 28;
+      animation: draw-stroke .65s cubic-bezier(.22, 1, .36, 1) .12s forwards;
+    }
+    .bridge {
+      stroke: var(--accent);
+      stroke-width: 2.6;
+      stroke-linecap: round;
+      stroke-dasharray: 20;
+      stroke-dashoffset: 20;
+      filter: drop-shadow(0 0 6px rgba(141, 217, 182, .75));
+      animation: draw-stroke .48s cubic-bezier(.22, 1, .36, 1) .52s forwards, bridge-glow 2s ease-in-out 1s infinite;
+    }
+    .brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+      text-align: center;
+    }
+    .title {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 660;
+      letter-spacing: .04em;
+      background: linear-gradient(105deg, var(--ink) 20%, var(--accent-bright) 50%, var(--ink) 80%);
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: title-rise .68s cubic-bezier(.22, 1, .36, 1) .28s both, title-glint 3s linear 1s infinite;
+    }
+    .subtitle {
+      margin: 0;
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+      font-size: 11px;
+      letter-spacing: .24em;
+      color: var(--faint);
+      animation: fade-in .6s ease-out .48s both;
+    }
+    .status-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 22px;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: .02em;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(141, 217, 182, .18);
+      animation: dot-pulse 1.5s ease-in-out infinite;
+    }
+    .bar {
+      width: 210px;
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(232, 238, 233, .1);
+      overflow: hidden;
+      position: relative;
+    }
     .bar::after {
-      content: ""; display: block; width: 42%; height: 100%; border-radius: 999px; background: #9fd8b5;
-      animation: slide 1.2s ease-in-out infinite;
+      content: "";
+      display: block;
+      width: 44%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, transparent, var(--accent), var(--accent-bright), transparent);
+      animation: slide 1.25s ease-in-out infinite;
     }
-    @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+    /* 关闭启动动画或系统偏好减少动态效果时，回退到安静克制的极简加载态。 */
+    html[data-animate="0"] .grid,
+    html[data-animate="0"] .fx-canvas,
+    html[data-animate="0"] .rings,
+    html[data-animate="0"] .halo,
+    html[data-animate="0"] .prism-ribbons,
+    html[data-animate="0"] .prism-seam,
+    html[data-animate="0"] .hud-corners,
+    html[data-animate="0"] .scan-beam {
+      display: none !important;
+    }
+    html[data-animate="0"] .emblem-wrap {
+      width: 72px;
+      height: 72px;
+    }
+    html[data-animate="0"] .badge {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, .28);
+      animation: none;
+    }
+    html[data-animate="0"] .logo { width: 40px; height: 40px; }
+    html[data-animate="0"] .bracket,
+    html[data-animate="0"] .bridge {
+      stroke-dashoffset: 0;
+      filter: none;
+      animation: none;
+    }
+    html[data-animate="0"] .title {
+      background: none;
+      color: var(--ink);
+      font-size: 18px;
+      letter-spacing: .01em;
+      animation: none;
+    }
+    html[data-animate="0"] .subtitle { display: none; }
+    html[data-animate="0"] .dot { animation: none; box-shadow: none; }
+    html[data-animate="0"] .bar { width: 168px; }
+    html[data-animate="0"] .bar::after { background: var(--accent); animation: slide 1.5s ease-in-out infinite; }
+
+    @keyframes grid-fade { to { opacity: 1; } }
+    @keyframes spin-cw { to { transform: rotate(360deg); } }
+    @keyframes spin-ccw { to { transform: rotate(-360deg); } }
+    @keyframes halo-breathe { 0%, 100% { transform: scale(.94); opacity: .7; } 50% { transform: scale(1.1); opacity: 1; } }
+    @keyframes badge-in { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: scale(1); } }
+    @keyframes draw-stroke { to { stroke-dashoffset: 0; } }
+    @keyframes bridge-glow { 0%, 100% { filter: drop-shadow(0 0 5px rgba(141, 217, 182, .65)); } 50% { filter: drop-shadow(0 0 11px rgba(197, 245, 222, .95)); } }
+    @keyframes title-rise { from { opacity: 0; transform: translateY(10px); letter-spacing: .16em; } to { opacity: 1; transform: translateY(0); letter-spacing: .04em; } }
+    @keyframes title-glint { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes dot-pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(141, 217, 182, .18); } 50% { box-shadow: 0 0 0 7px rgba(141, 217, 182, 0); } }
+    @keyframes slide { from { transform: translateX(-110%); } to { transform: translateX(250%); } }
+    @keyframes prism-drift { from { transform: translateX(-24px) scale(1); } to { transform: translateX(24px) scale(1.04); } }
+    @keyframes seam-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+    @keyframes scan-sweep { 0% { transform: translateY(0); opacity: 0; } 12% { opacity: .9; } 88% { opacity: .9; } 100% { transform: translateY(100vh); opacity: 0; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .fx-canvas, .scan-beam { display: none !important; }
+      .bracket, .bridge { stroke-dashoffset: 0; }
+      .grid { opacity: .5; }
+    }
   </style>
 </head>
 <body>
-  <div>正在启动 Java Harness…</div>
-  <div class="bar"></div>
+  <div class="grid" aria-hidden="true"></div>
+  <canvas id="fx" class="fx-canvas" aria-hidden="true"></canvas>
+  <div class="prism-ribbons" aria-hidden="true"></div>
+  <div class="prism-seam" aria-hidden="true"></div>
+  <div class="hud-corners" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="scan-beam" aria-hidden="true"></div>
+
+  <main class="stage">
+    <div class="emblem-wrap" aria-hidden="true">
+      <div class="halo"></div>
+      <svg class="rings" viewBox="0 0 176 176" fill="none">
+        <g class="ring-outer">
+          <circle cx="88" cy="88" r="78" stroke="rgba(141,217,182,0.18)" stroke-width="1" stroke-dasharray="4 7"/>
+          <path d="M 88 10 A 78 78 0 0 1 150 41" stroke="#8dd9b6" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="150" cy="41" r="2.6" fill="#c5f5de"/>
+        </g>
+        <g class="ring-inner">
+          <circle cx="88" cy="88" r="59" stroke="rgba(245,244,238,0.14)" stroke-width="1" stroke-dasharray="14 10"/>
+          <path d="M 88 147 A 59 59 0 0 1 38 119" stroke="rgba(141,217,182,0.75)" stroke-width="1.4" stroke-linecap="round"/>
+        </g>
+      </svg>
+      <div class="badge">
+        <svg class="logo" viewBox="0 0 32 32" fill="none">
+          <path class="bracket" d="M12 8H8V24H12"/>
+          <path class="bracket" d="M20 8H24V24H20"/>
+          <path class="bridge" d="M8 16H24"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="brand">
+      <h1 class="title">Java Harness</h1>
+      <p class="subtitle">LOCAL-FIRST AI WORKBENCH</p>
+    </div>
+
+    <div class="status-row" role="status">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="status-text">正在启动 Java Harness…</span>
+    </div>
+    <div class="bar" aria-hidden="true"></div>
+  </main>
+
+  <script src="./loading.js"></script>
 </body>
 </html>
