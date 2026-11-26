@@ -29,12 +29,12 @@
   <rect x="44" y="70" width="406" height="72" rx="12" fill="#202823" stroke="#36463D" stroke-width="1.2"/>
   <text x="66" y="100" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-desktop</text>
   <text x="430" y="99" text-anchor="end" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">ELECTRON</text>
-  <text x="66" y="124" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">Windows 桌面客户端 · 内置精简 JRE · 托盘常驻与自动更新</text>
+  <text x="66" y="124" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">Win / macOS / Linux 桌面端 · 内置精简 JRE · 自动更新</text>
 
   <rect x="510" y="70" width="406" height="72" rx="12" fill="#202823" stroke="#36463D" stroke-width="1.2"/>
   <text x="532" y="100" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-web</text>
   <text x="896" y="99" text-anchor="end" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">VUE 3 + TS</text>
-  <text x="532" y="124" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">前端工作台 · 像素协作工坊 · 流水线 · 长期记忆图谱</text>
+  <text x="532" y="124" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">前端工作台 · Bot 团队与小程序 · 流水线 · 记忆图谱 · 9 套主题</text>
 
   <!-- Desktop -> Web connector -->
   <line x1="450" y1="106" x2="504" y2="106" stroke="#7D9186" stroke-width="1.8" marker-end="url(#arrowMuted)"/>
@@ -48,7 +48,7 @@
   <rect x="44" y="190" width="872" height="68" rx="12" fill="#202823" stroke="#3D5246" stroke-width="1.3"/>
   <text x="68" y="219" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="17" font-weight="700">harness-server</text>
   <text x="894" y="218" text-anchor="end" fill="#A2D9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11.5" font-weight="700">SPRING BOOT 3.5 · H2 · FLYWAY</text>
-  <text x="68" y="242" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">应用装配、REST / SSE 流式接口、本地 H2 数据库迁移与加密凭据管理</text>
+  <text x="68" y="242" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13">应用装配、REST / SSE 流式接口、局域网伴侣 (:4317)、H2 迁移与加密凭据</text>
 
   <!-- Server -> Adapters & Core connectors -->
   <line x1="252" y1="258" x2="252" y2="286" stroke="#7D9186" stroke-width="1.8" marker-end="url(#arrowMuted)"/>
@@ -58,7 +58,7 @@
   <rect x="44" y="292" width="416" height="64" rx="12" fill="#202823" stroke="#36463D" stroke-width="1.2"/>
   <text x="66" y="319" fill="#F2F6F3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-adapters</text>
   <text x="440" y="318" text-anchor="end" fill="#9EB0A6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="700">JDK HTTP + JDBC</text>
-  <text x="66" y="341" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="12.5">OpenAI 兼容适配 · 工作区工具 · MCP / ACP · JDBC 存储</text>
+  <text x="66" y="341" fill="#9EB0A6" font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="12.5">OpenAI 兼容 · MCP / ACP · 多 Agent 用量解析 · JDBC 存储</text>
 
   <rect x="500" y="292" width="416" height="64" rx="12" fill="url(#pureCard)" stroke="#499870" stroke-width="1.5"/>
   <text x="522" y="319" fill="#8DD9B6" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" font-weight="700">harness-core</text>
