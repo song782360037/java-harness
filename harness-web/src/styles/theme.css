@@ -13,6 +13,9 @@
   --sidebar-faint: #68756c;
   --sidebar-selected: #dfe8e1;
   --sidebar-hover: #e6ece7;
+  --sidebar-active-bg: var(--surface);
+  --sidebar-active-border: color-mix(in srgb, var(--accent) 16%, var(--border));
+  --sidebar-active-shadow: 0 1px 2px rgba(20, 32, 24, 0.06), 0 1px 3px rgba(20, 32, 24, 0.03);
   --subtle: #f2f5f2;
   --code-bg: #f4f7f4;
   --selected: #e2eee6;
@@ -135,6 +138,7 @@
   --sidebar-faint: #737373;
   --sidebar-selected: #efefef;
   --sidebar-hover: #f4f4f4;
+  --sidebar-active-border: color-mix(in srgb, var(--border-strong) 72%, var(--border));
   --subtle: #f7f7f7;
   --code-bg: #f8f8f8;
   --selected: #efefef;
@@ -504,6 +508,11 @@
   --welcome-glow: radial-gradient(62% 46% at 50% 6%, rgba(188, 166, 250, 0.095), transparent 72%);
   --scrim: rgba(10, 8, 18, 0.65);
   --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aea7c5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+:root[data-color-scheme='dark'], :root[data-theme='dark'], :root[data-theme='midnight'], :root[data-theme='espresso'], :root[data-theme='nebula'] {
+  --sidebar-active-bg: color-mix(in srgb, var(--sidebar-selected) 84%, var(--surface));
+  --sidebar-active-border: color-mix(in srgb, var(--accent) 22%, var(--border));
+  --sidebar-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 html { background: var(--page); color: var(--text); accent-color: var(--accent); }
 * { scrollbar-color: var(--border-strong) transparent; }

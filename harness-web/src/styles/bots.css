@@ -1779,7 +1779,6 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 760px;
 }
 .bot-lan-card {
   border: 1px solid var(--border);

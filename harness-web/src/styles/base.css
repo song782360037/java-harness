@@ -43,10 +43,9 @@ textarea:focus-visible, select:focus-visible, input:focus-visible { border-color
 .session-group.collapsed { margin-bottom: 4px; }
 .session-group.collapsed h2 { margin-bottom: 0; }
 .session-group h2 { font-size: var(--font-body); font-weight: 400; margin: 0 0 3px; }
-.session-row { position: relative; display: flex; align-items: center; margin: 2px 0 2px 22px; border-radius: var(--radius-md); border: 0.5px solid transparent; color: var(--sidebar-muted); transition: background-color .15s, color .15s, border-color .15s; }
+.session-row { position: relative; display: flex; align-items: center; margin: 2px 0 2px 22px; border-radius: var(--radius-md); border: 0.5px solid transparent; color: var(--sidebar-muted); transition: background-color .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease; }
 .session-row:hover, .session-row:focus-within, .session-row.menu-open { background: var(--sidebar-hover); color: var(--sidebar-text); }
-.session-row.selected { background: var(--sidebar-selected); color: var(--sidebar-text); border-color: color-mix(in srgb, var(--accent) 18%, transparent); }
-.session-row.selected::before { content: ''; position: absolute; left: -1px; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--accent); }
+.session-row.selected, .session-row.selected:hover, .session-row.selected:focus-within, .session-row.selected.menu-open { background: var(--sidebar-active-bg); color: var(--sidebar-text); border-color: var(--sidebar-active-border); box-shadow: var(--sidebar-active-shadow); }
 .session-item { display: flex; flex: 1; min-width: 0; gap: 8px; align-items: center; text-align: left; border: 0; background: transparent; padding: 6px 4px 6px 10px; border-radius: var(--radius-md); font-size: var(--font-body); min-height: 34px; color: inherit; }
 .session-row.selected .session-item { font-weight: 560; }
 .session-item > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

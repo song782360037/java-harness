@@ -1,4 +1,4 @@
-.appearance-settings { max-width: 860px; margin-top: 24px; }
+.appearance-settings { margin-top: 24px; }
 .appearance-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; }
 .appearance-heading h2 { font-size: var(--font-heading); font-weight: 600; margin: 0; }
 .appearance-current-badge { padding: 3px 10px; border-radius: 999px; border: 0.5px solid color-mix(in srgb, var(--accent) 26%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 68%, var(--surface)); color: var(--accent); font-size: var(--font-caption); font-weight: 540; }

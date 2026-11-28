@@ -1,11 +1,10 @@
 .sidebar-links { margin: -2px 0 10px; display: flex; flex-direction: column; gap: 2px; }
-.sidebar-link { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; border: 0; background: transparent; color: var(--sidebar-muted); text-align: left; padding: 7px 12px; border-radius: var(--radius-md); font-size: var(--font-body); }
+.sidebar-link { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; border: 0.5px solid transparent; background: transparent; color: var(--sidebar-muted); text-align: left; padding: 7px 12px; border-radius: var(--radius-md); font-size: var(--font-body); }
 .sidebar-link > .ui-icon { color: var(--sidebar-muted); transition: color .15s ease; }
-.sidebar-link:hover:not(:disabled) { background: var(--sidebar-hover); color: var(--sidebar-text); }
+.sidebar-link:hover:not(:disabled) { background: var(--sidebar-hover); border-color: transparent; color: var(--sidebar-text); }
 .sidebar-link:hover:not(:disabled) > .ui-icon { color: var(--sidebar-text); }
-.sidebar-link[aria-current] { background: var(--sidebar-selected); color: var(--sidebar-text); font-weight: 560; }
-.sidebar-link[aria-current]::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--accent); }
-.sidebar-link[aria-current] > .ui-icon { color: var(--accent); }
+.sidebar-link[aria-current], .sidebar-link[aria-current]:hover:not(:disabled) { background: var(--sidebar-active-bg); border-color: var(--sidebar-active-border); color: var(--sidebar-text); font-weight: 560; box-shadow: var(--sidebar-active-shadow); }
+.sidebar-link[aria-current] > .ui-icon, .sidebar-link[aria-current]:hover:not(:disabled) > .ui-icon { color: var(--accent); }
 .sidebar-link-badge { margin-left: auto; flex-shrink: 0; min-width: 18px; padding: 0 6px; border-radius: 999px; font-size: var(--font-caption); font-weight: 600; line-height: 18px; text-align: center; color: var(--warning); background: var(--warning-bg); }
 
 .automations-page .automation-create { display: inline-flex; align-items: center; gap: 6px; }

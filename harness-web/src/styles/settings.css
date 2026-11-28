@@ -9,7 +9,7 @@
 .settings-nav button.selected { background: var(--sidebar-selected); color: var(--text); font-weight: 550; }
 .settings-nav p { margin: 24px 12px 0; font-size: var(--font-caption); color: var(--faint); line-height: 1.8; }
 .settings-content { flex: 1; min-width: 0; overflow: auto; padding: 40px 36px 56px; scrollbar-gutter: stable both-edges; }
-.settings-content-inner { max-width: 760px; margin: 0 auto; }
+.settings-content-inner { max-width: 920px; margin: 0 auto; }
 .settings-collection { border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 24px; }
 .configuration-item { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; border: 0; border-radius: 0; padding: 16px; border-bottom: 0.5px solid var(--border); }
 .configuration-item:last-child { border-bottom: 0; }
@@ -35,7 +35,7 @@
 .general-settings { margin-top: 24px; padding: 0 22px; border: 0.5px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--card-shadow); overflow: hidden; }
 .preference-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 0; border-bottom: 0.5px solid var(--border); }
 .preference-row:last-child { border-bottom: 0; }
-.preference-copy { flex: 1; min-width: 0; }
+.preference-copy { flex: 1; min-width: 0; max-width: 580px; }
 .reference-settings .preference-copy label { margin: 0 0 5px; color: var(--text); font-size: 1rem; font-weight: 560; }
 .reference-settings .preference-copy label:last-child { margin-bottom: 0; }
 .preference-copy p { margin: 0; color: var(--muted); font-size: var(--font-caption); line-height: 1.7; }
