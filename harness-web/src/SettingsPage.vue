@@ -11,11 +11,12 @@ import UsageSettings from './UsageSettings.vue'
 import ApprovalSettings from './ApprovalSettings.vue'
 import MemorySettings from './MemorySettings.vue'
 import BotLanSettings from './bots/BotLanSettings.vue'
+import BotSystemSettings from './bots/BotSystemSettings.vue'
 import UiIcon from './UiIcon.vue'
-const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'updates' | 'plugins' | 'agents'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
+const props = defineProps<{ initialProfileId: string; initialSection: 'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'memory' | 'devices' | 'bots' | 'updates' | 'plugins' | 'agents'; session?: Session; workspaces: Workspace[]; creatingWorkspace: boolean; workspaceDisabled: boolean }>()
 const currentWorkspace = computed(() => props.workspaces.find(workspace => workspace.id === props.session?.workspaceId))
 const emit = defineEmits<{ close: []; saved: [settings: ModelProfile]; deleted: [id: string]; changed: []; workspaceSaved: [session: Session]; busy: [value: boolean] }>()
-const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory' | 'devices' | 'updates'>(props.initialSection === 'agents' ? 'plugins' : props.initialSection)
+const section = ref<'general' | 'appearance' | 'models' | 'workspace' | 'approval' | 'plugins' | 'usage' | 'memory' | 'devices' | 'bots' | 'updates'>(props.initialSection === 'agents' ? 'plugins' : props.initialSection)
 const pageTitle = ref<HTMLElement>()
 const sections = [{ id: 'general', label: '常规', icon: 'settings' },
   { id: 'appearance', label: '外观', icon: 'palette' },
@@ -23,6 +24,7 @@ const sections = [{ id: 'general', label: '常规', icon: 'settings' },
   { id: 'workspace', label: '工作区', icon: 'folder' },
   { id: 'approval', label: '审批', icon: 'shield' },
   { id: 'memory', label: '记忆', icon: 'memory' },
+  { id: 'bots', label: 'Bot 与搜索', icon: 'wand' },
   { id: 'devices', label: '局域网设备', icon: 'globe' },
   { id: 'plugins', label: '扩展', icon: 'puzzle' },
   { id: 'usage', label: '使用统计', icon: 'chart' },
@@ -212,6 +214,7 @@ onMounted(() => { pageTitle.value?.focus(); void load() })
           <UsageSettings v-if="section === 'usage'" />
           <ApprovalSettings v-if="section === 'approval'" @busy="pluginBusy = $event" />
           <MemorySettings v-if="section === 'memory'" @busy="pluginBusy = $event" />
+          <BotSystemSettings v-if="section === 'bots'" @busy="pluginBusy = $event" />
           <BotLanSettings v-if="section === 'devices'" @busy="pluginBusy = $event" />
           <section v-show="section === 'models'" class="provider-console" aria-label="自定义提供商与模型">
             <aside class="provider-rail" aria-label="自定义提供商">

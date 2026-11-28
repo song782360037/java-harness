@@ -1,10 +1,37 @@
 package dev.javaharness.server.service;
 
+import dev.javaharness.spi.HarnessException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-/** Bot 预设外形、配色、入职角色模板与确定性经验等级计算。 */
+/** Bot 预设外形、配色、装扮目录、入职角色模板与确定性经验等级计算。 */
 public final class BotTemplates {
+    public record OutfitSpec(String id, String slot, int unlockLevel, String label) {}
+
+    public static final List<OutfitSpec> OUTFITS = List.of(
+            new OutfitSpec("partyHat", "head", 1, "派对帽"),
+            new OutfitSpec("bronzeCrown", "head", 10, "青铜冠"),
+            new OutfitSpec("silverCrown", "head", 30, "白银冠"),
+            new OutfitSpec("goldCrown", "head", 60, "黄金冠"),
+            new OutfitSpec("halo", "head", 90, "光环"),
+            new OutfitSpec("rainbowCrown", "head", 99, "彩虹冠"),
+            new OutfitSpec("roundGlasses", "face", 1, "圆框眼镜"),
+            new OutfitSpec("sunglasses", "face", 10, "墨镜"),
+            new OutfitSpec("monocle", "face", 60, "单片眼镜"),
+            new OutfitSpec("bowTie", "neck", 1, "蝴蝶结"),
+            new OutfitSpec("tie", "neck", 30, "领带"),
+            new OutfitSpec("medal", "neck", 90, "勋章"));
+
+    private static final Map<String, OutfitSpec> OUTFIT_MAP = new LinkedHashMap<>();
+
+    static {
+        for (OutfitSpec spec : OUTFITS) {
+            OUTFIT_MAP.put(spec.id(), spec);
+        }
+    }
     public static final List<String> SHAPES = List.of(
             "orb",
             "cube",
@@ -113,6 +140,41 @@ public final class BotTemplates {
     public static String normalizeColor(String color) {
         if (color != null && color.matches("#[0-9a-fA-F]{6}")) return color;
         return COLORS.getFirst();
+    }
+
+    public static boolean isOutfitUnlocked(String outfitId, int level, boolean mainBot) {
+        OutfitSpec spec = OUTFIT_MAP.get(outfitId);
+        if (spec == null) return false;
+        if (mainBot && "goldCrown".equals(outfitId)) return true;
+        return level >= spec.unlockLevel();
+    }
+
+    /** 校验装扮穿戴权限（主 Bot 始终拥有 goldCrown，其余按等级解锁，每个槽位最多 1 件），返回规范化列表。 */
+    public static List<String> validateOutfit(List<String> requested, int level, boolean mainBot) {
+        if (requested == null || requested.isEmpty()) return List.of();
+        var bySlot = new LinkedHashMap<String, String>();
+        for (String raw : requested) {
+            if (raw == null || raw.isBlank()) continue;
+            String id = raw.strip();
+            OutfitSpec spec = OUTFIT_MAP.get(id);
+            if (spec == null) throw new HarnessException("INVALID", "未知的装扮部件：" + id);
+            if (!isOutfitUnlocked(id, level, mainBot)) {
+                throw new HarnessException("CONFLICT", "「" + spec.label() + "」需要达到 Lv." + spec.unlockLevel() + " 才能解锁");
+            }
+            bySlot.put(spec.slot(), id);
+        }
+        return new ArrayList<>(bySlot.values());
+    }
+
+    public static String toOutfitJson(List<String> ids) {
+        if (ids == null || ids.isEmpty()) return "[]";
+        var sb = new StringBuilder("[");
+        for (int i = 0; i < ids.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append('"').append(ids.get(i).replace("\"", "")).append('"');
+        }
+        sb.append(']');
+        return sb.toString();
     }
 
     /** 确定性计算 Bot 经验与 Lv.1–99 等级：对话 +10，做法 +50，按做法完成任务 +30，普通完成任务 +15。 */

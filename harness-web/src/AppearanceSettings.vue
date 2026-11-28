@@ -54,6 +54,29 @@ const startupStatusText = computed(() => {
       <h2 id="theme-title">主题</h2>
       <span class="appearance-current-badge">当前：{{ activeThemeSummary }}</span>
     </div>
+    <div class="theme-group">
+      <div class="theme-choices" role="group" aria-label="自动跟随系统">
+        <button
+          type="button"
+          class="theme-choice"
+          :aria-pressed="themePreference === 'system'"
+          @click="setTheme('system')"
+        >
+          <span class="theme-preview preview-light" style="background: linear-gradient(135deg, #f7f9f7 50%, #181d1a 50%);" aria-hidden="true">
+            <span class="preview-sidebar"><i></i><i></i><i></i></span>
+            <span class="preview-main"><i></i><i></i><span class="preview-composer"></span></span>
+          </span>
+          <span class="theme-choice-meta">
+            <span class="theme-choice-heading">
+              <strong>跟随系统</strong>
+              <UiIcon v-if="themePreference === 'system'" name="check" :size="16" aria-hidden="true" />
+              <UiIcon v-else name="monitor" :size="15" aria-hidden="true" />
+            </span>
+            <span class="theme-choice-desc">自动跟随操作系统浅色与深色模式切换</span>
+          </span>
+        </button>
+      </div>
+    </div>
     <div v-for="group in groupedChoices" :key="group.id" class="theme-group">
       <h3 class="theme-group-title">{{ group.label }}</h3>
       <div class="theme-choices" role="group" :aria-label="group.label">

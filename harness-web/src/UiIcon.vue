@@ -47,6 +47,12 @@ const paths: Record<string, string> = {
   clock: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 7v5l3 2',
   play: 'm8 5.5 11 6.5-11 6.5V5.5Z',
   gamepad: 'M7 7h10a4 4 0 0 1 4 4l1 7c0 3-3 4-5 1l-2-2H9l-2 2c-2 3-5 2-5-1l1-7a4 4 0 0 1 4-4ZM6 12h4M8 10v4m7-2h.01m3 2h.01',
+  sparkles: 'M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3ZM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15ZM5 15l.7 1.3L7 17l-1.3.7L5 19l-.7-1.3L3 17l1.3-.7L5 15Z',
+  pin: 'M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1V4H8v2h1v4.76Z',
+  table: 'M3 5h18v14H3V5ZM3 10h18M3 15h18M9 5v14',
+  calendar: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z',
+  skill: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5V5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 19.5ZM9 8h6M9 12h4',
+  monitor: 'M3 4h18v12H3V4ZM8 20h8M12 16v4',
 }
 </script>
 <template><svg class="ui-icon" :width="size || 18" :height="size || 18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="paths[name] || paths.code" /></svg></template>

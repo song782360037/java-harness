@@ -3,22 +3,35 @@ package dev.javaharness.server.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.bot.BotLanStore.Device;
+import dev.javaharness.adapters.bot.BotStore.BotChange;
+import dev.javaharness.adapters.bot.BotStore.BotLimits;
+import dev.javaharness.adapters.bot.BotStore.Entry;
+import dev.javaharness.adapters.bot.BotStore.Fact;
 import dev.javaharness.adapters.bot.BotStore.LayoutItem;
 import dev.javaharness.adapters.bot.BotStore.MiniApp;
+import dev.javaharness.adapters.bot.BotStore.MiniAppVersion;
+import dev.javaharness.adapters.bot.BotStore.PendingBotApproval;
 import dev.javaharness.adapters.bot.BotStore.Playbook;
 import dev.javaharness.adapters.bot.BotStore.Routine;
 import dev.javaharness.adapters.bot.BotStore.Section;
 import dev.javaharness.adapters.bot.BotStore.Task;
+import dev.javaharness.server.service.BotDebugService;
 import dev.javaharness.server.service.BotLanServer;
 import dev.javaharness.server.service.BotMiniAppService;
 import dev.javaharness.server.service.BotOrchestrator;
 import dev.javaharness.server.service.BotRoutineScheduler;
 import dev.javaharness.server.service.BotService;
+import dev.javaharness.server.service.BotSkillService;
 import dev.javaharness.server.service.ExternalAgentCatalog;
 import dev.javaharness.spi.HarnessException;
+import dev.javaharness.spi.workspace.CommandExecution;
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -27,8 +40,10 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +52,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** Bot 工作台 REST 与全局 SSE 接口。 */
@@ -47,7 +63,9 @@ public class BotController {
     private final BotOrchestrator orchestrator;
     private final BotRoutineScheduler routines;
     private final BotMiniAppService miniApps;
+    private final BotSkillService botSkills;
     private final BotLanServer lanServer;
+    private final BotDebugService debug;
     private final ObjectMapper json;
     private final ExecutorService streams = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore slots = new Semaphore(16);
@@ -57,17 +75,30 @@ public class BotController {
             BotOrchestrator orchestrator,
             BotRoutineScheduler routines,
             BotMiniAppService miniApps,
+            BotSkillService botSkills,
             BotLanServer lanServer,
+            BotDebugService debug,
             ObjectMapper json) {
         this.bots = bots;
         this.orchestrator = orchestrator;
         this.routines = routines;
         this.miniApps = miniApps;
+        this.botSkills = botSkills;
         this.lanServer = lanServer;
+        this.debug = debug;
         this.json = json;
     }
 
-    public record PostMessage(String requestId, String content, Long quoteSeq, String attachmentsJson) {}
+    public record PostMessage(
+            String requestId,
+            String content,
+            Long quoteSeq,
+            List<String> attachmentIds,
+            String attachmentsJson,
+            String viewingMiniAppId,
+            Boolean fromMiniApp) {}
+
+    public record FactRequest(String scope, String content) {}
 
     public record SectionDraft(String name, Boolean collapsed, Integer ordinal) {}
 
@@ -75,7 +106,10 @@ public class BotController {
 
     public record DeleteEntriesRequest(List<Long> seqs) {}
 
-    public record StartTaskRequest(String title, String instruction, String playbookId, String modelProfileId) {}
+    public record StartTaskRequest(
+            String title, String instruction, String playbookId, String modelProfileId, String miniAppId) {}
+
+    public record RestoreVersionRequest(int version) {}
 
     public record ToggleRoutineRequest(boolean enabled) {}
 
@@ -84,6 +118,12 @@ public class BotController {
     public record LanSettingsRequest(boolean enabled, int port, boolean allowRemoteApproval, long revision) {}
 
     public record PairConfirmRequest(String code, String deviceName) {}
+
+    public record SkillOfferSourceRequest(String source, String targetBotId) {}
+
+    public record SkillOfferAnswerRequest(List<String> names) {}
+
+    public record SkillRemoveRequest(List<String> names, String targetBotId) {}
 
     @GetMapping("/bots/workspace")
     public BotService.WorkspaceSnapshot workspace() {
@@ -144,7 +184,14 @@ public class BotController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public BotOrchestrator.PostResult postMessage(@PathVariable String id, @RequestBody PostMessage request) {
         return orchestrator.postMessage(
-                id, request.requestId(), request.content(), request.quoteSeq(), request.attachmentsJson());
+                id,
+                request.requestId(),
+                request.content(),
+                request.quoteSeq(),
+                request.attachmentIds(),
+                request.attachmentsJson(),
+                request.viewingMiniAppId() == null ? "" : request.viewingMiniAppId(),
+                Boolean.TRUE.equals(request.fromMiniApp()));
     }
 
     @PostMapping(value = "/bots/{id}/stop", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -157,6 +204,115 @@ public class BotController {
     public Map<String, Boolean> seen(@PathVariable String id) {
         bots.markSeen(id);
         return Map.of("seen", true);
+    }
+
+    @PostMapping(value = "/bots/{id}/unread", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Boolean> unread(@PathVariable String id) {
+        bots.markUnread(id);
+        return Map.of("unread", true);
+    }
+
+    @PostMapping(value = "/bots/seen-all", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Boolean> seenAll() {
+        bots.markAllSeen();
+        return Map.of("seenAll", true);
+    }
+
+    @GetMapping("/bots/{id}/entries/search")
+    public List<Entry> searchEntries(
+            @PathVariable String id,
+            @RequestParam("q") String query,
+            @RequestParam(value = "limit", defaultValue = "20") int limit) {
+        return bots.searchEntries(id, query, limit);
+    }
+
+    @GetMapping("/bots/usage")
+    public BotDebugService.BotUsageReport botUsage(@RequestParam(value = "days", defaultValue = "7") int days) {
+        return debug.usage(days);
+    }
+
+    @GetMapping("/bots/{id}/skills")
+    public List<BotSkillService.SkillView> listBotSkills(@PathVariable String id) {
+        return botSkills.listViews(id);
+    }
+
+    @PostMapping(value = "/bots/{id}/skills/offer", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public BotSkillService.SkillOfferView offerBotSkillFromSource(
+            @PathVariable String id, @RequestBody SkillOfferSourceRequest request) {
+        String target = request.targetBotId() == null || request.targetBotId().isBlank() ? id : request.targetBotId();
+        return botSkills.offerFromPanelSource(target, request.source());
+    }
+
+    @PostMapping(value = "/bots/{id}/skills/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BotSkillService.SkillOfferView uploadBotSkillArchive(
+            @PathVariable String id, @RequestParam("file") MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) throw new HarnessException("INVALID", "请选择要上传的 .zip 或 .skill 压缩包");
+        return botSkills.offerFromUpload(id, file.getOriginalFilename(), file.getBytes());
+    }
+
+    @PostMapping(value = "/bots/{id}/skills/offers/{offerId}/answer", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public BotSkillService.SkillOfferView answerBotSkillOffer(
+            @PathVariable String id,
+            @PathVariable String offerId,
+            @RequestBody SkillOfferAnswerRequest request) {
+        return botSkills.answerOffer(id, offerId, request.names());
+    }
+
+    @GetMapping("/bot-skill-offers/{offerId}/{skillName}/files")
+    public List<BotSkillService.SkillFileView> offerSkillFiles(
+            @PathVariable String offerId, @PathVariable String skillName) {
+        return botSkills.listOfferFiles(offerId, skillName);
+    }
+
+    @GetMapping("/bot-skill-offers/{offerId}/{skillName}/file")
+    public BotSkillService.SkillFileContent offerSkillFile(
+            @PathVariable String offerId, @PathVariable String skillName, @RequestParam("path") String path) {
+        return botSkills.readOfferFile(offerId, skillName, path);
+    }
+
+    @GetMapping("/bots/{id}/skills/{skillName}/files")
+    public List<BotSkillService.SkillFileView> installedSkillFiles(
+            @PathVariable String id, @PathVariable String skillName) {
+        return botSkills.listInstalledFiles(id, skillName);
+    }
+
+    @GetMapping("/bots/{id}/skills/{skillName}/file")
+    public BotSkillService.SkillFileContent installedSkillFile(
+            @PathVariable String id, @PathVariable String skillName, @RequestParam("path") String path) {
+        return botSkills.readInstalledFile(id, skillName, path);
+    }
+
+    @PostMapping(value = "/bots/{id}/skills/remove", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> removeBotSkills(
+            @PathVariable String id, @RequestBody SkillRemoveRequest request) {
+        List<String> removed = botSkills.removeSkills(id, request.targetBotId(), request.names());
+        return Map.of("removed", removed);
+    }
+
+    @PostMapping(value = "/bots/{id}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BotService.BotCard uploadAvatar(@PathVariable String id, @RequestParam("file") MultipartFile file)
+            throws IOException {
+        if (file == null || file.isEmpty()) throw new HarnessException("INVALID", "请选择要上传的头像图片");
+        return bots.uploadAvatar(id, file.getBytes());
+    }
+
+    @PostMapping(value = "/bots/{id}/avatar/delete", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public BotService.BotCard deleteAvatar(@PathVariable String id) {
+        return bots.deleteAvatar(id);
+    }
+
+    @GetMapping("/bots/{id}/avatar")
+    public ResponseEntity<byte[]> avatar(@PathVariable String id) throws IOException {
+        BotService.RawFile file = bots.readAvatar(id);
+        byte[] bytes = Files.readAllBytes(file.path());
+        String etag = "\"" + file.filename() + "-" + file.sizeBytes() + "-"
+                + Files.getLastModifiedTime(file.path()).toMillis() + "\"";
+        return ResponseEntity.ok()
+                .header("X-Content-Type-Options", "nosniff")
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+                .header(HttpHeaders.ETAG, etag)
+                .header(HttpHeaders.CONTENT_TYPE, file.mediaType())
+                .body(bytes);
     }
 
     @PostMapping(value = "/bots/{id}/entries/delete", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -175,6 +331,7 @@ public class BotController {
                 request.instruction(),
                 request.playbookId() == null ? "" : request.playbookId(),
                 request.modelProfileId() == null ? "" : request.modelProfileId(),
+                request.miniAppId() == null ? "" : request.miniAppId(),
                 false);
     }
 
@@ -221,6 +378,33 @@ public class BotController {
         return bots.readLibraryFile(id, path);
     }
 
+    @GetMapping("/bots/{id}/files/raw")
+    public ResponseEntity<byte[]> fileRaw(@PathVariable String id, @RequestParam("path") String path)
+            throws IOException {
+        BotService.RawFile file = bots.readRawFile(id, path);
+        byte[] bytes = Files.readAllBytes(file.path());
+        return ResponseEntity.ok()
+                .header("X-Content-Type-Options", "nosniff")
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=60")
+                .header(HttpHeaders.CONTENT_TYPE, file.mediaType())
+                .body(bytes);
+    }
+
+    @GetMapping("/bots/{id}/debug/context")
+    public BotDebugService.ContextView debugContext(@PathVariable String id) {
+        return debug.context(id);
+    }
+
+    @GetMapping("/bots/{id}/debug/traces")
+    public List<BotDebugService.TraceView> debugTraces(@PathVariable String id) {
+        return debug.traces(id);
+    }
+
+    @GetMapping("/bots/{id}/debug/changes")
+    public List<BotChange> debugChanges(@PathVariable String id) {
+        return debug.changes(id);
+    }
+
     @GetMapping("/bots/{id}/routines")
     public List<Routine> routines(@PathVariable String id) {
         return routines.list(id);
@@ -252,6 +436,33 @@ public class BotController {
     @GetMapping("/bot-apps/{appId}")
     public BotMiniAppService.AppBundle miniApp(@PathVariable String appId) {
         return miniApps.bundle(appId);
+    }
+
+    @GetMapping("/bot-apps/{appId}/versions")
+    public List<MiniAppVersion> miniAppVersions(@PathVariable String appId) {
+        return miniApps.versions(appId);
+    }
+
+    @GetMapping("/bot-apps/{appId}/versions/{version}")
+    public BotMiniAppService.AppBundle miniAppVersion(@PathVariable String appId, @PathVariable int version) {
+        return miniApps.bundleVersion(appId, version);
+    }
+
+    @PostMapping(value = "/bot-apps/{appId}/restore", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public MiniApp restoreMiniAppVersion(@PathVariable String appId, @RequestBody RestoreVersionRequest request) {
+        return miniApps.restoreVersion(appId, request.version());
+    }
+
+    @GetMapping("/bot-apps/{appId}/export")
+    public ResponseEntity<byte[]> exportMiniApp(
+            @PathVariable String appId, @RequestParam(value = "version", required = false) Integer version) {
+        BotMiniAppService.ExportFile exported = miniApps.exportStandaloneHtml(appId, version);
+        String encoded = URLEncoder.encode(exported.filename(), StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header("X-Content-Type-Options", "nosniff")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(exported.bytes());
     }
 
     @PostMapping(value = "/bot-apps/{appId}/data", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -287,6 +498,64 @@ public class BotController {
         return Map.of("revoked", true);
     }
 
+    @GetMapping("/bots/{id}/facts")
+    public BotService.FactsBundle facts(@PathVariable String id) {
+        return bots.facts(id);
+    }
+
+    @PostMapping(value = "/bots/{id}/facts", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public Fact addFact(@PathVariable String id, @RequestBody FactRequest request) {
+        return bots.addFact(id, request.scope(), request.content());
+    }
+
+    @PostMapping(value = "/bot-facts/{factId}/delete", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Boolean> deleteFact(@PathVariable String factId) {
+        bots.deleteFact(factId);
+        return Map.of("deleted", true);
+    }
+
+    @GetMapping("/bots/{id}/approvals")
+    public List<PendingBotApproval> botApprovals(@PathVariable String id) {
+        return bots.pendingApprovals(id);
+    }
+
+    @GetMapping("/bots/approvals")
+    public List<PendingBotApproval> allBotApprovals() {
+        return bots.allPendingApprovals();
+    }
+
+    @PostMapping(value = "/bot-approvals/{commandId}/approve", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public CommandExecution approveBotCommand(@PathVariable String commandId) {
+        return bots.approveBotCommand(commandId);
+    }
+
+    @PostMapping(value = "/bot-approvals/{commandId}/reject", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public CommandExecution rejectBotCommand(@PathVariable String commandId) {
+        return bots.rejectBotCommand(commandId);
+    }
+
+    @GetMapping("/bots/settings/search")
+    public BotService.WebSearchSettingsView webSearchSettings() {
+        return bots.webSearchSettings();
+    }
+
+    @PostMapping(value = "/bots/settings/search", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public BotService.WebSearchSettingsView saveWebSearchSettings(
+            @RequestBody BotService.WebSearchSettingsDraft request) {
+        return bots.saveWebSearchSettings(request);
+    }
+
+    @GetMapping("/bots/settings/limits")
+    public BotLimits botLimits() {
+        return bots.limits();
+    }
+
+    @PostMapping(value = "/bots/settings/limits", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public BotLimits saveBotLimits(@RequestBody BotService.BotLimitsDraft request) {
+        return bots.saveLimits(request);
+    }
+
     @GetMapping(value = "/bots/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(HttpServletResponse response) {
         String initial = bots.globalVersion();
@@ -311,8 +580,21 @@ public class BotController {
     private void follow(String version, long lastNoticeId, SseEmitter emitter, AtomicBoolean done) {
         long heartbeat = 0;
         long expires = System.nanoTime() + TimeUnit.SECONDS.toNanos(55);
+        Map<String, String> lastStreamSignature = new HashMap<>();
         try {
             while (!done.get() && !Thread.currentThread().isInterrupted() && System.nanoTime() < expires) {
+                var activeStreams = orchestrator.activeChatSnapshots();
+                var activeKeys = new HashMap<String, Boolean>();
+                for (var stream : activeStreams) {
+                    activeKeys.put(stream.botId(), Boolean.TRUE);
+                    String sig = stream.runId() + ":" + stream.status() + ":" + stream.output().length();
+                    if (!sig.equals(lastStreamSignature.get(stream.botId()))) {
+                        emitter.send(SseEmitter.event().name("bot-stream").data(stream));
+                        lastStreamSignature.put(stream.botId(), sig);
+                    }
+                }
+                lastStreamSignature.keySet().removeIf(botId -> !activeKeys.containsKey(botId));
+
                 String current = bots.globalVersion();
                 if (!current.equals(version)) {
                     var freshNotices = orchestrator.recentNotices(lastNoticeId);
@@ -327,7 +609,7 @@ public class BotController {
                     emitter.send(SseEmitter.event().name("ping").data("ping"));
                     heartbeat = System.nanoTime();
                 }
-                Thread.sleep(300);
+                Thread.sleep(orchestrator.hasLiveWork() ? 60 : 250);
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();

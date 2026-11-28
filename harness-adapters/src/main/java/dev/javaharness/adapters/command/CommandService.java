@@ -34,6 +34,8 @@ public final class CommandService {
     private final LocalCommandRunner runner = new LocalCommandRunner();
     private final ApprovalPolicy policy;
     private volatile ApprovalReviewer reviewer;
+    private volatile Path botLibraryRoot;
+    private volatile int maxCommandTimeoutSeconds = 300;
     private static final RowMapper<CommandExecution> MAPPER = (rs, row) -> new CommandExecution(
             rs.getString("id"),
             rs.getString("run_id"),
@@ -67,6 +69,26 @@ public final class CommandService {
         this.reviewer = reviewer;
     }
 
+    /** 允许未绑定项目工作区的 Bot 后台任务在资料库根目录内提出审批命令。 */
+    public void useBotLibraryRoot(Path root) {
+        if (root == null) {
+            this.botLibraryRoot = null;
+            return;
+        }
+        Path normalized = root.toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(normalized);
+            this.botLibraryRoot = normalized.toRealPath();
+        } catch (IOException ignored) {
+            this.botLibraryRoot = normalized;
+        }
+    }
+
+    /** 更新单条命令允许的最大超时秒数（1–1800 秒）。 */
+    public void useMaxCommandTimeoutSeconds(int seconds) {
+        this.maxCommandTimeoutSeconds = Math.max(10, Math.min(seconds, 1800));
+    }
+
     public List<CommandExecution> list(String runId) {
         synchronized (sessions) {
             sessions.run(runId);
@@ -93,6 +115,7 @@ public final class CommandService {
             var existing =
                     jdbc.query("SELECT * FROM harness_command WHERE run_id=? AND call_id=?", MAPPER, runId, callId);
             if (!existing.isEmpty()) return existing.getFirst();
+            int maxTimeout = Math.max(300, maxCommandTimeoutSeconds);
             if (command == null
                     || command.isBlank()
                     || command.length() > 8000
@@ -101,8 +124,9 @@ public final class CommandService {
                     || purpose.isBlank()
                     || purpose.length() > 1000
                     || timeoutSeconds < 1
-                    || timeoutSeconds > 300)
-                throw new HarnessException("INVALID", "命令需为 1–8000 字符，用途为 1–1000 字符，超时为 1–300 秒");
+                    || timeoutSeconds > maxTimeout)
+                throw new HarnessException("INVALID", "命令需为 1–8000 字符，用途为 1–1000 字符，超时为 1–" + maxTimeout + " 秒");
+            int effectiveTimeout = Math.min(timeoutSeconds, maxCommandTimeoutSeconds);
             if (list(runId).size() >= 32) throw new HarnessException("INVALID", "单任务最多审批 32 条命令，请分批处理");
             Path resolved = directory(workspace, directory);
             // Rules settle the proposal in the same insert; the worker consumes APPROVED exactly as a user approval.
@@ -123,7 +147,7 @@ public final class CommandService {
                         resolved.toString(),
                         LocalCommandRunner.shell(),
                         purpose,
-                        timeoutSeconds,
+                        effectiveTimeout,
                         review
                                 ? "REVIEWING"
                                 : switch (decision.verdict()) {
@@ -147,8 +171,9 @@ public final class CommandService {
                     .contains(value.status())) return value;
             if (!UNDECIDED.contains(value.status())) throw new HarnessException("CONFLICT", "该命令已处理，不能批准");
             Run run = sessions.run(value.runId());
-            requireRunning(run.id(), run.workspace());
-            verifyDirectory(run.workspace(), value.directory());
+            String allowedWorkspace = effectiveWorkspace(run);
+            requireRunning(run.id(), allowedWorkspace);
+            verifyDirectory(allowedWorkspace, value.directory());
             return settle(value, "APPROVED", null, "已批准，等待执行", "USER");
         }
     }
@@ -182,8 +207,9 @@ public final class CommandService {
                     value = get(proposal.id());
                     if (value.status().equals("APPROVED")) {
                         Run run = sessions.run(value.runId());
-                        requireRunning(run.id(), run.workspace());
-                        verifyDirectory(run.workspace(), value.directory());
+                        String allowedWorkspace = effectiveWorkspace(run);
+                        requireRunning(run.id(), allowedWorkspace);
+                        verifyDirectory(allowedWorkspace, value.directory());
                         // Commit intent BEFORE ProcessBuilder.start. API retries never launch a second process.
                         value = settle(value, "RUNNING", null, "正在执行");
                         break;
@@ -231,7 +257,7 @@ public final class CommandService {
 
     /** Run the reviewer chain without holding the store lock; a user decision made meanwhile wins. */
     private void review(CommandExecution proposal, ModelProvider.Cancellation cancellation) throws InterruptedException {
-        String workspace = sessions.run(proposal.runId()).workspace();
+        String workspace = effectiveWorkspace(sessions.run(proposal.runId()));
         Path directory = Path.of(proposal.directory());
         String relative = WorkspaceRoots.directories(workspace).stream()
                 .map(Path::of)
@@ -265,8 +291,9 @@ public final class CommandService {
             switch (decision.verdict()) {
                 case APPROVE -> {
                     Run run = sessions.run(value.runId());
-                    requireRunning(run.id(), run.workspace());
-                    verifyDirectory(run.workspace(), value.directory());
+                    String allowedWorkspace = effectiveWorkspace(run);
+                    requireRunning(run.id(), allowedWorkspace);
+                    verifyDirectory(allowedWorkspace, value.directory());
                     settle(value, "APPROVED", null, decision.detail(), "JUDGE");
                 }
                 case REJECT -> settle(value, "REJECTED", null, decision.detail() + "；命令未执行，不要换一种写法重试", "JUDGE");
@@ -306,12 +333,34 @@ public final class CommandService {
         });
     }
 
+    private String effectiveWorkspace(Run run) {
+        if (!run.workspace().isEmpty()) return run.workspace();
+        Path root = botLibraryRoot;
+        if (root != null && isBotTaskSession(run.sessionId())) {
+            return root.toString();
+        }
+        return "";
+    }
+
+    private boolean isBotTaskSession(String sessionId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM harness_session WHERE id=? AND bot_task_id IS NOT NULL",
+                Integer.class,
+                sessionId);
+        return count != null && count > 0;
+    }
+
     private void requireRunning(String runId, String workspace) {
         Run run = sessions.run(runId);
-        if (workspace.isEmpty()
-                || run.status() != RunStatus.RUNNING
-                || !run.workspace().equals(workspace)
-                || !sessions.snapshot(run.sessionId()).session().workspace().equals(workspace))
+        boolean botLibraryAllowed = botLibraryRoot != null
+                && workspace.equals(botLibraryRoot.toString())
+                && (run.workspace().isEmpty() || run.workspace().equals(botLibraryRoot.toString()))
+                && isBotTaskSession(run.sessionId());
+        if (workspace.isEmpty() || run.status() != RunStatus.RUNNING)
+            throw new HarnessException("CONFLICT", "任务已停止或工作区改变，命令不能执行");
+        if (!botLibraryAllowed
+                && (!run.workspace().equals(workspace)
+                        || !sessions.snapshot(run.sessionId()).session().workspace().equals(workspace)))
             throw new HarnessException("CONFLICT", "任务已停止或工作区改变，命令不能执行");
     }
 

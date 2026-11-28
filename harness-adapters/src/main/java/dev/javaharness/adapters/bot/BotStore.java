@@ -24,6 +24,9 @@ public final class BotStore {
             boolean main,
             String shape,
             String color,
+            String avatarPath,
+            String outfitJson,
+            boolean hidden,
             boolean pinned,
             int ordinal,
             String workspaceId,
@@ -72,6 +75,7 @@ public final class BotStore {
             String sessionId,
             String runId,
             String status,
+            String statusText,
             String summary,
             String errorDetail,
             String modelLabel,
@@ -80,6 +84,70 @@ public final class BotStore {
             Instant createdAt,
             Instant updatedAt,
             Instant finishedAt) {}
+
+    public record Fact(String id, String scope, String botId, String content, Instant createdAt, Instant updatedAt) {}
+
+    public record WebSearchSettings(
+            String provider,
+            String endpointUrl,
+            String apiKeyEncrypted,
+            boolean fallbackFreeEnabled,
+            int maxResults,
+            int timeoutSeconds,
+            long revision,
+            Instant updatedAt) {}
+
+    public record BotLimits(
+            int maxConcurrentTasks,
+            int taskTimeoutMinutes,
+            int commandTimeoutSeconds,
+            int modelSilenceSeconds,
+            int maxFactsPerScope,
+            long revision,
+            Instant updatedAt) {}
+
+    public record BotSkill(
+            String id,
+            String botId,
+            String name,
+            String description,
+            String version,
+            String sourceKind,
+            String sourceRepo,
+            String sourcePath,
+            String sourceRef,
+            int fileCount,
+            String scriptsJson,
+            long totalBytes,
+            boolean userInvoked,
+            int useCount,
+            Instant lastUsedAt,
+            Instant installedAt) {}
+
+    public record BotChange(
+            String id,
+            String botId,
+            long entrySeq,
+            String toolName,
+            String kind,
+            String summary,
+            String beforeText,
+            String afterText,
+            Instant createdAt) {}
+
+    public record PendingBotApproval(
+            String commandId,
+            String runId,
+            String sessionId,
+            String botId,
+            String originBotId,
+            String taskId,
+            String taskTitle,
+            String commandText,
+            String directory,
+            String purpose,
+            String status,
+            Instant createdAt) {}
 
     public record Playbook(
             String id,
@@ -123,12 +191,23 @@ public final class BotStore {
             String botId,
             String name,
             String description,
+            String icon,
+            String color,
             int version,
             String htmlPath,
             String dataPath,
             String lastTaskId,
             Instant createdAt,
             Instant updatedAt) {}
+
+    public record MiniAppVersion(
+            String id,
+            String appId,
+            int version,
+            String changeSummary,
+            String htmlPath,
+            String taskId,
+            Instant createdAt) {}
 
     public record LayoutItem(String botId, String sectionId, boolean pinned, int ordinal) {}
 
@@ -153,6 +232,9 @@ public final class BotStore {
             rs.getBoolean("is_main"),
             str(rs.getString("shape")),
             str(rs.getString("color")),
+            str(rs.getString("avatar_path")),
+            str(rs.getString("outfit_json")).isBlank() ? "[]" : str(rs.getString("outfit_json")),
+            rs.getBoolean("hidden"),
             rs.getBoolean("pinned"),
             rs.getInt("ordinal"),
             str(rs.getString("workspace_id")),
@@ -209,6 +291,7 @@ public final class BotStore {
             rs.getString("session_id"),
             str(rs.getString("run_id")),
             rs.getString("status"),
+            str(rs.getString("status_text")),
             str(rs.getString("summary")),
             str(rs.getString("error_detail")),
             str(rs.getString("model_label")),
@@ -217,6 +300,76 @@ public final class BotStore {
             instant(rs.getObject("created_at", OffsetDateTime.class)),
             instant(rs.getObject("updated_at", OffsetDateTime.class)),
             optionalInstant(rs.getObject("finished_at", OffsetDateTime.class)));
+
+    private static final RowMapper<Fact> FACT = (rs, row) -> new Fact(
+            rs.getString("id"),
+            rs.getString("scope"),
+            str(rs.getString("bot_id")),
+            str(rs.getString("content")),
+            instant(rs.getObject("created_at", OffsetDateTime.class)),
+            instant(rs.getObject("updated_at", OffsetDateTime.class)));
+
+    private static final RowMapper<WebSearchSettings> WEB_SEARCH = (rs, row) -> new WebSearchSettings(
+            rs.getString("provider"),
+            str(rs.getString("endpoint_url")),
+            str(rs.getString("api_key_encrypted")),
+            rs.getBoolean("fallback_free_enabled"),
+            rs.getInt("max_results"),
+            rs.getInt("timeout_seconds"),
+            rs.getLong("revision"),
+            instant(rs.getObject("updated_at", OffsetDateTime.class)));
+
+    private static final RowMapper<BotLimits> LIMITS = (rs, row) -> new BotLimits(
+            rs.getInt("max_concurrent_tasks"),
+            rs.getInt("task_timeout_minutes"),
+            rs.getInt("command_timeout_seconds"),
+            rs.getInt("model_silence_seconds"),
+            rs.getInt("max_facts_per_scope"),
+            rs.getLong("revision"),
+            instant(rs.getObject("updated_at", OffsetDateTime.class)));
+
+    private static final RowMapper<BotSkill> SKILL = (rs, row) -> new BotSkill(
+            rs.getString("id"),
+            rs.getString("bot_id"),
+            rs.getString("name"),
+            str(rs.getString("description")),
+            str(rs.getString("version")),
+            str(rs.getString("source_kind")),
+            str(rs.getString("source_repo")),
+            str(rs.getString("source_path")),
+            str(rs.getString("source_ref")),
+            rs.getInt("file_count"),
+            str(rs.getString("scripts_json")).isBlank() ? "[]" : str(rs.getString("scripts_json")),
+            rs.getLong("total_bytes"),
+            rs.getBoolean("user_invoked"),
+            rs.getInt("use_count"),
+            optionalInstant(rs.getObject("last_used_at", OffsetDateTime.class)),
+            instant(rs.getObject("installed_at", OffsetDateTime.class)));
+
+    private static final RowMapper<BotChange> CHANGE = (rs, row) -> new BotChange(
+            rs.getString("id"),
+            rs.getString("bot_id"),
+            rs.getLong("entry_seq"),
+            str(rs.getString("tool_name")),
+            rs.getString("kind"),
+            str(rs.getString("summary")),
+            str(rs.getString("before_text")),
+            str(rs.getString("after_text")),
+            instant(rs.getObject("created_at", OffsetDateTime.class)));
+
+    private static final RowMapper<PendingBotApproval> PENDING_APPROVAL = (rs, row) -> new PendingBotApproval(
+            rs.getString("id"),
+            rs.getString("run_id"),
+            rs.getString("session_id"),
+            rs.getString("bot_id"),
+            rs.getString("origin_bot_id"),
+            rs.getString("task_id"),
+            str(rs.getString("title")),
+            str(rs.getString("command_text")),
+            str(rs.getString("directory")),
+            str(rs.getString("purpose")),
+            rs.getString("status"),
+            instant(rs.getObject("created_at", OffsetDateTime.class)));
 
     private static final RowMapper<Playbook> PLAYBOOK = (rs, row) -> new Playbook(
             rs.getString("id"),
@@ -265,12 +418,23 @@ public final class BotStore {
             rs.getString("bot_id"),
             rs.getString("name"),
             str(rs.getString("description")),
+            str(rs.getString("icon")).isBlank() ? "cube" : str(rs.getString("icon")),
+            str(rs.getString("color")).isBlank() ? "#2d5d9c" : str(rs.getString("color")),
             rs.getInt("version"),
             rs.getString("html_path"),
             rs.getString("data_path"),
             str(rs.getString("last_task_id")),
             instant(rs.getObject("created_at", OffsetDateTime.class)),
             instant(rs.getObject("updated_at", OffsetDateTime.class)));
+
+    private static final RowMapper<MiniAppVersion> MINI_APP_VERSION = (rs, row) -> new MiniAppVersion(
+            rs.getString("id"),
+            rs.getString("app_id"),
+            rs.getInt("version"),
+            str(rs.getString("change_summary")),
+            rs.getString("html_path"),
+            str(rs.getString("task_id")),
+            instant(rs.getObject("created_at", OffsetDateTime.class)));
 
     private final JdbcTemplate jdbc;
 
@@ -413,10 +577,10 @@ public final class BotStore {
         jdbc.update(
                 """
                 INSERT INTO harness_bot(
-                    id,section_id,name,role_summary,system_prompt,is_main,shape,color,pinned,ordinal,
+                    id,section_id,name,role_summary,system_prompt,is_main,shape,color,avatar_path,outfit_json,hidden,pinned,ordinal,
                     workspace_id,chat_profile_id,chat_reasoning_effort,task_profile_id,task_reasoning_effort,
                     external_agent_id,approval_mode,chat_session_id,last_seen_at,created_at,archived,revision,last_seq)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,FALSE,1,1)
+                VALUES (?,?,?,?,?,?,?,?,'',?,FALSE,?,?,?,?,?,?,?,?,?,?,?,?,FALSE,1,1)
                 """,
                 id,
                 nullable(sectionId),
@@ -426,6 +590,7 @@ public final class BotStore {
                 main,
                 shape,
                 color,
+                main ? "[\"goldCrown\"]" : "[]",
                 pinned,
                 (max == null ? 0 : max + 1),
                 nullable(workspaceId),
@@ -446,7 +611,7 @@ public final class BotStore {
         int rows = jdbc.update(
                 """
                 UPDATE harness_bot
-                SET section_id=?,name=?,role_summary=?,system_prompt=?,shape=?,color=?,pinned=?,ordinal=?,
+                SET section_id=?,name=?,role_summary=?,system_prompt=?,shape=?,color=?,avatar_path=?,outfit_json=?,hidden=?,pinned=?,ordinal=?,
                     workspace_id=?,chat_profile_id=?,chat_reasoning_effort=?,task_profile_id=?,task_reasoning_effort=?,
                     external_agent_id=?,approval_mode=?,revision=revision+1,last_seq=last_seq+1
                 WHERE id=? AND revision=?
@@ -457,6 +622,9 @@ public final class BotStore {
                 str(updated.systemPrompt()),
                 updated.shape(),
                 updated.color(),
+                str(updated.avatarPath()),
+                updated.outfitJson() == null || updated.outfitJson().isBlank() ? "[]" : updated.outfitJson(),
+                updated.hidden(),
                 updated.pinned(),
                 updated.ordinal(),
                 nullable(updated.workspaceId()),
@@ -472,6 +640,14 @@ public final class BotStore {
         return getBot(updated.id());
     }
 
+    public Bot updateBotAvatar(String id, String avatarPath) {
+        jdbc.update(
+                "UPDATE harness_bot SET avatar_path=?,revision=revision+1,last_seq=last_seq+1 WHERE id=?",
+                str(avatarPath),
+                id);
+        return getBot(id);
+    }
+
     public void archiveBot(String id) {
         Bot bot = getBot(id);
         if (bot.main()) throw new HarnessException("CONFLICT", "主 Bot 不能删除或归档");
@@ -480,6 +656,26 @@ public final class BotStore {
 
     public void markSeen(String id) {
         jdbc.update("UPDATE harness_bot SET last_seen_at=?,last_seq=last_seq+1 WHERE id=?", now(), id);
+    }
+
+    public void markUnread(String id) {
+        jdbc.update(
+                "UPDATE harness_bot SET last_seen_at=?,last_seq=last_seq+1 WHERE id=?",
+                OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC),
+                id);
+    }
+
+    public int countUnreadEntries(String botId, Instant lastSeenAt) {
+        Instant seen = lastSeenAt == null ? Instant.EPOCH : lastSeenAt;
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM harness_bot_entry
+                WHERE bot_id=? AND deleted=FALSE AND kind IN ('ASSISTANT','TASK_RESULT') AND created_at > ?
+                """,
+                Integer.class,
+                botId,
+                OffsetDateTime.ofInstant(seen, ZoneOffset.UTC));
+        return count == null ? 0 : count;
     }
 
     public void updateLayout(List<LayoutItem> items) {
@@ -622,6 +818,20 @@ public final class BotStore {
             }
         }
         bumpBotSeq(botId);
+    }
+
+    public void updateEntryAttachmentsJson(String botId, long seq, String attachmentsJson) {
+        jdbc.update(
+                "UPDATE harness_bot_entry SET attachments_json=? WHERE bot_id=? AND seq=?",
+                attachmentsJson == null || attachmentsJson.isBlank() ? "[]" : attachmentsJson,
+                botId,
+                seq);
+        bumpBotSeq(botId);
+    }
+
+    public void markAllSeen() {
+        OffsetDateTime time = now();
+        jdbc.update("UPDATE harness_bot SET last_seen_at=?, last_seq=last_seq+1 WHERE archived=FALSE", time);
     }
 
     public int countActiveTurns(String botId) {
@@ -774,6 +984,263 @@ public final class BotStore {
                 taskId);
         bumpBotSeq(existing.botId());
         if (!existing.botId().equals(existing.originBotId())) bumpBotSeq(existing.originBotId());
+    }
+
+    public void updateTaskStatusText(String taskId, String statusText) {
+        Task existing = task(taskId);
+        String clean = str(statusText);
+        if (clean.length() > 120) clean = clean.substring(0, 120);
+        jdbc.update("UPDATE harness_bot_task SET status_text=?,updated_at=? WHERE id=?", clean, now(), taskId);
+        bumpBotSeq(existing.botId());
+        if (!existing.botId().equals(existing.originBotId())) bumpBotSeq(existing.originBotId());
+    }
+
+    public int countRunningTasks() {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM harness_bot_task WHERE status='RUNNING'", Integer.class);
+        return count == null ? 0 : count;
+    }
+
+    public List<Task> queuedTasks() {
+        return jdbc.query("SELECT * FROM harness_bot_task WHERE status='QUEUED' ORDER BY created_at ASC", TASK);
+    }
+
+    public List<Fact> facts(String scope, String botId) {
+        if ("USER".equals(scope)) {
+            return jdbc.query(
+                    "SELECT * FROM harness_bot_fact WHERE scope='USER' ORDER BY created_at ASC", FACT);
+        }
+        return jdbc.query(
+                "SELECT * FROM harness_bot_fact WHERE scope='BOT' AND bot_id=? ORDER BY created_at ASC", FACT, botId);
+    }
+
+    public Fact fact(String id) {
+        var rows = jdbc.query("SELECT * FROM harness_bot_fact WHERE id=?", FACT, id);
+        if (rows.isEmpty()) throw new HarnessException("NOT_FOUND", "记忆不存在");
+        return rows.getFirst();
+    }
+
+    public Fact addFact(String scope, String botId, String content, int maxPerScope) {
+        String normalizedScope = "USER".equalsIgnoreCase(scope) ? "USER" : "BOT";
+        String owner = "USER".equals(normalizedScope) ? "" : str(botId);
+        String id = UUID.randomUUID().toString();
+        OffsetDateTime time = now();
+        jdbc.update(
+                "INSERT INTO harness_bot_fact(id,scope,bot_id,content,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                id,
+                normalizedScope,
+                owner,
+                content,
+                time,
+                time);
+        int cap = Math.max(5, Math.min(maxPerScope, 200));
+        List<Fact> current = facts(normalizedScope, owner);
+        if (current.size() > cap) {
+            for (int i = 0; i < current.size() - cap; i++) {
+                jdbc.update("DELETE FROM harness_bot_fact WHERE id=?", current.get(i).id());
+            }
+        }
+        if (!owner.isBlank()) bumpBotSeq(owner);
+        else jdbc.update("UPDATE harness_bot SET last_seq=last_seq+1 WHERE archived=FALSE");
+        return fact(id);
+    }
+
+    public void deleteFact(String id) {
+        Fact existing = fact(id);
+        jdbc.update("DELETE FROM harness_bot_fact WHERE id=?", id);
+        if (!existing.botId().isBlank()) bumpBotSeq(existing.botId());
+        else jdbc.update("UPDATE harness_bot SET last_seq=last_seq+1 WHERE archived=FALSE");
+    }
+
+    public WebSearchSettings ensureWebSearchSettings() {
+        var rows = jdbc.query("SELECT * FROM harness_bot_web_search_settings WHERE id='default'", WEB_SEARCH);
+        if (!rows.isEmpty()) return rows.getFirst();
+        OffsetDateTime time = now();
+        jdbc.update(
+                """
+                INSERT INTO harness_bot_web_search_settings(
+                    id,provider,endpoint_url,api_key_encrypted,fallback_free_enabled,max_results,timeout_seconds,revision,updated_at)
+                VALUES ('default','DUCKDUCKGO','','',TRUE,6,15,1,?)
+                """,
+                time);
+        return new WebSearchSettings("DUCKDUCKGO", "", "", true, 6, 15, 1, time.toInstant());
+    }
+
+    public WebSearchSettings saveWebSearchSettings(
+            String provider,
+            String endpointUrl,
+            String apiKeyEncrypted,
+            boolean fallbackFreeEnabled,
+            int maxResults,
+            int timeoutSeconds,
+            long revision) {
+        WebSearchSettings current = ensureWebSearchSettings();
+        long expected = revision > 0 ? revision : current.revision();
+        OffsetDateTime time = now();
+        int updated = jdbc.update(
+                """
+                UPDATE harness_bot_web_search_settings
+                SET provider=?,endpoint_url=?,api_key_encrypted=?,fallback_free_enabled=?,
+                    max_results=?,timeout_seconds=?,revision=revision+1,updated_at=?
+                WHERE id='default' AND revision=?
+                """,
+                provider,
+                str(endpointUrl),
+                str(apiKeyEncrypted),
+                fallbackFreeEnabled,
+                maxResults,
+                timeoutSeconds,
+                time,
+                expected);
+        if (updated == 0) throw new HarnessException("CONFLICT", "搜索设置已更新，请刷新后重试");
+        return ensureWebSearchSettings();
+    }
+
+    public BotLimits ensureLimits() {
+        var rows = jdbc.query("SELECT * FROM harness_bot_limits WHERE id='default'", LIMITS);
+        if (!rows.isEmpty()) return rows.getFirst();
+        OffsetDateTime time = now();
+        jdbc.update(
+                """
+                INSERT INTO harness_bot_limits(
+                    id,max_concurrent_tasks,task_timeout_minutes,command_timeout_seconds,model_silence_seconds,max_facts_per_scope,revision,updated_at)
+                VALUES ('default',3,15,300,300,50,1,?)
+                """,
+                time);
+        return new BotLimits(3, 15, 300, 300, 50, 1, time.toInstant());
+    }
+
+    public BotLimits saveLimits(
+            int maxConcurrentTasks,
+            int taskTimeoutMinutes,
+            int commandTimeoutSeconds,
+            int maxFactsPerScope,
+            long revision) {
+        return saveLimits(
+                maxConcurrentTasks,
+                taskTimeoutMinutes,
+                commandTimeoutSeconds,
+                ensureLimits().modelSilenceSeconds(),
+                maxFactsPerScope,
+                revision);
+    }
+
+    public BotLimits saveLimits(
+            int maxConcurrentTasks,
+            int taskTimeoutMinutes,
+            int commandTimeoutSeconds,
+            int modelSilenceSeconds,
+            int maxFactsPerScope,
+            long revision) {
+        BotLimits current = ensureLimits();
+        long expected = revision > 0 ? revision : current.revision();
+        OffsetDateTime time = now();
+        int updated = jdbc.update(
+                """
+                UPDATE harness_bot_limits
+                SET max_concurrent_tasks=?,task_timeout_minutes=?,command_timeout_seconds=?,
+                    model_silence_seconds=?,max_facts_per_scope=?,revision=revision+1,updated_at=?
+                WHERE id='default' AND revision=?
+                """,
+                maxConcurrentTasks,
+                taskTimeoutMinutes,
+                commandTimeoutSeconds,
+                modelSilenceSeconds,
+                maxFactsPerScope,
+                time,
+                expected);
+        if (updated == 0) throw new HarnessException("CONFLICT", "运行限制配置已更新，请刷新后重试");
+        return ensureLimits();
+    }
+
+    public BotChange recordChange(
+            String botId,
+            long entrySeq,
+            String toolName,
+            String kind,
+            String summary,
+            String beforeText,
+            String afterText) {
+        String id = UUID.randomUUID().toString();
+        OffsetDateTime time = now();
+        jdbc.update(
+                """
+                INSERT INTO harness_bot_change(
+                    id,bot_id,entry_seq,tool_name,kind,summary,before_text,after_text,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                id,
+                botId,
+                entrySeq,
+                str(toolName),
+                kind,
+                str(summary).length() > 500 ? str(summary).substring(0, 500) : str(summary),
+                str(beforeText),
+                str(afterText),
+                time);
+        bumpBotSeq(botId);
+        return new BotChange(
+                id, botId, entrySeq, str(toolName), kind, str(summary), str(beforeText), str(afterText), time.toInstant());
+    }
+
+    public List<BotChange> changesForBot(String botId, int limit) {
+        return jdbc.query(
+                "SELECT * FROM harness_bot_change WHERE bot_id=? ORDER BY created_at DESC LIMIT ?",
+                CHANGE,
+                botId,
+                Math.max(1, Math.min(limit, 100)));
+    }
+
+    public List<PendingBotApproval> pendingApprovalsForBot(String botId) {
+        return jdbc.query(
+                """
+                SELECT c.id, c.run_id, r.session_id, t.bot_id, t.origin_bot_id, t.id AS task_id,
+                       t.title, c.command_text, c.directory, c.purpose, c.status, c.created_at
+                FROM harness_command c
+                JOIN harness_run r ON r.id = c.run_id
+                JOIN harness_bot_task t ON t.session_id = r.session_id
+                WHERE (t.bot_id = ? OR t.origin_bot_id = ?)
+                  AND c.status IN ('PENDING', 'REVIEWING')
+                  AND r.status = 'RUNNING'
+                ORDER BY c.created_at ASC
+                """,
+                PENDING_APPROVAL,
+                botId,
+                botId);
+    }
+
+    public List<PendingBotApproval> allPendingBotApprovals() {
+        return jdbc.query(
+                """
+                SELECT c.id, c.run_id, r.session_id, t.bot_id, t.origin_bot_id, t.id AS task_id,
+                       t.title, c.command_text, c.directory, c.purpose, c.status, c.created_at
+                FROM harness_command c
+                JOIN harness_run r ON r.id = c.run_id
+                JOIN harness_bot_task t ON t.session_id = r.session_id
+                WHERE c.status IN ('PENDING', 'REVIEWING')
+                  AND r.status = 'RUNNING'
+                ORDER BY c.created_at ASC
+                """,
+                PENDING_APPROVAL);
+    }
+
+    public boolean isBotTaskCommand(String commandId) {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM harness_command c
+                JOIN harness_run r ON r.id = c.run_id
+                JOIN harness_bot_task t ON t.session_id = r.session_id
+                WHERE c.id = ?
+                """,
+                Integer.class,
+                commandId);
+        return count != null && count > 0;
+    }
+
+    public long latestEntrySeq(String botId) {
+        Long max = jdbc.queryForObject(
+                "SELECT COALESCE(MAX(seq),0) FROM harness_bot_entry WHERE bot_id=?", Long.class, botId);
+        return max == null ? 0L : max;
     }
 
     public void finishTask(String taskId, String status, String summary, String errorDetail) {
@@ -945,6 +1412,16 @@ public final class BotStore {
         bumpBotSeq(existing.botId());
     }
 
+    public Routine updateRoutinePlaybook(String id, String playbookId) {
+        Routine existing = routine(id);
+        jdbc.update(
+                "UPDATE harness_bot_routine SET playbook_id=?,revision=revision+1 WHERE id=?",
+                nullable(playbookId),
+                id);
+        bumpBotSeq(existing.botId());
+        return routine(id);
+    }
+
     public boolean hasActiveTaskForRoutine(String routineId) {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM harness_bot_task WHERE routine_id=? AND status IN ('QUEUED','RUNNING')",
@@ -968,6 +1445,29 @@ public final class BotStore {
         return rows.getFirst();
     }
 
+    public int nextMiniAppVersion(String appId) {
+        if (appId == null || appId.isBlank()) return 1;
+        var rows = jdbc.query("SELECT version FROM harness_bot_mini_app WHERE id=?", (rs, row) -> rs.getInt(1), appId);
+        return rows.isEmpty() ? 1 : rows.getFirst() + 1;
+    }
+
+    public List<MiniAppVersion> miniAppVersions(String appId) {
+        return jdbc.query(
+                "SELECT * FROM harness_bot_mini_app_version WHERE app_id=? ORDER BY version ASC",
+                MINI_APP_VERSION,
+                appId);
+    }
+
+    public MiniAppVersion miniAppVersion(String appId, int version) {
+        var rows = jdbc.query(
+                "SELECT * FROM harness_bot_mini_app_version WHERE app_id=? AND version=?",
+                MINI_APP_VERSION,
+                appId,
+                version);
+        if (rows.isEmpty()) throw new HarnessException("NOT_FOUND", "小程序版本 v" + version + " 不存在");
+        return rows.getFirst();
+    }
+
     public MiniApp upsertMiniApp(
             String appId,
             String botId,
@@ -976,26 +1476,59 @@ public final class BotStore {
             String htmlPath,
             String dataPath,
             String taskId) {
+        return upsertMiniApp(appId, botId, name, description, "", "", htmlPath, dataPath, taskId, "");
+    }
+
+    public MiniApp upsertMiniApp(
+            String appId,
+            String botId,
+            String name,
+            String description,
+            String icon,
+            String color,
+            String htmlPath,
+            String dataPath,
+            String taskId,
+            String changeSummary) {
         OffsetDateTime time = now();
         var existingRows = appId == null || appId.isBlank()
                 ? List.<MiniApp>of()
                 : jdbc.query("SELECT * FROM harness_bot_mini_app WHERE id=?", MINI_APP, appId);
         if (existingRows.isEmpty()) {
             String id = (appId == null || appId.isBlank()) ? UUID.randomUUID().toString() : appId;
+            String cleanIcon = (icon == null || icon.isBlank()) ? "cube" : icon.strip();
+            String cleanColor = (color == null || color.isBlank()) ? "#2d5d9c" : color.strip();
+            String summary = (changeSummary == null || changeSummary.isBlank()) ? "初始版本" : changeSummary.strip();
             jdbc.update("""
                     INSERT INTO harness_bot_mini_app(
-                        id,bot_id,name,description,version,html_path,data_path,last_task_id,created_at,updated_at)
-                    VALUES (?,?,?,?,1,?,?,?,?,?)
-                    """, id, botId, name, str(description), htmlPath, dataPath, nullable(taskId), time, time);
+                        id,bot_id,name,description,icon,color,version,html_path,data_path,last_task_id,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,1,?,?,?,?,?)
+                    """, id, botId, name, str(description), cleanIcon, cleanColor, htmlPath, dataPath, nullable(taskId), time, time);
+            jdbc.update("""
+                    INSERT INTO harness_bot_mini_app_version(
+                        id,app_id,version,change_summary,html_path,task_id,created_at)
+                    VALUES (?,?,1,?,?,?,?)
+                    """, UUID.randomUUID().toString(), id, summary, htmlPath, nullable(taskId), time);
             bumpBotSeq(botId);
             return miniApp(id);
         }
         MiniApp existing = existingRows.getFirst();
+        int nextVersion = existing.version() + 1;
+        String cleanIcon = (icon == null || icon.isBlank()) ? existing.icon() : icon.strip();
+        String cleanColor = (color == null || color.isBlank()) ? existing.color() : color.strip();
+        String summary = (changeSummary == null || changeSummary.isBlank())
+                ? "更新至 v" + nextVersion
+                : changeSummary.strip();
         jdbc.update("""
                 UPDATE harness_bot_mini_app
-                SET name=?,description=?,version=version+1,html_path=?,data_path=?,last_task_id=?,updated_at=?
+                SET name=?,description=?,icon=?,color=?,version=?,html_path=?,data_path=?,last_task_id=?,updated_at=?
                 WHERE id=?
-                """, name, str(description), htmlPath, dataPath, nullable(taskId), time, existing.id());
+                """, name, str(description), cleanIcon, cleanColor, nextVersion, htmlPath, dataPath, nullable(taskId), time, existing.id());
+        jdbc.update("""
+                INSERT INTO harness_bot_mini_app_version(
+                    id,app_id,version,change_summary,html_path,task_id,created_at)
+                VALUES (?,?,?,?,?,?,?)
+                """, UUID.randomUUID().toString(), existing.id(), nextVersion, summary, htmlPath, nullable(taskId), time);
         bumpBotSeq(existing.botId());
         return miniApp(existing.id());
     }
@@ -1040,15 +1573,130 @@ public final class BotStore {
         bumpBotSeq(botId);
     }
 
-    /** Coalesced global version across all bots, tasks and hidden bot sessions for SSE polling. */
+    public List<BotSkill> skillsForBot(String botId) {
+        return jdbc.query(
+                "SELECT * FROM harness_bot_skill WHERE bot_id=? ORDER BY installed_at DESC, name ASC", SKILL, botId);
+    }
+
+    public List<BotSkill> allSkills() {
+        return jdbc.query(
+                """
+                SELECT s.* FROM harness_bot_skill s
+                JOIN harness_bot b ON b.id = s.bot_id
+                WHERE b.archived = FALSE
+                ORDER BY s.installed_at DESC, s.name ASC
+                """,
+                SKILL);
+    }
+
+    public BotSkill requireSkill(String botId, String name) {
+        var rows = jdbc.query(
+                "SELECT * FROM harness_bot_skill WHERE bot_id=? AND name=?", SKILL, botId, name);
+        if (rows.isEmpty()) throw new HarnessException("NOT_FOUND", "技能不存在：" + name);
+        return rows.getFirst();
+    }
+
+    public int countSkills(String botId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM harness_bot_skill WHERE bot_id=?", Integer.class, botId);
+        return count == null ? 0 : count;
+    }
+
+    public BotSkill upsertSkill(
+            String botId,
+            String name,
+            String description,
+            String version,
+            String sourceKind,
+            String sourceRepo,
+            String sourcePath,
+            String sourceRef,
+            int fileCount,
+            String scriptsJson,
+            long totalBytes,
+            boolean userInvoked) {
+        OffsetDateTime time = now();
+        int updated = jdbc.update(
+                """
+                UPDATE harness_bot_skill
+                SET description=?,version=?,source_kind=?,source_repo=?,source_path=?,source_ref=?,
+                    file_count=?,scripts_json=?,total_bytes=?,user_invoked=?,installed_at=?
+                WHERE bot_id=? AND name=?
+                """,
+                str(description),
+                str(version),
+                str(sourceKind),
+                str(sourceRepo),
+                str(sourcePath),
+                str(sourceRef),
+                fileCount,
+                scriptsJson == null || scriptsJson.isBlank() ? "[]" : scriptsJson,
+                totalBytes,
+                userInvoked,
+                time,
+                botId,
+                name);
+        if (updated == 0) {
+            jdbc.update(
+                    """
+                    INSERT INTO harness_bot_skill(
+                        id,bot_id,name,description,version,source_kind,source_repo,source_path,source_ref,
+                        file_count,scripts_json,total_bytes,user_invoked,use_count,last_used_at,installed_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,NULL,?)
+                    """,
+                    UUID.randomUUID().toString(),
+                    botId,
+                    name,
+                    str(description),
+                    str(version),
+                    str(sourceKind),
+                    str(sourceRepo),
+                    str(sourcePath),
+                    str(sourceRef),
+                    fileCount,
+                    scriptsJson == null || scriptsJson.isBlank() ? "[]" : scriptsJson,
+                    totalBytes,
+                    userInvoked,
+                    time);
+        }
+        bumpBotSeq(botId);
+        return requireSkill(botId, name);
+    }
+
+    public void deleteSkills(String botId, List<String> names) {
+        if (names == null || names.isEmpty()) return;
+        for (String name : names) {
+            jdbc.update("DELETE FROM harness_bot_skill WHERE bot_id=? AND name=?", botId, name);
+        }
+        bumpBotSeq(botId);
+    }
+
+    public void incrementSkillUse(String botId, String name) {
+        jdbc.update(
+                "UPDATE harness_bot_skill SET use_count=use_count+1, last_used_at=? WHERE bot_id=? AND name=?",
+                now(),
+                botId,
+                name);
+        bumpBotSeq(botId);
+    }
+
+    /** Coalesced structural version across bots, tasks, skills and pending command approvals (decoupled from per-token streaming). */
     public String globalVersion() {
         Long botSeq = jdbc.queryForObject("SELECT COALESCE(SUM(last_seq),0) FROM harness_bot", Long.class);
-        Long eventSeq = jdbc.queryForObject("""
-                SELECT COALESCE(SUM(last_seq),0) FROM harness_session
-                WHERE bot_id IS NOT NULL OR bot_task_id IS NOT NULL
-                """, Long.class);
         Long taskCount = jdbc.queryForObject("SELECT COUNT(*) FROM harness_bot_task", Long.class);
-        return (botSeq == null ? 0L : botSeq) + ":" + (eventSeq == null ? 0L : eventSeq) + ":"
-                + (taskCount == null ? 0L : taskCount);
+        Long pendingApprovals = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM harness_command c
+                JOIN harness_run r ON r.id = c.run_id
+                JOIN harness_bot_task t ON t.session_id = r.session_id
+                WHERE c.status IN ('PENDING', 'REVIEWING') AND r.status = 'RUNNING'
+                """,
+                Long.class);
+        Long factCount = jdbc.queryForObject("SELECT COUNT(*) FROM harness_bot_fact", Long.class);
+        Long skillCount = jdbc.queryForObject("SELECT COUNT(*) FROM harness_bot_skill", Long.class);
+        return (botSeq == null ? 0L : botSeq) + ":" + (taskCount == null ? 0L : taskCount) + ":"
+                + (pendingApprovals == null ? 0L : pendingApprovals) + ":" + (factCount == null ? 0L : factCount)
+                + ":" + (skillCount == null ? 0L : skillCount);
     }
 }

@@ -1,17 +1,27 @@
 package dev.javaharness.server.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.javaharness.adapters.attachment.AttachmentStore;
 import dev.javaharness.adapters.bot.BotLibraryTools;
 import dev.javaharness.adapters.bot.BotStore;
 import dev.javaharness.adapters.bot.BotStore.Bot;
 import dev.javaharness.adapters.bot.BotStore.BotFile;
+import dev.javaharness.adapters.bot.BotStore.BotLimits;
+import dev.javaharness.adapters.bot.BotStore.BotSkill;
 import dev.javaharness.adapters.bot.BotStore.Entry;
+import dev.javaharness.adapters.bot.BotStore.Fact;
 import dev.javaharness.adapters.bot.BotStore.MiniApp;
 import dev.javaharness.adapters.bot.BotStore.Playbook;
 import dev.javaharness.adapters.bot.BotStore.Routine;
 import dev.javaharness.adapters.bot.BotStore.Summary;
 import dev.javaharness.adapters.bot.BotStore.Task;
+import dev.javaharness.adapters.bot.BotStore.WebSearchSettings;
+import dev.javaharness.adapters.bot.BotWebTools;
+import dev.javaharness.adapters.command.CommandService;
+import dev.javaharness.adapters.command.CommandWorkspaceTools;
+import dev.javaharness.adapters.settings.LocalSecretCipher;
 import dev.javaharness.adapters.settings.ModelProfile;
+import dev.javaharness.adapters.settings.ProviderSettings;
 import dev.javaharness.spi.HarnessException;
 import dev.javaharness.spi.model.ModelMessage;
 import dev.javaharness.spi.model.ModelProvider;
@@ -23,22 +33,34 @@ import dev.javaharness.spi.run.ApprovalMode;
 import dev.javaharness.spi.run.Run;
 import dev.javaharness.spi.run.RunConfiguration;
 import dev.javaharness.spi.run.RunExtension;
+import dev.javaharness.spi.run.RunInput;
 import dev.javaharness.spi.run.RunStatus;
 import dev.javaharness.spi.session.Session;
 import dev.javaharness.spi.session.SessionStore;
+import dev.javaharness.spi.tool.ToolCall;
+import dev.javaharness.spi.tool.ToolDefinition;
 import dev.javaharness.spi.workspace.Workspace;
 import dev.javaharness.spi.workspace.WorkspaceTools;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -47,9 +69,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Bot 运行协调器：
- * 1. 维护每个 Bot 的聊天循环与回复中排队队列（Queued）；
- * 2. 严格隔离聊天与后台动手任务，通过 RunExtension 注入 BotChatTools / BotLibraryTools；
- * 3. 处理静默跨 Bot 派活与结果汇总、模型不可用自动回退、长历史滚动压缩与灵动岛动态通知。
+ * 1. 维护每个 Bot 的聊天循环、真流式快照、多模态附件与回复中排队队列（Queued）；
+ * 2. 严格隔离聊天与后台动手任务，注入 BotChatTools / BotLibraryTools / BotWebTools / 资料库审批命令；
+ * 3. 管理任务并发队列与超时保护、双轨长期记忆、静默跨 Bot 委派、变更审计与灵动岛动态通知。
  * 锁序：BotOrchestrator → AgentEngine → SessionStore，存储事务内不回调调度器。
  */
 public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseable {
@@ -58,16 +80,40 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
     private static final int COMPACT_KEEP_RECENT = 14;
     private static final int MAX_NOTICES = 30;
 
-    public record QueuedMessage(String id, String content, Long quoteSeq, String quotePreview, Instant queuedAt) {}
+    public record QueuedMessage(
+            String id,
+            String content,
+            Long quoteSeq,
+            String quotePreview,
+            List<String> attachmentIds,
+            String attachmentsJson,
+            Instant queuedAt) {}
 
     public record PostResult(boolean queued, Entry entry, QueuedMessage queuedMessage) {}
 
     public record IslandNotice(
             long id, String kind, String botId, String botName, String title, String detail, Instant createdAt) {}
 
+    public record ActiveChatStream(String botId, String runId, String status, String output) {}
+
     private record ResolvedModel(ModelSelection selection, String modelLabel, String fallbackFrom) {}
 
     private record ActiveChat(String botId, String runId, String modelLabel, String fallbackFrom) {}
+
+    private record PendingTaskLaunch(
+            String taskId,
+            String sessionId,
+            String targetBotId,
+            String externalAgentId,
+            boolean useAcp,
+            String playbookId,
+            String instruction,
+            ModelSelection selection,
+            ApprovalMode approvalMode) {}
+
+    private record PreparedAttachments(RunInput runInput, String attachmentsJson, String libraryNote) {}
+
+    private record ProgressStamp(String signature, long lastChangeNanos) {}
 
     private final BotStore store;
     private final SessionStore sessions;
@@ -76,10 +122,16 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
     private final SettingsService settings;
     private final Path libraryRoot;
     private final ExecutorService async = Executors.newVirtualThreadPerTaskExecutor();
+    private final ScheduledExecutorService deadlines = Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().daemon().name("harness-bot-task-deadlines").factory());
 
     private final Map<String, ActiveChat> activeChats = new HashMap<>();
     private final Map<String, List<QueuedMessage>> queuedByBot = new HashMap<>();
     private final Map<String, String> activeTaskRuns = new HashMap<>();
+    private final Deque<PendingTaskLaunch> waitingTasks = new ArrayDeque<>();
+    private final Map<String, ScheduledFuture<?>> taskTimers = new HashMap<>();
+    private final Map<String, ProgressStamp> runProgress = new ConcurrentHashMap<>();
+    private final Set<String> silenceTimedOutRuns = ConcurrentHashMap.newKeySet();
     private final Deque<IslandNotice> notices = new ArrayDeque<>();
     private final AtomicLong noticeSeq = new AtomicLong();
     private final ObjectMapper json = new ObjectMapper();
@@ -87,6 +139,10 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
     private MemoryService memories;
     private BotRoutineScheduler routines;
     private BotMiniAppService miniApps;
+    private BotSkillService skillService;
+    private CommandService commands;
+    private ComposerInputService composerInputs;
+    private LocalSecretCipher secretCipher;
     private volatile boolean closed;
 
     public void useExternalAgents(ExternalAgentRuns externalAgents) {
@@ -104,6 +160,26 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
 
     public void useMiniApps(BotMiniAppService miniApps) {
         this.miniApps = miniApps;
+    }
+
+    public void useSkills(BotSkillService skillService) {
+        this.skillService = skillService;
+    }
+
+    public void useCommands(CommandService commands) {
+        this.commands = commands;
+        if (commands != null) {
+            BotLimits limits = store.ensureLimits();
+            commands.useMaxCommandTimeoutSeconds(limits.commandTimeoutSeconds());
+        }
+    }
+
+    public void useComposerInputs(ComposerInputService composerInputs) {
+        this.composerInputs = composerInputs;
+    }
+
+    public void useSecretCipher(LocalSecretCipher secretCipher) {
+        this.secretCipher = secretCipher;
     }
 
     private void onExternalRunSettled(Run run) {
@@ -129,9 +205,12 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         write(() -> {
             store.interruptActiveTasks();
             store.ensureMeta();
+            store.ensureLimits();
+            store.ensureWebSearchSettings();
             ensureMainBotLocked();
             return null;
         });
+        deadlines.scheduleWithFixedDelay(this::checkModelSilence, 2, 2, TimeUnit.SECONDS);
     }
 
     /** 确保内置主 Bot 存在；在会话存储锁与事务内调用。 */
@@ -178,13 +257,28 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         var meta = store.ensureMeta();
         var roster = store.listBots(false);
         var playbooks = store.playbooks(bot.id());
-        var routines = store.routines(bot.id());
+        var skills = bot.main() ? store.allSkills() : store.skillsForBot(bot.id());
+        var routinesList = store.routines(bot.id());
+        var userFacts = store.facts("USER", "");
+        var botFacts = store.facts("BOT", bot.id());
+        var miniAppList = store.miniApps(bot.id());
+        var activeTasks = store.activeTasksForBot(bot.id());
         var summary = store.summary(bot.id());
         var recentEntries =
                 summary == null ? store.entries(bot.id(), 80) : store.entriesAfter(bot.id(), summary.throughSeq());
         String workspaceName = workspaceName(bot.workspaceId());
-        String instructions =
-                BotPrompts.chatInstructions(bot, meta.userDisplayName(), roster, playbooks, routines, workspaceName);
+        String instructions = BotPrompts.joinSections(BotPrompts.chatSections(
+                bot,
+                meta.userDisplayName(),
+                roster,
+                playbooks,
+                skills,
+                routinesList,
+                userFacts,
+                botFacts,
+                miniAppList,
+                activeTasks,
+                workspaceName));
         WorkspaceTools chatTools = new BotChatTools(bot.id(), this);
         return new RunExtension() {
             @Override
@@ -244,9 +338,12 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         Bot bot = store.getBot(task.botId());
         Bot origin = task.originBotId().equals(task.botId()) ? bot : store.getBot(task.originBotId());
         Playbook playbook = task.playbookId().isBlank() ? null : findPlaybookQuietly(task.playbookId());
+        var skills = bot.main() ? store.allSkills() : store.skillsForBot(bot.id());
+        var userFacts = store.facts("USER", "");
+        var botFacts = store.facts("BOT", bot.id());
         String workspaceName = workspaceName(bot.workspaceId());
         String extra = BotPrompts.taskInstructions(
-                bot, playbook, workspaceName, origin.name(), !task.originBotId().equals(task.botId()));
+                bot, playbook, skills, userFacts, botFacts, workspaceName, origin.name(), !task.originBotId().equals(task.botId()));
         return new RunExtension() {
             @Override
             public String snapshot() {
@@ -268,6 +365,12 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
             public WorkspaceTools open(String runId, WorkspaceTools local, ModelProvider.Cancellation cancellation)
                     throws Exception {
                 WorkspaceTools baseTools = existing.open(runId, local, cancellation);
+                if (bot.workspaceId().isBlank() && commands != null) {
+                    Files.createDirectories(libraryRoot);
+                    Path realLib = libraryRoot.toRealPath();
+                    commands.useBotLibraryRoot(realLib);
+                    baseTools = new CommandWorkspaceTools(baseTools, commands, realLib.toString(), "");
+                }
                 BotLibraryTools.AppTools appTools = miniApps == null
                         ? null
                         : new BotLibraryTools.AppTools() {
@@ -276,10 +379,22 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                                     String appId,
                                     String name,
                                     String description,
+                                    String icon,
+                                    String color,
+                                    String changeSummary,
                                     String html,
                                     String initialDataJson) {
                                 MiniApp saved = miniApps.saveApp(
-                                        bot.id(), task.id(), appId, name, description, html, initialDataJson);
+                                        bot.id(),
+                                        task.id(),
+                                        appId,
+                                        name,
+                                        description,
+                                        icon,
+                                        color,
+                                        changeSummary,
+                                        html,
+                                        initialDataJson);
                                 return "已保存小程序 [" + saved.name() + "](app:" + saved.id() + ")（v" + saved.version()
                                         + "），请在最终回复中保留该链接以渲染卡片。";
                             }
@@ -291,16 +406,25 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                                         + updated.version() + "）。";
                             }
                         };
-                return new BotLibraryTools(
+                var lastExplicitStatusNanos = new AtomicLong(0L);
+                WorkspaceTools withLibrary = new BotLibraryTools(
                         baseTools,
                         libraryRoot,
-                        (rel, size) -> {
+                        (rel, size) -> write(() -> {
+                            store.recordFile(bot.id(), task.id(), rel, size);
+                            return null;
+                        }),
+                        appTools,
+                        statusText -> {
+                            lastExplicitStatusNanos.set(System.nanoTime());
                             write(() -> {
-                                store.recordFile(bot.id(), task.id(), rel, size);
+                                store.updateTaskStatusText(task.id(), statusText);
                                 return null;
                             });
                         },
-                        appTools);
+                        skillService == null ? null : wanted -> skillService.useSkill(bot.id(), wanted));
+                WorkspaceTools withWeb = new BotWebTools(withLibrary, BotOrchestrator.this::currentSearchConfig);
+                return wrapAutoTaskProgress(withWeb, task.id(), lastExplicitStatusNanos);
             }
 
             @Override
@@ -321,12 +445,37 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         };
     }
 
-    /** 发送消息给指定 Bot：空闲立即发起聊天轮次，正在回复时进入排队队列。 */
+    /** 发送消息给指定 Bot（兼容旧签名）。 */
     public synchronized PostResult postMessage(
             String botId, String requestId, String content, Long quoteSeq, String attachmentsJson) {
+        return postMessage(botId, requestId, content, quoteSeq, List.of(), attachmentsJson);
+    }
+
+    /** 发送消息给指定 Bot（支持多模态附件）：空闲立即发起聊天轮次，正在回复时进入排队队列。 */
+    public synchronized PostResult postMessage(
+            String botId,
+            String requestId,
+            String content,
+            Long quoteSeq,
+            List<String> attachmentIds,
+            String fallbackAttachmentsJson) {
+        return postMessage(botId, requestId, content, quoteSeq, attachmentIds, fallbackAttachmentsJson, "", false);
+    }
+
+    /** 发送消息给指定 Bot（支持多模态附件与「正在查看小程序」上下文注入）。 */
+    public synchronized PostResult postMessage(
+            String botId,
+            String requestId,
+            String content,
+            Long quoteSeq,
+            List<String> attachmentIds,
+            String fallbackAttachmentsJson,
+            String viewingMiniAppId,
+            boolean fromMiniApp) {
         if (closed) throw new HarnessException("UNAVAILABLE", "服务正在停止");
         String text = content == null ? "" : content.strip();
-        if (text.isEmpty()) throw new HarnessException("INVALID", "消息不能为空");
+        List<String> ids = attachmentIds == null ? List.of() : attachmentIds.stream().filter(s -> s != null && !s.isBlank()).distinct().toList();
+        if (text.isEmpty() && ids.isEmpty()) throw new HarnessException("INVALID", "消息或附件不能同时为空");
         if (text.length() > 20_000) throw new HarnessException("INVALID", "消息不能超过 20000 个字符");
         Bot bot = store.getBot(botId);
         if (bot.archived()) throw new HarnessException("CONFLICT", "该 Bot 已归档");
@@ -337,8 +486,18 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         }
 
         String quotePreview = resolveQuotePreview(botId, quoteSeq);
+        PreparedAttachments prepared = prepareAttachments(bot, ids, fallbackAttachmentsJson);
+        String miniAppContextNote = buildMiniAppContextNote(viewingMiniAppId, fromMiniApp);
+        String combinedNote = combineNotes(prepared.libraryNote(), miniAppContextNote);
         if (activeChats.containsKey(botId)) {
-            var queued = new QueuedMessage(UUID.randomUUID().toString(), text, quoteSeq, quotePreview, Instant.now());
+            var queued = new QueuedMessage(
+                    UUID.randomUUID().toString(),
+                    text,
+                    quoteSeq,
+                    quotePreview,
+                    ids,
+                    prepared.attachmentsJson(),
+                    Instant.now());
             queuedByBot.computeIfAbsent(botId, key -> new ArrayList<>()).add(queued);
             write(() -> {
                 store.bumpBotSeq(botId);
@@ -348,14 +507,25 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         }
 
         Entry entry = write(() -> store.appendEntry(
-                botId, requestId, "USER", text, quoteSeq, quotePreview, attachmentsJson, "[]", "", "", "", ""));
-        startChatTurnLocked(bot, buildUserPrompt(text, quoteSeq, quotePreview));
+                botId,
+                requestId,
+                "USER",
+                text,
+                quoteSeq,
+                quotePreview,
+                prepared.attachmentsJson(),
+                "[]",
+                "",
+                "",
+                "",
+                ""));
+        String prompt = buildUserPrompt(text, quoteSeq, quotePreview, combinedNote);
+        startChatTurnLocked(bot, prompt, prepared.runInput(), ids);
         return new PostResult(false, entry, null);
     }
 
-    /** 停止 Bot 当前正在进行的聊天回复并清空未发出的排队消息。 */
+    /** 停止 Bot 当前正在进行的聊天回复（保留已生成内容，不清空排队中的后续消息）。 */
     public synchronized void stopChat(String botId) {
-        queuedByBot.remove(botId);
         ActiveChat active = activeChats.get(botId);
         if (active != null && active.runId() != null) {
             try {
@@ -370,9 +540,32 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         return activeChats.containsKey(botId);
     }
 
+    public synchronized boolean hasLiveWork() {
+        return !activeChats.isEmpty() || !activeTaskRuns.isEmpty();
+    }
+
     public synchronized String activeChatRunId(String botId) {
         ActiveChat active = activeChats.get(botId);
         return active == null ? "" : active.runId();
+    }
+
+    /** 获取当前所有正在流式回复中的聊天输出快照，供 SSE 高频推送（不触发全量快照拉取）。 */
+    public List<ActiveChatStream> activeChatSnapshots() {
+        List<ActiveChat> copy;
+        synchronized (this) {
+            if (activeChats.isEmpty()) return List.of();
+            copy = List.copyOf(activeChats.values());
+        }
+        var result = new ArrayList<ActiveChatStream>(copy.size());
+        for (ActiveChat chat : copy) {
+            try {
+                Run run = sessions.run(chat.runId());
+                result.add(new ActiveChatStream(chat.botId(), run.id(), run.status().name(), run.output()));
+            } catch (HarnessException ignored) {
+                // Run not visible yet.
+            }
+        }
+        return result;
     }
 
     public synchronized List<QueuedMessage> queuedMessages(String botId) {
@@ -404,6 +597,15 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         }
     }
 
+    /** 限流上限被调高时，唤醒排队中的后台任务并更新命令超时上限。 */
+    public void onLimitsUpdated() {
+        BotLimits limits = store.ensureLimits();
+        if (commands != null) {
+            commands.useMaxCommandTimeoutSeconds(limits.commandTimeoutSeconds());
+        }
+        drainWaitingTasks();
+    }
+
     @Override
     public Task startTask(
             String botId,
@@ -414,7 +616,21 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
             String modelProfileId,
             boolean silentTargetChat) {
         return startTaskInternal(
-                botId, originBotId, "", title, instruction, playbookId, modelProfileId, silentTargetChat);
+                botId, originBotId, "", title, instruction, playbookId, modelProfileId, "", silentTargetChat);
+    }
+
+    @Override
+    public Task startTask(
+            String botId,
+            String originBotId,
+            String title,
+            String instruction,
+            String playbookId,
+            String modelProfileId,
+            String miniAppId,
+            boolean silentTargetChat) {
+        return startTaskInternal(
+                botId, originBotId, "", title, instruction, playbookId, modelProfileId, miniAppId, silentTargetChat);
     }
 
     public Task startRoutineTask(
@@ -424,7 +640,7 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
             String instruction,
             String playbookId,
             String modelProfileId) {
-        return startTaskInternal(botId, botId, routineId, title, instruction, playbookId, modelProfileId, false);
+        return startTaskInternal(botId, botId, routineId, title, instruction, playbookId, modelProfileId, "", false);
     }
 
     private Task startTaskInternal(
@@ -435,14 +651,16 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
             String instruction,
             String playbookId,
             String modelProfileId,
+            String miniAppId,
             boolean silentTargetChat) {
         if (closed) throw new HarnessException("UNAVAILABLE", "服务正在停止");
         String cleanTitle =
                 title == null ? "" : title.replaceAll("\\p{Cntrl}", " ").strip();
         if (cleanTitle.isEmpty()) cleanTitle = "后台任务";
         if (cleanTitle.length() > 120) cleanTitle = cleanTitle.substring(0, 120);
-        String cleanInstruction = instruction == null ? "" : instruction.strip();
-        if (cleanInstruction.isEmpty()) throw new HarnessException("INVALID", "任务指令不能为空");
+        String rawInstruction = instruction == null ? "" : instruction.strip();
+        if (rawInstruction.isEmpty()) throw new HarnessException("INVALID", "任务指令不能为空");
+        String cleanInstruction = enrichWithMiniAppContext(rawInstruction, miniAppId);
 
         Bot targetBot = store.getBot(botId);
         boolean useAcp = externalAgents != null
@@ -476,46 +694,137 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                     silentTargetChat);
         });
 
+        var launch = new PendingTaskLaunch(
+                task.id(),
+                task.sessionId(),
+                targetBot.id(),
+                targetBot.externalAgentId(),
+                useAcp,
+                playbookId == null ? "" : playbookId,
+                cleanInstruction,
+                resolved.selection(),
+                approvalMode);
+
+        boolean launchNow;
+        int maxConcurrent = Math.max(1, store.ensureLimits().maxConcurrentTasks());
+        synchronized (this) {
+            if (activeTaskRuns.size() < maxConcurrent) {
+                activeTaskRuns.put(task.id(), "");
+                launchNow = true;
+            } else {
+                waitingTasks.addLast(launch);
+                launchNow = false;
+            }
+        }
+        if (launchNow) {
+            launchTaskNow(launch);
+        }
+        return store.task(task.id());
+    }
+
+    private void launchTaskNow(PendingTaskLaunch launch) {
         try {
             SessionStore.Submission submission;
-            if (useAcp) {
-                Playbook playbook = playbookId == null || playbookId.isBlank() ? null : findPlaybookQuietly(playbookId);
+            if (launch.useAcp()) {
+                Playbook playbook = launch.playbookId().isBlank() ? null : findPlaybookQuietly(launch.playbookId());
                 String acpPrompt = playbook == null
-                        ? cleanInstruction
-                        : "按做法「" + playbook.name() + "」执行：\n" + playbook.steps() + "\n\n任务指令：\n" + cleanInstruction;
+                        ? launch.instruction()
+                        : "按做法「" + playbook.name() + "」执行：\n" + playbook.steps() + "\n\n任务指令：\n" + launch.instruction();
                 submission = externalAgents.submitDirect(
-                        task.sessionId(), UUID.randomUUID().toString(), acpPrompt, targetBot.externalAgentId());
+                        launch.sessionId(), UUID.randomUUID().toString(), acpPrompt, launch.externalAgentId());
             } else {
                 submission = engine.submit(
-                        task.sessionId(),
+                        launch.sessionId(),
                         UUID.randomUUID().toString(),
-                        cleanInstruction,
+                        launch.instruction(),
                         "NORMAL",
-                        resolved.selection(),
-                        approvalMode);
+                        launch.selection(),
+                        launch.approvalMode());
             }
             String runId = submission.run().id();
+            int timeoutMinutes = Math.max(1, store.ensureLimits().taskTimeoutMinutes());
             synchronized (this) {
-                activeTaskRuns.put(task.id(), runId);
+                activeTaskRuns.put(launch.taskId(), runId);
+                ScheduledFuture<?> future = deadlines.schedule(
+                        () -> timeoutTask(launch.taskId(), runId), timeoutMinutes, TimeUnit.MINUTES);
+                taskTimers.put(launch.taskId(), future);
             }
             write(() -> {
-                store.updateTaskRun(task.id(), runId, "RUNNING");
+                store.updateTaskRun(launch.taskId(), runId, "RUNNING");
                 return null;
             });
-            return store.task(task.id());
         } catch (RuntimeException error) {
+            synchronized (this) {
+                activeTaskRuns.remove(launch.taskId());
+                cancelTaskTimerLocked(launch.taskId());
+            }
             String detail = error.getMessage() == null ? "无法启动后台任务" : error.getMessage();
             write(() -> {
-                store.finishTask(task.id(), "FAILED", "", detail);
+                store.finishTask(launch.taskId(), "FAILED", "", detail);
                 return null;
             });
+            drainWaitingTasks();
             throw error;
         }
     }
 
+    private void timeoutTask(String taskId, String runId) {
+        if (closed) return;
+        synchronized (this) {
+            if (!runId.equals(activeTaskRuns.get(taskId))) return;
+        }
+        log.warn("Bot background task {} timed out, cancelling run {}", taskId, runId);
+        try {
+            if (externalAgents != null && externalAgents.owns(runId)) {
+                externalAgents.cancel(runId);
+            } else {
+                engine.cancel(runId);
+            }
+        } catch (RuntimeException error) {
+            log.warn("Failed to cancel timed-out bot task {}", taskId, error);
+        }
+    }
+
+    private void drainWaitingTasks() {
+        if (closed) return;
+        int maxConcurrent = Math.max(1, store.ensureLimits().maxConcurrentTasks());
+        while (true) {
+            PendingTaskLaunch next = null;
+            synchronized (this) {
+                if (activeTaskRuns.size() >= maxConcurrent) return;
+                while (!waitingTasks.isEmpty()) {
+                    PendingTaskLaunch candidate = waitingTasks.pollFirst();
+                    Task current = store.task(candidate.taskId());
+                    if ("QUEUED".equals(current.status())) {
+                        activeTaskRuns.put(candidate.taskId(), "");
+                        next = candidate;
+                        break;
+                    }
+                }
+            }
+            if (next == null) return;
+            try {
+                launchTaskNow(next);
+            } catch (RuntimeException error) {
+                log.warn("Failed to launch queued bot task {}", next.taskId(), error);
+            }
+        }
+    }
+
+    private void cancelTaskTimerLocked(String taskId) {
+        ScheduledFuture<?> future = taskTimers.remove(taskId);
+        if (future != null) future.cancel(false);
+    }
+
     public synchronized Task cancelTask(String taskId) {
         Task task = store.task(taskId);
+        if (!"QUEUED".equals(task.status()) && !"RUNNING".equals(task.status())) {
+            // 容错：已结束的任务不再报错（对齐 nengyong-bot beta.2 修复）
+            return task;
+        }
+        waitingTasks.removeIf(item -> item.taskId().equals(taskId));
         String runId = activeTaskRuns.remove(taskId);
+        cancelTaskTimerLocked(taskId);
         if (runId == null || runId.isBlank()) runId = task.runId();
         if (runId != null && !runId.isBlank()) {
             try {
@@ -535,6 +844,7 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
             }
             return null;
         });
+        async.execute(this::drainWaitingTasks);
         return store.task(taskId);
     }
 
@@ -602,30 +912,51 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         String nextApproval = approvalMode == null || approvalMode.isBlank()
                 ? existing.approvalMode()
                 : parseApprovalMode(approvalMode).name();
-        Bot updated = write(() -> store.updateBot(new Bot(
-                existing.id(),
-                existing.sectionId(),
-                nextName,
-                nextRole,
-                nextPrompt,
-                existing.main(),
-                existing.shape(),
-                existing.color(),
-                existing.pinned(),
-                existing.ordinal(),
-                nextWs,
-                existing.chatProfileId(),
-                existing.chatReasoningEffort(),
-                existing.taskProfileId(),
-                existing.taskReasoningEffort(),
-                existing.externalAgentId(),
-                nextApproval,
-                existing.chatSessionId(),
-                existing.lastSeenAt(),
-                existing.createdAt(),
-                existing.archived(),
-                existing.revision(),
-                existing.lastSeq())));
+        Bot updated = write(() -> {
+            Bot saved = store.updateBot(new Bot(
+                    existing.id(),
+                    existing.sectionId(),
+                    nextName,
+                    nextRole,
+                    nextPrompt,
+                    existing.main(),
+                    existing.shape(),
+                    existing.color(),
+                    existing.avatarPath(),
+                    existing.outfitJson(),
+                    existing.hidden(),
+                    existing.pinned(),
+                    existing.ordinal(),
+                    nextWs,
+                    existing.chatProfileId(),
+                    existing.chatReasoningEffort(),
+                    existing.taskProfileId(),
+                    existing.taskReasoningEffort(),
+                    existing.externalAgentId(),
+                    nextApproval,
+                    existing.chatSessionId(),
+                    existing.lastSeenAt(),
+                    existing.createdAt(),
+                    existing.archived(),
+                    existing.revision(),
+                    existing.lastSeq()));
+            long seq = store.latestEntrySeq(existing.id());
+            if (!nextName.equals(existing.name())) {
+                store.recordChange(
+                        existing.id(), seq, "update_my_name", "NAME_UPDATED", "改名为「" + nextName + "」", existing.name(), nextName);
+            }
+            if (!nextPrompt.equals(existing.systemPrompt())) {
+                store.recordChange(
+                        existing.id(),
+                        seq,
+                        "update_my_instructions",
+                        "PROMPT_UPDATED",
+                        clip(nextPrompt, 120),
+                        existing.systemPrompt(),
+                        nextPrompt);
+            }
+            return saved;
+        });
         return updated;
     }
 
@@ -647,7 +978,19 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         if (cleanName.isEmpty() || cleanName.length() > 80) throw new HarnessException("INVALID", "做法名称需为 1–80 个字符");
         if (cleanSteps.isEmpty()) throw new HarnessException("INVALID", "做法步骤不能为空");
         Bot bot = store.getBot(botId);
-        Playbook saved = write(() -> store.savePlaybook(id, botId, cleanName, whenToUse, cleanSteps, notes, ""));
+        Playbook before = id == null || id.isBlank() ? null : findPlaybookQuietly(id);
+        Playbook saved = write(() -> {
+            Playbook p = store.savePlaybook(id, botId, cleanName, whenToUse, cleanSteps, notes, "");
+            store.recordChange(
+                    botId,
+                    store.latestEntrySeq(botId),
+                    "save_playbook",
+                    "PLAYBOOK_SAVED",
+                    (before == null ? "新增做法「" : "更新做法「") + p.name() + "」",
+                    before == null ? "" : before.steps(),
+                    p.steps());
+            return p;
+        });
         pushNotice("PLAYBOOK_SAVED", bot.id(), bot.name(), "学会新做法", bot.name() + " 记住了「" + saved.name() + "」");
         return saved;
     }
@@ -683,6 +1026,9 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                 target.main(),
                 target.shape(),
                 target.color(),
+                target.avatarPath(),
+                target.outfitJson(),
+                target.hidden(),
                 target.pinned(),
                 target.ordinal(),
                 target.workspaceId(),
@@ -765,6 +1111,18 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
     }
 
     @Override
+    public Routine setRoutinePlaybookFromTool(String botId, String routineId, String playbookId) {
+        Routine existing = store.routine(routineId);
+        if (!existing.botId().equals(botId)) throw new HarnessException("CONFLICT", "该例行任务不属于当前 Bot");
+        String cleanPlaybook = playbookId == null ? "" : playbookId.strip();
+        if (!cleanPlaybook.isEmpty()) {
+            Playbook pb = store.playbook(cleanPlaybook);
+            if (!pb.botId().equals(botId)) throw new HarnessException("CONFLICT", "该做法不属于当前 Bot");
+        }
+        return write(() -> store.updateRoutinePlaybook(routineId, cleanPlaybook));
+    }
+
+    @Override
     public List<Routine> listRoutinesFromTool(String botId) {
         return store.routines(botId);
     }
@@ -774,15 +1132,376 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         return store.miniApps(botId);
     }
 
-    private void startChatTurnLocked(Bot bot, String prompt) {
+    @Override
+    public Fact rememberFromTool(String botId, String scope, String text) {
+        String clean = text == null ? "" : text.strip();
+        if (clean.isEmpty() || clean.length() > 500) throw new HarnessException("INVALID", "记忆内容需为 1–500 个字符");
+        String normalizedScope = "USER".equalsIgnoreCase(scope) ? "USER" : "BOT";
+        Bot bot = store.getBot(botId);
+        int maxPerScope = store.ensureLimits().maxFactsPerScope();
+        Fact saved = write(() -> {
+            Fact created = store.addFact(normalizedScope, botId, clean, maxPerScope);
+            store.recordChange(
+                    botId,
+                    store.latestEntrySeq(botId),
+                    "remember",
+                    "FACT_ADDED",
+                    ("USER".equals(normalizedScope) ? "[用户共享] " : "[专属] ") + clip(clean, 120),
+                    "",
+                    clean);
+            return created;
+        });
+        pushNotice("FACT_SAVED", bot.id(), bot.name(), "记住新信息", clip(clean, 60));
+        return saved;
+    }
+
+    @Override
+    public void forgetFromTool(String botId, String factId) {
+        Fact existing = store.fact(factId);
+        if ("BOT".equals(existing.scope()) && !existing.botId().equals(botId)) {
+            throw new HarnessException("CONFLICT", "不能删除其他 Bot 的专属记忆");
+        }
+        write(() -> {
+            store.deleteFact(factId);
+            store.recordChange(
+                    botId,
+                    store.latestEntrySeq(botId),
+                    "forget",
+                    "FACT_REMOVED",
+                    clip(existing.content(), 120),
+                    existing.content(),
+                    "");
+            return null;
+        });
+    }
+
+    @Override
+    public Task stopTaskFromTool(String botId, String taskId) {
+        Task existing = store.task(taskId);
+        if (!existing.originBotId().equals(botId) && !existing.botId().equals(botId)) {
+            throw new HarnessException("CONFLICT", "该后台任务不是你发起的，无法停止");
+        }
+        return cancelTask(taskId);
+    }
+
+    @Override
+    public String listBotLevelsFromTool() {
+        List<Bot> bots = store.listBots(false);
+        record RankRow(Bot bot, BotTemplates.Experience exp) {}
+        var rows = new ArrayList<RankRow>(bots.size());
+        for (Bot bot : bots) {
+            var exp = BotTemplates.experience(
+                    store.countActiveTurns(bot.id()),
+                    store.playbooks(bot.id()).size(),
+                    store.countCompletedPlaybookTasks(bot.id()),
+                    store.countCompletedTasks(bot.id()));
+            rows.add(new RankRow(bot, exp));
+        }
+        rows.sort(Comparator.comparingInt((RankRow r) -> r.exp().xp()).reversed());
+        var sb = new StringBuilder();
+        for (int i = 0; i < rows.size(); i++) {
+            var row = rows.get(i);
+            sb.append(i + 1)
+                    .append(". [")
+                    .append(row.bot().name())
+                    .append("](bot:")
+                    .append(row.bot().id())
+                    .append(") Lv.")
+                    .append(row.exp().level())
+                    .append("（")
+                    .append(row.exp().tier())
+                    .append("，")
+                    .append(row.exp().xp())
+                    .append(" XP）\n");
+        }
+        return sb.isEmpty() ? "暂无团队成员" : sb.toString().strip();
+    }
+
+    @Override
+    public String installSkillFromTool(String botId, String targetBotIdOrName, String source) {
+        if (skillService == null) throw new HarnessException("UNAVAILABLE", "技能服务未启用");
+        BotSkillService.SkillOfferView offer = skillService.offerFromChat(botId, targetBotIdOrName, source);
+        var sb = new StringBuilder();
+        sb.append("已在聊天中生成待确认安装卡（offer_id=").append(offer.offerId()).append("），目标 Bot：")
+                .append(offer.targetBotName()).append("，共发现 ").append(offer.skills().size()).append(" 个技能：\n");
+        for (var s : offer.skills()) {
+            sb.append("- ").append(s.name()).append("：").append(s.description());
+            if (!s.scripts().isEmpty()) {
+                sb.append("（含 ").append(s.scripts().size()).append(" 个可执行脚本）");
+            }
+            if (s.replaces() != null) sb.append(" [将覆盖已有版本]");
+            sb.append('\n');
+        }
+        if (!offer.skipped().isEmpty()) {
+            sb.append("已跳过无法安装的项：\n");
+            for (var sk : offer.skipped()) {
+                sb.append("- ").append(sk.folder()).append("：").append(sk.reason()).append('\n');
+            }
+        }
+        sb.append("请用简短的话向用户说明这些技能的作用及是否含脚本，提示用户在卡片上勾选并点击「装上」，不要声称已经安装完成。");
+        return sb.toString();
+    }
+
+    @Override
+    public String removeSkillFromTool(String botId, String targetBotIdOrName, List<String> names) {
+        if (skillService == null) throw new HarnessException("UNAVAILABLE", "技能服务未启用");
+        List<String> removed = skillService.removeSkills(botId, targetBotIdOrName, names);
+        return "已卸载技能：" + String.join("、", removed);
+    }
+
+    private WorkspaceTools wrapAutoTaskProgress(
+            WorkspaceTools inner, String taskId, AtomicLong lastExplicitStatusNanos) {
+        return new WorkspaceTools() {
+            @Override
+            public String workspace() {
+                return inner.workspace();
+            }
+
+            @Override
+            public List<ToolDefinition> definitions() {
+                return inner.definitions();
+            }
+
+            @Override
+            public Result execute(ToolCall call, ModelProvider.Cancellation cancellation) throws Exception {
+                return execute("", call, cancellation);
+            }
+
+            @Override
+            public Result execute(String runId, ToolCall call, ModelProvider.Cancellation cancellation) throws Exception {
+                if (call != null && !"set_status".equals(call.name())) {
+                    long sinceExplicit = System.nanoTime() - lastExplicitStatusNanos.get();
+                    if (lastExplicitStatusNanos.get() == 0L || sinceExplicit > TimeUnit.SECONDS.toNanos(12)) {
+                        String label = friendlyToolStatus(call.name());
+                        if (!label.isEmpty()) {
+                            try {
+                                write(() -> {
+                                    store.updateTaskStatusText(taskId, label);
+                                    return null;
+                                });
+                            } catch (RuntimeException ignored) {
+                                // Best effort progress hint.
+                            }
+                        }
+                    }
+                }
+                return inner.execute(runId, call, cancellation);
+            }
+        };
+    }
+
+    private static String friendlyToolStatus(String toolName) {
+        if (toolName == null || toolName.isBlank()) return "";
+        return switch (toolName) {
+            case "web_search" -> "联网检索资料中…";
+            case "web_fetch" -> "抓取网页正文中…";
+            case "library_list", "library_search" -> "查阅资料库目录…";
+            case "library_read" -> "阅读资料库文档…";
+            case "library_write", "library_edit" -> "撰写与更新资料库文件…";
+            case "save_app" -> "构建小程序页面…";
+            case "update_app_data" -> "更新小程序数据…";
+            case "use_skill" -> "加载技能包指引…";
+            case "propose_command" -> "执行命令（按策略审批）…";
+            case "read_file", "list_directory", "search_files" -> "检索工作区代码…";
+            case "write_file", "edit_file" -> "修改工作区文件…";
+            default -> toolName.contains("__") ? "调用扩展工具 " + toolName + "…" : "调用工具 " + toolName + "…";
+        };
+    }
+
+    private void checkModelSilence() {
+        if (closed || !hasLiveWork()) return;
+        int silenceSec;
+        try {
+            silenceSec = Math.max(10, store.ensureLimits().modelSilenceSeconds());
+        } catch (RuntimeException error) {
+            return;
+        }
+        long silenceLimitNanos = TimeUnit.SECONDS.toNanos(silenceSec);
+        long now = System.nanoTime();
+        List<String> activeChatRunIds;
+        List<Map.Entry<String, String>> activeTasksCopy;
+        synchronized (this) {
+            activeChatRunIds = activeChats.values().stream()
+                    .map(ActiveChat::runId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .toList();
+            activeTasksCopy = activeTaskRuns.entrySet().stream()
+                    .filter(e -> e.getValue() != null && !e.getValue().isBlank())
+                    .map(e -> Map.entry(e.getKey(), e.getValue()))
+                    .toList();
+        }
+
+        Set<String> waitingApprovalRunIds = new java.util.HashSet<>();
+        try {
+            for (var pending : store.allPendingBotApprovals()) {
+                if (pending.runId() != null) waitingApprovalRunIds.add(pending.runId());
+            }
+        } catch (RuntimeException ignored) {
+            // Best effort.
+        }
+
+        for (String runId : activeChatRunIds) {
+            checkSingleRunSilence(runId, now, silenceLimitNanos, waitingApprovalRunIds);
+        }
+        for (var entry : activeTasksCopy) {
+            checkSingleRunSilence(entry.getValue(), now, silenceLimitNanos, waitingApprovalRunIds);
+        }
+    }
+
+    private void checkSingleRunSilence(
+            String runId, long now, long silenceLimitNanos, Set<String> waitingApprovalRunIds) {
+        if (waitingApprovalRunIds.contains(runId)) {
+            runProgress.put(runId, new ProgressStamp("APPROVAL_WAIT", now));
+            return;
+        }
+        try {
+            Run run = sessions.run(runId);
+            if (!run.status().active()) {
+                runProgress.remove(runId);
+                return;
+            }
+            var steps = sessions.steps(runId);
+            var tools = sessions.tools(runId);
+            long progressChars = run.output() == null ? 0 : run.output().length();
+            for (var step : steps) {
+                progressChars += step.reasoning() == null ? 0 : step.reasoning().length();
+                if (step.finishedAt() != null) progressChars += 1;
+            }
+            int completedTools = 0;
+            for (var tool : tools) {
+                if (tool.output() != null) progressChars += tool.output().length();
+                if (!"RUNNING".equalsIgnoreCase(tool.status()) && !"PENDING".equalsIgnoreCase(tool.status())) {
+                    completedTools++;
+                }
+            }
+            String sig = run.status() + ":" + steps.size() + ":" + tools.size() + ":" + completedTools + ":" + progressChars;
+            ProgressStamp prev = runProgress.get(runId);
+            if (prev == null || !prev.signature().equals(sig)) {
+                runProgress.put(runId, new ProgressStamp(sig, now));
+                return;
+            }
+            if (now - prev.lastChangeNanos() >= silenceLimitNanos) {
+                silenceTimedOutRuns.add(runId);
+                runProgress.remove(runId);
+                log.warn("Bot run {} silent beyond threshold, cancelling", runId);
+                if (externalAgents != null && externalAgents.owns(runId)) {
+                    externalAgents.cancel(runId);
+                } else {
+                    engine.cancel(runId);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Run may have settled concurrently.
+        }
+    }
+
+    private PreparedAttachments prepareAttachments(Bot bot, List<String> ids, String fallbackJson) {
+        if (ids == null || ids.isEmpty() || composerInputs == null) {
+            return new PreparedAttachments(
+                    RunInput.EMPTY,
+                    fallbackJson == null || fallbackJson.isBlank() ? "[]" : fallbackJson,
+                    "");
+        }
+        RunInput runInput = composerInputs.resolve(bot.chatSessionId(), "", List.of(), ids);
+        var items = new ArrayList<Map<String, Object>>();
+        var libraryPaths = new ArrayList<String>();
+        for (String id : ids) {
+            AttachmentStore.Stored stored = composerInputs.content(id);
+            AttachmentStore.Attachment att = stored.attachment();
+            String savedRel = saveAttachmentToLibrary(bot.id(), att.id(), att.name(), stored.content());
+            if (!savedRel.isEmpty()) libraryPaths.add(savedRel);
+            var meta = new LinkedHashMap<String, Object>();
+            meta.put("id", att.id());
+            meta.put("name", att.name());
+            meta.put("mediaType", att.mediaType());
+            meta.put("size", att.size());
+            meta.put("libraryPath", savedRel);
+            items.add(meta);
+        }
+        String attachmentsJson;
+        try {
+            attachmentsJson = json.writeValueAsString(items);
+        } catch (Exception error) {
+            attachmentsJson = "[]";
+        }
+        String note = libraryPaths.isEmpty()
+                ? ""
+                : "（用户附上的文件已同步存入资料库，后台任务可用 library_read 读取：" + String.join("、", libraryPaths) + "）";
+        return new PreparedAttachments(runInput, attachmentsJson, note);
+    }
+
+    private String saveAttachmentToLibrary(String botId, String attachmentId, String originalName, byte[] content) {
+        try {
+            String safeName = (originalName == null ? "file" : originalName)
+                    .replace('\\', '/')
+                    .replaceAll("^.*/", "")
+                    .replaceAll("[^\\p{L}\\p{N}._ ()-]", "_");
+            if (safeName.isBlank()) safeName = "file";
+            String shortId = attachmentId.length() > 8 ? attachmentId.substring(0, 8) : attachmentId;
+            Path dir = libraryRoot.resolve("uploads").resolve(shortId).normalize();
+            Path target = dir.resolve(safeName).normalize();
+            if (!target.startsWith(libraryRoot)) return "";
+            Files.createDirectories(dir);
+            Files.write(target, content);
+            String rel = libraryRoot.relativize(target).toString().replace('\\', '/');
+            write(() -> {
+                store.recordFile(botId, "", rel, content.length);
+                return null;
+            });
+            return rel;
+        } catch (IOException error) {
+            log.warn("Could not mirror attachment {} to bot library", attachmentId, error);
+            return "";
+        }
+    }
+
+    private BotWebTools.SearchConfig currentSearchConfig() {
+        WebSearchSettings cfg = store.ensureWebSearchSettings();
+        String decryptedKey = "";
+        if (!cfg.apiKeyEncrypted().isBlank() && secretCipher != null) {
+            try {
+                decryptedKey = secretCipher.decrypt(cfg.apiKeyEncrypted());
+            } catch (RuntimeException error) {
+                log.warn("Could not decrypt bot web search API key");
+            }
+        }
+        String deepSeekKey = "";
+        try {
+            deepSeekKey = settings.providers().stream()
+                    .filter(p -> p.baseUrl() != null
+                            && p.baseUrl().toLowerCase().contains("deepseek")
+                            && p.apiKey() != null
+                            && !p.apiKey().isBlank())
+                    .map(ProviderSettings::apiKey)
+                    .findFirst()
+                    .orElse("");
+        } catch (RuntimeException ignored) {
+            // Optional auto-reuse.
+        }
+        return new BotWebTools.SearchConfig(
+                cfg.provider(),
+                cfg.endpointUrl(),
+                decryptedKey,
+                deepSeekKey,
+                cfg.fallbackFreeEnabled(),
+                cfg.maxResults(),
+                cfg.timeoutSeconds());
+    }
+
+    private void startChatTurnLocked(Bot bot, String prompt, RunInput runInput, List<String> attachmentIds) {
         ResolvedModel resolved = resolveModel(bot.chatProfileId(), bot.chatReasoningEffort());
+        RunInput effectiveInput = runInput == null ? RunInput.EMPTY : runInput;
         var submission = engine.submit(
                 bot.chatSessionId(),
                 UUID.randomUUID().toString(),
                 prompt,
                 "NORMAL",
                 resolved.selection(),
-                ApprovalMode.MANUAL);
+                ApprovalMode.MANUAL,
+                effectiveInput);
+        if (composerInputs != null && attachmentIds != null && !attachmentIds.isEmpty()) {
+            composerInputs.bind(submission.run().id(), attachmentIds);
+        }
         activeChats.put(
                 bot.id(),
                 new ActiveChat(bot.id(), submission.run().id(), resolved.modelLabel(), resolved.fallbackFrom()));
@@ -793,11 +1512,12 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
     }
 
     private void onChatRunSettled(String botId, Run run) {
-        String nextPrompt = null;
-        Bot botSnapshot = null;
+        Bot botSnapshot;
         ActiveChat finished;
         synchronized (this) {
             finished = activeChats.remove(botId);
+            runProgress.remove(run.id());
+            boolean silenceTimeout = silenceTimedOutRuns.remove(run.id());
             String text = run.output() == null ? "" : run.output().strip();
             String modelLabel = finished != null ? finished.modelLabel() : run.model();
             String fallbackFrom = finished != null ? finished.fallbackFrom() : "";
@@ -833,7 +1553,77 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                                 clip(parsed.body(), 60));
                     }
                 }
+            } else if (silenceTimeout) {
+                if (!text.isEmpty()) {
+                    var parsed = extractSuggestions(text);
+                    write(() -> store.appendEntry(
+                            botId,
+                            "",
+                            "ASSISTANT",
+                            parsed.body(),
+                            null,
+                            "",
+                            "[]",
+                            "[]",
+                            "",
+                            run.id(),
+                            modelLabel.isBlank() ? "已超时" : modelLabel + " · 已超时",
+                            fallbackFrom));
+                }
+                int silenceSec = store.ensureLimits().modelSilenceSeconds();
+                write(() -> store.appendEntry(
+                        botId,
+                        "",
+                        "SYSTEM",
+                        "模型连续 " + silenceSec + " 秒无响应，已自动停止本次回复",
+                        null,
+                        "",
+                        "[]",
+                        "[]",
+                        "",
+                        run.id(),
+                        modelLabel,
+                        fallbackFrom));
+            } else if (run.status() == RunStatus.CANCELLED) {
+                if (!text.isEmpty()) {
+                    var parsed = extractSuggestions(text);
+                    String stoppedLabel = modelLabel.isBlank() ? "已停止" : modelLabel + " · 已停止";
+                    write(() -> store.appendEntry(
+                            botId,
+                            "",
+                            "ASSISTANT",
+                            parsed.body(),
+                            null,
+                            "",
+                            "[]",
+                            "[]",
+                            "",
+                            run.id(),
+                            stoppedLabel,
+                            fallbackFrom));
+                } else {
+                    write(() -> {
+                        store.bumpBotSeq(botId);
+                        return null;
+                    });
+                }
             } else if (run.status() == RunStatus.FAILED || run.status() == RunStatus.TIMED_OUT) {
+                if (run.status() == RunStatus.TIMED_OUT && !text.isEmpty()) {
+                    var parsed = extractSuggestions(text);
+                    write(() -> store.appendEntry(
+                            botId,
+                            "",
+                            "ASSISTANT",
+                            parsed.body(),
+                            null,
+                            "",
+                            "[]",
+                            "[]",
+                            "",
+                            run.id(),
+                            modelLabel.isBlank() ? "已超时" : modelLabel + " · 已超时",
+                            fallbackFrom));
+                }
                 String reason = run.detail() == null || run.detail().isBlank() ? "本次回复未完成" : run.detail();
                 write(() -> store.appendEntry(
                         botId,
@@ -860,10 +1650,26 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                 String merged = mergeQueued(queued);
                 Long quoteSeq = queued.getFirst().quoteSeq();
                 String quotePreview = queued.getFirst().quotePreview();
+                var mergedIds = new ArrayList<String>();
+                for (QueuedMessage q : queued) {
+                    if (q.attachmentIds() != null) mergedIds.addAll(q.attachmentIds());
+                }
+                PreparedAttachments prepared = prepareAttachments(currentBot, mergedIds, "[]");
                 write(() -> store.appendEntry(
-                        botId, "", "USER", merged, quoteSeq, quotePreview, "[]", "[]", "", "", "", ""));
-                nextPrompt = buildUserPrompt(merged, quoteSeq, quotePreview);
-                startChatTurnLocked(currentBot, nextPrompt);
+                        botId,
+                        "",
+                        "USER",
+                        merged,
+                        quoteSeq,
+                        quotePreview,
+                        prepared.attachmentsJson(),
+                        "[]",
+                        "",
+                        "",
+                        "",
+                        ""));
+                String nextPrompt = buildUserPrompt(merged, quoteSeq, quotePreview, prepared.libraryNote());
+                startChatTurnLocked(currentBot, nextPrompt, prepared.runInput(), mergedIds);
             }
         }
         if (run.status() == RunStatus.COMPLETED) {
@@ -874,21 +1680,28 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
     private void onTaskRunSettled(String taskId, Run run) {
         synchronized (this) {
             activeTaskRuns.remove(taskId);
+            cancelTaskTimerLocked(taskId);
         }
+        runProgress.remove(run.id());
+        boolean silenceTimeout = silenceTimedOutRuns.remove(run.id());
         Task task = store.task(taskId);
         Bot worker = store.getBot(task.botId());
         Bot origin = task.originBotId().equals(task.botId()) ? worker : store.getBot(task.originBotId());
-        boolean completed = run.status() == RunStatus.COMPLETED;
-        String finalStatus = switch (run.status()) {
-            case COMPLETED -> "COMPLETED";
-            case CANCELLED -> "CANCELLED";
-            case INTERRUPTED -> "INTERRUPTED";
-            default -> "FAILED";
-        };
+        boolean completed = !silenceTimeout && run.status() == RunStatus.COMPLETED;
+        String finalStatus = silenceTimeout
+                ? "FAILED"
+                : switch (run.status()) {
+                    case COMPLETED -> "COMPLETED";
+                    case CANCELLED -> "CANCELLED";
+                    case INTERRUPTED -> "INTERRUPTED";
+                    default -> "FAILED";
+                };
         String output = run.output() == null ? "" : run.output().strip();
         String errorDetail = completed
                 ? ""
-                : (run.detail() == null || run.detail().isBlank() ? "任务未完成（" + finalStatus + "）" : run.detail());
+                : silenceTimeout
+                        ? "模型连续 " + store.ensureLimits().modelSilenceSeconds() + " 秒无响应，已自动停止"
+                        : (run.detail() == null || run.detail().isBlank() ? "任务未完成（" + finalStatus + "）" : run.detail());
 
         int beforeLv = currentLevel(worker.id());
         write(() -> {
@@ -948,16 +1761,24 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                     queuedByBot
                             .computeIfAbsent(origin.id(), key -> new ArrayList<>())
                             .add(new QueuedMessage(
-                                    UUID.randomUUID().toString(), synthesisPrompt, null, "", Instant.now()));
+                                    UUID.randomUUID().toString(),
+                                    synthesisPrompt,
+                                    null,
+                                    "",
+                                    List.of(),
+                                    "[]",
+                                    Instant.now()));
                 } else {
                     try {
-                        startChatTurnLocked(origin, synthesisPrompt);
+                        startChatTurnLocked(origin, synthesisPrompt, RunInput.EMPTY, List.of());
                     } catch (RuntimeException error) {
                         log.warn("Could not trigger synthesis turn on {}", origin.id(), error);
                     }
                 }
             }
         }
+
+        async.execute(this::drainWaitingTasks);
     }
 
     private void maybeCompactAsync(String botId) {
@@ -1000,8 +1821,15 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                             true);
                     var turn = resources.model().complete(request, () -> {}, chunk -> {});
                     if (turn.text() != null && !turn.text().isBlank()) {
+                        Bot bot = store.getBot(botId);
                         write(() ->
                                 store.saveSummary(botId, throughSeq, turn.text().strip()));
+                        pushNotice(
+                                "COMPACTED",
+                                botId,
+                                bot.name(),
+                                "对话已自动压缩",
+                                "整理了前 " + toCompact.size() + " 条历史消息");
                     }
                 }
             } catch (Exception error) {
@@ -1096,16 +1924,65 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         return clip(entry.content().replaceAll("\\s+", " ").strip(), 140);
     }
 
-    private static String buildUserPrompt(String text, Long quoteSeq, String quotePreview) {
-        if (quoteSeq == null || quotePreview.isBlank()) return text;
-        return "[引用消息 #" + quoteSeq + "：" + quotePreview + "]\n\n" + text;
+    private String buildMiniAppContextNote(String viewingMiniAppId, boolean fromMiniApp) {
+        if (viewingMiniAppId == null || viewingMiniAppId.isBlank()) {
+            return fromMiniApp ? "[提示：该消息来自小程序内直接发起]" : "";
+        }
+        try {
+            MiniApp app = store.miniApp(viewingMiniAppId.strip());
+            var sb = new StringBuilder();
+            sb.append(fromMiniApp ? "[提示：用户正在小程序内直接发起请求：" : "[提示：用户当前屏幕上正打开着小程序：");
+            sb.append("《").append(app.name()).append("》（app_id=").append(app.id())
+                    .append("，当前版本 v").append(app.version()).append("）。");
+            sb.append("若用户要求修改、扩展或修复它，请在 start_task 时传入 mini_app_id=\"").append(app.id()).append("\"。]");
+            return sb.toString();
+        } catch (HarnessException ignored) {
+            return "";
+        }
+    }
+
+    private String enrichWithMiniAppContext(String instruction, String miniAppId) {
+        if (miniAppId == null || miniAppId.isBlank()) return instruction;
+        try {
+            MiniApp app = store.miniApp(miniAppId.strip());
+            return instruction + "\n\n[目标小程序上下文：名称=" + app.name()
+                    + "，app_id=" + app.id()
+                    + "，当前版本=v" + app.version()
+                    + "，HTML 路径=" + app.htmlPath()
+                    + "，数据路径=" + app.dataPath()
+                    + "。请先用 library_read 查看当前页面与数据，修改后用 save_app(app_id=\"" + app.id()
+                    + "\", change=\"一句话改动说明\", ...) 保存新版本。]";
+        } catch (HarnessException ignored) {
+            return instruction;
+        }
+    }
+
+    private static String combineNotes(String first, String second) {
+        if (first == null || first.isBlank()) return second == null ? "" : second;
+        if (second == null || second.isBlank()) return first;
+        return first + "\n" + second;
+    }
+
+    private static String buildUserPrompt(String text, Long quoteSeq, String quotePreview, String libraryNote) {
+        var sb = new StringBuilder();
+        if (quoteSeq != null && !quotePreview.isBlank()) {
+            sb.append("[引用消息 #").append(quoteSeq).append("：").append(quotePreview).append("]\n\n");
+        }
+        if (!text.isEmpty()) {
+            sb.append(text);
+        }
+        if (libraryNote != null && !libraryNote.isBlank()) {
+            if (!sb.isEmpty()) sb.append("\n\n");
+            sb.append(libraryNote);
+        }
+        return sb.isEmpty() ? "（用户发送了附件）" : sb.toString();
     }
 
     private static String mergeQueued(List<QueuedMessage> queued) {
         if (queued.size() == 1) return queued.getFirst().content();
         var sb = new StringBuilder();
         for (int i = 0; i < queued.size(); i++) {
-            if (i > 0) sb.append("\n\n");
+            if (i > 0 && !queued.get(i).content().isBlank()) sb.append("\n\n");
             sb.append(queued.get(i).content());
         }
         return sb.toString();
@@ -1190,6 +2067,9 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
         List<String> runsToStop = new ArrayList<>();
         synchronized (this) {
             queuedByBot.clear();
+            waitingTasks.clear();
+            taskTimers.values().forEach(f -> f.cancel(false));
+            taskTimers.clear();
             activeChats.values().forEach(chat -> runsToStop.add(chat.runId()));
             runsToStop.addAll(activeTaskRuns.values());
         }
@@ -1201,6 +2081,7 @@ public final class BotOrchestrator implements BotChatTools.Actions, AutoCloseabl
                 // Best effort during shutdown.
             }
         }
+        deadlines.shutdownNow();
         async.shutdownNow();
     }
 }

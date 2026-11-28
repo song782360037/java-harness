@@ -86,6 +86,7 @@
                                             <message>Build the frontend first: npm --prefix harness-web ci &amp;&amp; npm --prefix harness-web run build</message>
                                             <files>
                                                 <file>${maven.multiModuleProjectDirectory}/harness-web/dist/index.html</file>
+                                                <file>${maven.multiModuleProjectDirectory}/harness-web/dist/phone.html</file>
                                             </files>
                                         </requireFilesExist>
                                     </rules>

@@ -4,22 +4,33 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 const source = readFileSync(new URL('../public/theme.js', import.meta.url), 'utf8')
-function boot({ saved, blocked = false, writesBlocked = false } = {}) {
+function boot({ saved, blocked = false, writesBlocked = false, systemDark = false } = {}) {
   let stored = saved ?? null
+  let darkMatches = systemDark
   const windowListeners = new Map()
+  const mediaListeners = []
   const storage = {
     getItem: () => stored,
     setItem: (key, value) => { if (writesBlocked) throw new Error('Read only'); stored = value },
   }
   const root = { dataset: {}, style: {} }
+  const mediaQuery = {
+    get matches() { return darkMatches },
+    addEventListener: (_type, listener) => mediaListeners.push(listener),
+  }
   const window = {
     get localStorage() { if (blocked) throw new Error('Unavailable'); return storage },
     addEventListener: (type, listener) => windowListeners.set(type, listener),
+    matchMedia: () => mediaQuery,
   }
   runInNewContext(source, { window, document: { documentElement: root } })
   return {
     theme: window.harnessTheme, root, stored: () => stored,
     storageChange(value, key = 'harness.theme', area = storage) { windowListeners.get('storage')({ key, newValue: value, storageArea: area }) },
+    setSystemDark(value) {
+      darkMatches = value
+      for (const listener of mediaListeners) listener({ matches: value })
+    },
   }
 }
 test('default falls back to light theme cleanly', () => {
@@ -56,12 +67,25 @@ test('other tabs synchronize theme changes, including removal and storage clear'
   app.storageChange('dark', 'harness.theme', {})
   assert.equal(app.theme.preference, 'light')
 })
-test('legacy system or invalid stored values fall back to light safely', () => {
-  for (const invalid of ['system', 'invalid', 'toString']) {
-    const app = boot({ saved: invalid })
-    assert.equal(app.theme.preference, 'light')
-    assert.equal(app.root.dataset.theme, 'light')
-    assert.equal(app.root.dataset.colorScheme, 'light')
+test('system preference follows OS color scheme live and invalid values fall back to light', () => {
+  const app = boot({ saved: 'system', systemDark: true })
+  assert.equal(app.theme.preference, 'system')
+  assert.equal(app.theme.resolved, 'dark')
+  assert.equal(app.theme.colorScheme, 'dark')
+  assert.equal(app.root.dataset.theme, 'dark')
+
+  const changes = []
+  app.theme.subscribe(() => changes.push(app.theme.resolved))
+  app.setSystemDark(false)
+  assert.equal(app.theme.resolved, 'light')
+  assert.equal(app.root.dataset.theme, 'light')
+  assert.deepEqual(changes, ['light'])
+
+  for (const invalid of ['invalid', 'toString']) {
+    const bad = boot({ saved: invalid })
+    assert.equal(bad.theme.preference, 'light')
+    assert.equal(bad.root.dataset.theme, 'light')
+    assert.equal(bad.root.dataset.colorScheme, 'light')
   }
 })
 test('storage failures still apply the choice and report that it cannot be saved', () => {

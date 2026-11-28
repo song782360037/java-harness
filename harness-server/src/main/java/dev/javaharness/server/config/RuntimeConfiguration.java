@@ -22,11 +22,13 @@ import dev.javaharness.adapters.workspace.FileChangeService;
 import dev.javaharness.adapters.workspace.RunArtifacts;
 import dev.javaharness.core.DefaultAgentEngine;
 import dev.javaharness.server.service.AutomationService;
+import dev.javaharness.server.service.BotDebugService;
 import dev.javaharness.server.service.BotLanServer;
 import dev.javaharness.server.service.BotMiniAppService;
 import dev.javaharness.server.service.BotOrchestrator;
 import dev.javaharness.server.service.BotRoutineScheduler;
 import dev.javaharness.server.service.BotService;
+import dev.javaharness.server.service.BotSkillService;
 import dev.javaharness.server.service.ComposerInputService;
 import dev.javaharness.server.service.DesktopUpdateGate;
 import dev.javaharness.server.service.ExternalAgentCatalog;
@@ -348,16 +350,24 @@ public class RuntimeConfiguration {
             SettingsService settings,
             ExternalAgentRuns externalAgents,
             MemoryService memories,
+            CommandService commands,
+            ComposerInputService composerInputs,
+            @Value("${harness.settings.key-file}") String keyFile,
             @Value("${harness.bots.library-directory:./data/bot-library}") String libraryDirectory) {
+        Path libRoot = Path.of(libraryDirectory);
+        commands.useBotLibraryRoot(libRoot);
         var orchestrator = new BotOrchestrator(
                 new BotStore(jdbc),
                 sessions,
                 new TransactionTemplate(transactions),
                 engine,
                 settings,
-                Path.of(libraryDirectory));
+                libRoot);
         orchestrator.useExternalAgents(externalAgents);
         orchestrator.useMemories(memories);
+        orchestrator.useCommands(commands);
+        orchestrator.useComposerInputs(composerInputs);
+        orchestrator.useSecretCipher(new LocalSecretCipher(Path.of(keyFile)));
         settings.useBots(orchestrator::decorate);
         return orchestrator;
     }
@@ -409,14 +419,39 @@ public class RuntimeConfiguration {
 
     @Bean
     @DependsOnDatabaseInitialization
+    BotSkillService botSkillService(
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactions,
+            SessionStore sessions,
+            BotOrchestrator orchestrator,
+            ObjectMapper json,
+            @Value("${harness.bots.library-directory:./data/bot-library}") String libraryDirectory) {
+        var service = new BotSkillService(
+                new BotStore(jdbc), sessions, new TransactionTemplate(transactions), Path.of(libraryDirectory), json);
+        service.useOrchestrator(orchestrator);
+        orchestrator.useSkills(service);
+        return service;
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
+    BotDebugService botDebugService(JdbcTemplate jdbc, SessionStore sessions, SettingsService settings) {
+        return new BotDebugService(new BotStore(jdbc), sessions, settings, jdbc);
+    }
+
+    @Bean
+    @DependsOnDatabaseInitialization
     BotService botService(
             JdbcTemplate jdbc,
             PlatformTransactionManager transactions,
             SessionStore sessions,
             SettingsService settings,
             BotOrchestrator orchestrator,
+            BotSkillService botSkills,
             PluginService plugins,
             ExternalAgentCatalog externalAgents,
+            CommandService commands,
+            @Value("${harness.settings.key-file}") String keyFile,
             @Value("${harness.bots.library-directory:./data/bot-library}") String libraryDirectory) {
         var service = new BotService(
                 new BotStore(jdbc),
@@ -427,6 +462,9 @@ public class RuntimeConfiguration {
                 Path.of(libraryDirectory));
         service.usePlugins(plugins);
         service.useExternalAgents(externalAgents);
+        service.useCommands(commands);
+        service.useSkills(botSkills);
+        service.useSecretCipher(new LocalSecretCipher(Path.of(keyFile)));
         return service;
     }
 
@@ -440,9 +478,11 @@ public class RuntimeConfiguration {
             BotOrchestrator botOrchestrator,
             BotRoutineScheduler botRoutines,
             BotMiniAppService botMiniApps,
+            BotSkillService botSkills,
             CommandService commands,
+            ComposerInputService composerInputs,
             ObjectMapper json) {
-        return new BotLanServer(
+        var server = new BotLanServer(
                 new BotLanStore(jdbc),
                 sessions,
                 new TransactionTemplate(transactions),
@@ -452,6 +492,9 @@ public class RuntimeConfiguration {
                 botMiniApps,
                 commands,
                 json);
+        server.useComposerInputs(composerInputs);
+        server.useSkills(botSkills);
+        return server;
     }
 
     @Bean

@@ -5,12 +5,21 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const backendUrl = env.HARNESS_BACKEND_URL || 'http://127.0.0.1:8080'
+  const lanUrl = env.HARNESS_LAN_URL || 'http://127.0.0.1:4317'
 
   return {
     plugins: [vue()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
+    build: {
+      rollupOptions: {
+        input: {
+          main: fileURLToPath(new URL('./index.html', import.meta.url)),
+          phone: fileURLToPath(new URL('./phone.html', import.meta.url)),
+        },
       },
     },
     server: {
@@ -20,6 +29,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': backendUrl,
         '/actuator/health': backendUrl,
+        '/lan': lanUrl,
       },
     },
     preview: {

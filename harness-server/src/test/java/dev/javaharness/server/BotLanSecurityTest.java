@@ -4,11 +4,15 @@ import static org.assertj.core.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -71,17 +75,47 @@ class BotLanSecurityTest {
         assertThat(lanPort).isGreaterThan(0).isNotEqualTo(mainPort);
 
         try {
-            // 3. Mobile HTML shell is served on root of LAN port.
+            // 3. Mobile HTML shell is served on root and /phone.html of LAN port.
             HttpResponse<String> html = lanGet(lanPort, "/", null);
             assertThat(html.statusCode()).isEqualTo(200);
             assertThat(html.headers().firstValue("Content-Type").orElse("")).contains("text/html");
+            assertThat(html.headers().firstValue("X-Content-Type-Options").orElse("")).isEqualTo("nosniff");
             assertThat(html.body()).contains("Java Harness");
 
-            // 4. Unauthenticated LAN API returns 401; desktop /api/* routes are NOT exposed (404).
-            assertThat(lanGet(lanPort, "/lan/api/bots/workspace", null).statusCode())
-                    .isEqualTo(401);
+            HttpResponse<String> phoneHtml = lanGet(lanPort, "/phone.html", null);
+            assertThat(phoneHtml.statusCode()).isEqualTo(200);
+            assertThat(phoneHtml.body()).contains("Java Harness");
+
+            // Allowlisted static theme script and built phone SPA JS asset are served with nosniff.
+            HttpResponse<String> themeJs = lanGet(lanPort, "/theme.js", null);
+            assertThat(themeJs.statusCode()).isEqualTo(200);
+            assertThat(themeJs.headers().firstValue("Content-Type").orElse("")).contains("javascript");
+            assertThat(themeJs.headers().firstValue("X-Content-Type-Options").orElse("")).isEqualTo("nosniff");
+            var assetMatcher = java.util.regex.Pattern.compile("src=\"(/assets/[a-zA-Z0-9._-]+\\.js)\"")
+                    .matcher(phoneHtml.body());
+            if (assetMatcher.find()) {
+                HttpResponse<String> assetResp = lanGet(lanPort, assetMatcher.group(1), null);
+                assertThat(assetResp.statusCode()).isEqualTo(200);
+                assertThat(assetResp.headers().firstValue("Content-Type").orElse("")).contains("javascript");
+                assertThat(assetResp.headers().firstValue("X-Content-Type-Options").orElse("")).isEqualTo("nosniff");
+            }
+
+            // 4. Desktop entry, traversal attempts, and desktop /api/* routes are NOT exposed (404).
+            assertThat(lanGet(lanPort, "/index.html", null).statusCode()).isEqualTo(404);
+            assertThat(lanGet(lanPort, "/assets/../index.html", null).statusCode()).isEqualTo(404);
+            assertThat(lanGet(lanPort, "/assets/%2e%2e/index.html", null).statusCode()).isEqualTo(404);
+            assertThat(lanGet(lanPort, "/assets/settings.key", null).statusCode()).isEqualTo(404);
             assertThat(lanGet(lanPort, "/api/settings", null).statusCode()).isEqualTo(404);
             assertThat(lanGet(lanPort, "/api/sessions", null).statusCode()).isEqualTo(404);
+
+            // Unauthenticated LAN API returns 401 across all protected endpoints.
+            assertThat(lanGet(lanPort, "/lan/api/bots/workspace", null).statusCode()).isEqualTo(401);
+            assertThat(lanGet(lanPort, "/lan/api/bots/events", null).statusCode()).isEqualTo(401);
+            assertThat(lanGet(lanPort, "/lan/api/bots/main/avatar", null).statusCode()).isEqualTo(401);
+            assertThat(lanGet(lanPort, "/lan/api/bots/main/files/content?path=a.txt", null).statusCode())
+                    .isEqualTo(401);
+            assertThat(lanGet(lanPort, "/lan/api/bot-apps/demo/versions", null).statusCode()).isEqualTo(401);
+            assertThat(lanPost(lanPort, "/lan/api/attachments", Map.of(), null).statusCode()).isEqualTo(401);
 
             // 5. Phone requests 4-digit pairing code.
             HttpResponse<String> pairReqResp = lanPost(lanPort, "/lan/api/pair/request", Map.of(), null);
@@ -137,6 +171,48 @@ class BotLanSecurityTest {
                             .statusCode())
                     .isEqualTo(200);
 
+            // 6b. Authenticated SSE stream returns 200 text/event-stream and emits initial ping.
+            HttpRequest sseReq = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + lanPort + "/lan/api/bots/events"))
+                    .header("Cookie", cookieHeader)
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
+            HttpResponse<InputStream> sseResp = client.send(sseReq, HttpResponse.BodyHandlers.ofInputStream());
+            assertThat(sseResp.statusCode()).isEqualTo(200);
+            assertThat(sseResp.headers().firstValue("Content-Type").orElse("")).contains("text/event-stream");
+            try (InputStream stream = sseResp.body()) {
+                byte[] buf = new byte[128];
+                int read = stream.read(buf);
+                assertThat(read).isGreaterThan(0);
+                assertThat(new String(buf, 0, read, StandardCharsets.UTF_8)).contains("event: ping");
+            }
+
+            // 6c. Authenticated attachment multipart upload & download works and preserves nosniff.
+            String boundary = "----HarnessLanTestBoundary";
+            ByteArrayOutputStream multipart = new ByteArrayOutputStream();
+            multipart.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            multipart.write("Content-Disposition: form-data; name=\"file\"; filename=\"note.txt\"\r\n".getBytes(StandardCharsets.UTF_8));
+            multipart.write("Content-Type: text/plain\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+            multipart.write("hello from phone".getBytes(StandardCharsets.UTF_8));
+            multipart.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+            HttpRequest uploadReq = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + lanPort + "/lan/api/attachments"))
+                    .header("Cookie", cookieHeader)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(multipart.toByteArray()))
+                    .build();
+            HttpResponse<String> uploadResp = client.send(uploadReq, HttpResponse.BodyHandlers.ofString());
+            assertThat(uploadResp.statusCode()).isEqualTo(201);
+            JsonNode uploaded = json.readTree(uploadResp.body());
+            String attachmentId = uploaded.path("id").asText();
+            assertThat(attachmentId).isNotBlank();
+            assertThat(uploaded.path("name").asText()).isEqualTo("note.txt");
+
+            HttpResponse<String> dlResp = lanGet(lanPort, "/lan/api/attachments/" + attachmentId + "/content", cookieHeader);
+            assertThat(dlResp.statusCode()).isEqualTo(200);
+            assertThat(dlResp.headers().firstValue("X-Content-Type-Options").orElse("")).isEqualTo("nosniff");
+            assertThat(dlResp.body()).isEqualTo("hello from phone");
+
             // 7. Remote approval is blocked (403) when disabled.
             HttpResponse<String> blockedApproval =
                     lanPost(lanPort, "/lan/api/approvals/fake-cmd/approve", Map.of(), cookieHeader);
@@ -159,9 +235,11 @@ class BotLanSecurityTest {
                     lanPost(lanPort, "/lan/api/approvals/non-bot-cmd/approve", Map.of(), cookieHeader);
             assertThat(nonBotApproval.statusCode()).isEqualTo(404);
 
-            // 8. Revoking the device immediately invalidates its cookie.
+            // 8. Revoking the device immediately invalidates its cookie across all endpoints.
             mainPost("/api/bot-lan/devices/" + deviceId + "/revoke", Map.of());
-            assertThat(lanGet(lanPort, "/lan/api/me", cookieHeader).statusCode())
+            assertThat(lanGet(lanPort, "/lan/api/me", cookieHeader).statusCode()).isEqualTo(401);
+            assertThat(lanGet(lanPort, "/lan/api/bots/events", cookieHeader).statusCode()).isEqualTo(401);
+            assertThat(lanGet(lanPort, "/lan/api/attachments/" + attachmentId + "/content", cookieHeader).statusCode())
                     .isEqualTo(401);
         } finally {
             // 9. Hot-disable stops the LAN server cleanly.

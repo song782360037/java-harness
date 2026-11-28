@@ -1,7 +1,7 @@
 import { readonly, ref } from 'vue'
 
 export type ThemeId = 'pure' | 'light' | 'paper' | 'ocean' | 'sakura' | 'dark' | 'midnight' | 'espresso' | 'nebula'
-export type ThemePreference = ThemeId
+export type ThemePreference = 'system' | ThemeId
 export type ThemeColorScheme = 'light' | 'dark'
 export type ThemeGroup = 'light' | 'dark'
 
@@ -100,6 +100,17 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
 ] as const
 
 export function getThemeOption(value: ThemePreference): ThemeOption {
+  if (value === 'system') {
+    return {
+      value: 'light',
+      label: '跟随系统',
+      description: '随操作系统浅色 / 深色自动切换',
+      group: 'light',
+      scheme: 'light',
+      keywords: 'system auto 跟随 系统 自动',
+      swatches: ['#f7f9f7', '#276649', '#181d1a'],
+    }
+  }
   return THEME_OPTIONS.find(option => option.value === value) || THEME_OPTIONS[1]
 }
 

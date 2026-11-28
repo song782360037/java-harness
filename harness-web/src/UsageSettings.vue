@@ -3,11 +3,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from './api'
 import { cacheRate, chartBars, compactTokens, dayTotal, heatmapWeeks, type UsageStatistics } from './usage'
 import UiIcon from './UiIcon.vue'
+import BotLookAvatar from './bots/BotLookAvatar.vue'
+import { botApi, type BotUsageReport, type BotUsageTotals } from './bots/api'
 const ranges = [{ days: 1, label: '今天' }, { days: 7, label: '7 天' }, { days: 30, label: '30 天' }, { days: 0, label: '全部' }] as const
 const colors: Record<string, string> = { harness: 'var(--usage-harness)', 'claude-code': 'var(--usage-claude)', codex: 'var(--usage-codex)', workbuddy: 'var(--usage-workbuddy)', qoder: 'var(--usage-qoder)', antigravity: 'var(--usage-antigravity)' }
 const days = ref<number>(7)
 const rangeLabel = computed(() => ({ 1: '今天', 7: '近 7 天', 30: '近 30 天', 0: '全部时间' }[days.value]))
 const stats = ref<UsageStatistics | null>(null)
+const botUsage = ref<BotUsageReport | null>(null)
 const loading = ref(false)
 // 请求超过 300ms 才显示等待动效，避免缓存命中时闪烁。
 const slow = ref(false)
@@ -15,6 +18,7 @@ let slowTimer: number | undefined
 const heatScroll = ref<HTMLElement>()
 const error = ref('')
 const total = computed(() => stats.value ? stats.value.totals.inputTokens + stats.value.totals.outputTokens : 0)
+const botTotalsSum = (t?: BotUsageTotals | null) => (t ? t.inputTokens + t.outputTokens : 0)
 const chart = computed(() => chartBars(stats.value ?? { days: [], hours: [] }))
 const bars = computed(() => chart.value.bars)
 // 小时图每 6 小时标注一次并对齐到对应柱子所在列，其余只标首尾日期。
@@ -39,7 +43,13 @@ async function load(range = days.value) {
   slowTimer = window.setTimeout(() => { slow.value = true }, 300)
   // 成功后才切换范围，失败时按钮与数据仍保持一致。
   try {
-    stats.value = await api<UsageStatistics>(`/usage?days=${range}`); days.value = range
+    const [usageData, botsData] = await Promise.all([
+      api<UsageStatistics>(`/usage?days=${range}`),
+      botApi.usage(range).catch(() => null),
+    ])
+    stats.value = usageData
+    botUsage.value = botsData
+    days.value = range
     // 窄屏下热力图可横向滚动，默认停在最近几周。
     await nextTick()
     if (heatScroll.value) heatScroll.value.scrollLeft = heatScroll.value.scrollWidth
@@ -131,6 +141,47 @@ onBeforeUnmount(() => window.clearTimeout(slowTimer))
           </tbody>
         </table>
       </div>
+      <template v-if="botUsage && botUsage.bots.length">
+        <div class="usage-heading-row">
+          <h2 class="usage-heading">Bot 团队用量（按成员与来源）</h2>
+          <span>
+            对话 {{ compactTokens(botTotalsSum(botUsage.bySource.chat)) }} ·
+            后台任务 {{ compactTokens(botTotalsSum(botUsage.bySource.task)) }} ·
+            例行 {{ compactTokens(botTotalsSum(botUsage.bySource.routine)) }}
+          </span>
+        </div>
+        <div class="usage-table-wrap">
+          <table class="usage-table">
+            <thead>
+              <tr>
+                <th scope="col">成员</th>
+                <th scope="col">对话</th>
+                <th scope="col">后台任务</th>
+                <th scope="col">例行任务</th>
+                <th scope="col">缓存命中</th>
+                <th scope="col">合计</th>
+                <th scope="col">调用</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in botUsage.bots" :key="row.botId">
+                <th scope="row">
+                  <span class="usage-bot-cell">
+                    <BotLookAvatar :shape="row.shape" :color="row.color" :avatar-url="row.avatarUrl" :size="20" />
+                    <span>{{ row.botName }}</span>
+                  </span>
+                </th>
+                <td>{{ compactTokens(botTotalsSum(row.chat)) }}</td>
+                <td>{{ compactTokens(botTotalsSum(row.task)) }}</td>
+                <td>{{ compactTokens(botTotalsSum(row.routine)) }}</td>
+                <td>{{ percent(cacheRate(row.totals)) }}</td>
+                <td><strong>{{ compactTokens(botTotalsSum(row.totals)) }}</strong></td>
+                <td>{{ number(row.totals.calls) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <p class="settings-footnote">外部 agent 用量读取自本机会话日志，输入 tokens 含缓存命中；Qoder 内置模型只计 credits；Antigravity 仅统计生成了会话记录（transcript）的对话。</p>
     </div>
   </section>

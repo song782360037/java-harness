@@ -6,10 +6,18 @@ import {
   botTierLabel,
   deskIdleActivity,
   extractBotApps,
+  extractBotFlows,
   extractBotMentions,
+  extractBotSkills,
+  formatElapsed,
   formatRoutineSchedule,
+  formatTimeDivider,
+  isImageMediaType,
+  miniAppIconName,
+  parseAttachments,
   parseSuggestions,
   renderBotMarkdownContent,
+  shouldShowTimeDivider,
 } from '../src/bots/model.ts'
 import {
   BOT_AVATARS,
@@ -21,6 +29,15 @@ import {
 } from '../src/bots/avatars.ts'
 import { taskSourceLabel } from '../src/taskActivityModel.ts'
 import { encodeQr, qrSvgData } from '../src/bots/qr.ts'
+import {
+  OUTFIT_PIECES,
+  OUTFIT_SLOTS,
+  isOutfitUnlocked,
+  parseOutfitJson,
+  renderOutfitOverlays,
+  toggleOutfitPiece,
+  unlockedAtLevel,
+} from '../src/bots/outfits.ts'
 
 test('extractBotMentions parses unique clickable bot references and renders readable text', () => {
   const raw = '已派给 [发版助理](bot:bot-1) 和 [文档官](bot:bot-2)，并再次通知 [发版助理](bot:bot-1)。'
@@ -116,4 +133,83 @@ test('Deskfolk 30 avatar catalog provides 30 unique categorized characters and s
   assert.ok(!sanitized.includes('javascript:'))
   assert.ok(sanitized.includes('#276649'))
   assert.equal(getBotAvatar('nonexistent').id, 'orb')
+})
+
+test('Phase 1 helpers parse attachments, flows, media types, and elapsed duration safely', () => {
+  assert.equal(isImageMediaType('image/png'), true)
+  assert.equal(isImageMediaType('IMAGE/WEBP'), true)
+  assert.equal(isImageMediaType('application/pdf'), false)
+  assert.equal(isImageMediaType(null), false)
+
+  const attachments = parseAttachments(JSON.stringify([
+    { id: 'att-1', name: 'chart.png', mediaType: 'image/png', size: 1200, libraryPath: 'uploads/att-1/chart.png' },
+    { bad: true },
+  ]))
+  assert.equal(attachments.length, 1)
+  assert.equal(attachments[0].name, 'chart.png')
+  assert.deepEqual(parseAttachments('broken-json'), [])
+
+  const now = Date.parse('2026-11-27T10:15:30Z')
+  assert.equal(formatElapsed('2026-11-27T10:15:05Z', now), '25s')
+  assert.equal(formatElapsed('2026-11-27T10:12:15Z', now), '3m 15s')
+  assert.equal(formatElapsed('2026-11-27T08:05:30Z', now), '2h 10m')
+  assert.equal(formatElapsed('invalid', now), '')
+
+  const flowText = '我已保存流程 [周报汇总](flow:pb-1) 与 [周报汇总](flow:pb-1)。'
+  assert.deepEqual(extractBotFlows(flowText), [{ name: '周报汇总', flowId: 'pb-1' }])
+  assert.equal(renderBotMarkdownContent(flowText), '我已保存流程 **📋 周报汇总** 与 **📋 周报汇总**。')
+})
+
+test('Phase 3 outfit catalog enforces 3 slots, level unlock rules, main goldCrown and renders overlays on all 30 shapes', () => {
+  assert.equal(OUTFIT_SLOTS.length, 3)
+  assert.equal(OUTFIT_PIECES.length, 12)
+  assert.equal(isOutfitUnlocked('goldCrown', 1, true), true)
+  assert.equal(isOutfitUnlocked('goldCrown', 1, false), false)
+  assert.equal(isOutfitUnlocked('goldCrown', 60, false), true)
+  assert.equal(isOutfitUnlocked('partyHat', 1, false), true)
+
+  // Equipping a second head piece replaces the first head piece, keeping neck/face slots intact
+  let worn = toggleOutfitPiece([], 'partyHat')
+  worn = toggleOutfitPiece(worn, 'bowTie')
+  worn = toggleOutfitPiece(worn, 'goldCrown')
+  assert.deepEqual(worn, ['bowTie', 'goldCrown'])
+  // Toggling an equipped piece takes it off
+  worn = toggleOutfitPiece(worn, 'goldCrown')
+  assert.deepEqual(worn, ['bowTie'])
+
+  assert.deepEqual(parseOutfitJson('["goldCrown","badId","bowTie"]'), ['goldCrown', 'bowTie'])
+  assert.ok(unlockedAtLevel(10).some(p => p.id === 'bronzeCrown'))
+
+  for (const shape of BOT_SHAPES) {
+    const svg = renderOutfitOverlays(shape, ['goldCrown', 'roundGlasses', 'bowTie'])
+    assert.ok(svg.includes('<g '), `expected outfit SVG overlay for ${shape}`)
+  }
+})
+
+test('P0-P2 helpers map mini-app icons, parse skill links, and compute time dividers', () => {
+  assert.equal(miniAppIconName('table'), 'table')
+  assert.equal(miniAppIconName('chart'), 'chart')
+  assert.equal(miniAppIconName('calendar'), 'calendar')
+  assert.equal(miniAppIconName('unknown-icon'), 'sparkles')
+  assert.equal(miniAppIconName(''), 'sparkles')
+
+  const skillText = '已安装 [代码审查](skill:code-review) 并可跨成员调用 [发布检查](skill:bot-2/release-check) 和 [代码审查](skill:code-review)。'
+  assert.deepEqual(extractBotSkills(skillText), [
+    { name: '代码审查', target: 'code-review' },
+    { name: '发布检查', target: 'bot-2/release-check' },
+  ])
+  assert.equal(
+    renderBotMarkdownContent(skillText),
+    '已安装 **🧩 代码审查** 并可跨成员调用 **🧩 发布检查** 和 **🧩 代码审查**。',
+  )
+
+  const base = new Date(2026, 10, 28, 10, 0, 0).toISOString()
+  assert.equal(shouldShowTimeDivider(null, base), true)
+  assert.equal(shouldShowTimeDivider(base, new Date(2026, 10, 28, 10, 5, 0).toISOString()), false)
+  assert.equal(shouldShowTimeDivider(base, new Date(2026, 10, 28, 10, 20, 0).toISOString()), true)
+  assert.equal(
+    shouldShowTimeDivider(new Date(2026, 10, 27, 23, 55, 0).toISOString(), new Date(2026, 10, 28, 0, 2, 0).toISOString()),
+    true,
+  )
+  assert.ok(formatTimeDivider(base).includes(':'))
 })

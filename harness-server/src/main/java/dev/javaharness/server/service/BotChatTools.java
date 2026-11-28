@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.javaharness.adapters.bot.BotStore.Bot;
 import dev.javaharness.adapters.bot.BotStore.BotFile;
 import dev.javaharness.adapters.bot.BotStore.Entry;
+import dev.javaharness.adapters.bot.BotStore.Fact;
 import dev.javaharness.adapters.bot.BotStore.MiniApp;
 import dev.javaharness.adapters.bot.BotStore.Playbook;
 import dev.javaharness.adapters.bot.BotStore.Routine;
@@ -35,6 +36,18 @@ public final class BotChatTools implements WorkspaceTools {
                 String playbookId,
                 String modelProfileId,
                 boolean silentTargetChat);
+
+        default Task startTask(
+                String botId,
+                String originBotId,
+                String title,
+                String instruction,
+                String playbookId,
+                String modelProfileId,
+                String miniAppId,
+                boolean silentTargetChat) {
+            return startTask(botId, originBotId, title, instruction, playbookId, modelProfileId, silentTargetChat);
+        }
 
         List<Bot> listBots();
 
@@ -85,17 +98,36 @@ public final class BotChatTools implements WorkspaceTools {
         List<Routine> listRoutinesFromTool(String botId);
 
         List<MiniApp> listAppsFromTool(String botId);
+
+        Fact rememberFromTool(String botId, String scope, String text);
+
+        void forgetFromTool(String botId, String factId);
+
+        Task stopTaskFromTool(String botId, String taskId);
+
+        Routine setRoutinePlaybookFromTool(String botId, String routineId, String playbookId);
+
+        String listBotLevelsFromTool();
+
+        default String installSkillFromTool(String botId, String targetBotIdOrName, String source) {
+            throw new UnsupportedOperationException("技能服务未启用");
+        }
+
+        default String removeSkillFromTool(String botId, String targetBotIdOrName, List<String> names) {
+            throw new UnsupportedOperationException("技能服务未启用");
+        }
     }
 
     private static final List<ToolDefinition> DEFINITIONS = List.of(
             tool(
                     "start_task",
-                    "为当前 Bot 启动一个独立后台任务去完成动手活（查代码/写文件/跑命令/写报告/调用 MCP）",
+                    "为当前 Bot 启动一个独立后台任务去完成动手活（查代码/写文件/跑命令/写报告/调用 MCP/制作或修改小程序）",
                     map(
                             "title", prop("string", "简短任务标题（1-80 字）"),
                             "instruction", prop("string", "详细清晰的执行指令，后台任务看不到聊天上下文，请把背景写全"),
                             "playbook_id", prop("string", "可选：指定按照某个已学会的做法 ID 执行"),
-                            "model_profile_id", prop("string", "可选：为本次后台任务单独指定模型配置 ID")),
+                            "model_profile_id", prop("string", "可选：为本次后台任务单独指定模型配置 ID"),
+                            "mini_app_id", prop("string", "可选：若本次任务旨在修改/修复某个已有小程序，传入其 ID")),
                     List.of("title", "instruction")),
             tool(
                     "delegate_to_bot",
@@ -199,7 +231,60 @@ public final class BotChatTools implements WorkspaceTools {
                             "id", prop("string", "例行任务 ID"),
                             "enabled", prop("boolean", "true 启用，false 暂停")),
                     List.of("id", "enabled")),
-            tool("delete_routine", "删除当前 Bot 的某条例行任务", map("id", prop("string", "例行任务 ID")), List.of("id")));
+            tool("delete_routine", "删除当前 Bot 的某条例行任务", map("id", prop("string", "例行任务 ID")), List.of("id")),
+            tool(
+                    "set_routine_flow",
+                    "把当前 Bot 的某条例行任务绑定到指定做法（SOP），传空 playbook_id 表示取消绑定",
+                    map(
+                            "id", prop("string", "例行任务 ID"),
+                            "playbook_id", prop("string", "做法 ID，留空则解绑")),
+                    List.of("id")),
+            tool(
+                    "remember",
+                    "记住一条长期有用的事实：scope=user 为关于用户本人且全团队共享的偏好/信息；scope=bot 为只与你职责相关的长期记忆",
+                    map(
+                            "scope", prop("string", "user（所有 Bot 共享）或 bot（仅自己）"),
+                            "text", prop("string", "精炼的记忆内容（1–500 字）")),
+                    List.of("scope", "text")),
+            tool("forget", "删除一条过时或错误的长期记忆（传入记忆前括号中的 ID）", map("id", prop("string", "记忆 ID")), List.of("id")),
+            tool(
+                    "stop_task",
+                    "立即停止你发起的一个正在运行或排队中的后台任务",
+                    map("task_id", prop("string", "要停止的后台任务 ID")),
+                    List.of("task_id")),
+            tool(
+                    "update_my_name",
+                    "修改你自己在侧边栏显示的名称",
+                    map("name", prop("string", "新名称（1–30 字，不含空格或 @）")),
+                    List.of("name")),
+            tool(
+                    "update_my_instructions",
+                    "更新你自己的角色指令/职责说明（完整替换）",
+                    map("instructions", prop("string", "新的角色职责与工作规范（1–2000 字）")),
+                    List.of("instructions")),
+            tool("list_bot_levels", "查看团队所有 Bot（含自己）的当前等级、段位与经验值排名", Map.of(), List.of()),
+            tool(
+                    "install_skill",
+                    "扫描 GitHub 仓库/目录链接或本机文件夹中的 SKILL.md 技能包，在聊天中弹出一张待用户勾选的安全确认卡（用户点「装上」后才真正安装）",
+                    map(
+                            "source", prop("string", "GitHub 仓库/目录 HTTPS 链接，或本机技能文件夹/压缩包的完整路径"),
+                            "bot", prop("string", "可选：主 Bot 可指定帮其他 Bot 安装（填名称或 ID），普通 Bot 留空表示自己")),
+                    List.of("source")),
+            tool(
+                    "remove_skill",
+                    "卸载已安装的技能包（可一次卸多个；仅在用户明确要求时调用）",
+                    map(
+                            "names",
+                            Map.of(
+                                    "type",
+                                    "array",
+                                    "items",
+                                    Map.of("type", "string"),
+                                    "description",
+                                    "要卸载的技能名称列表"),
+                            "bot",
+                            prop("string", "可选：主 Bot 可指定卸载其他 Bot 的技能（填名称或 ID）")),
+                    List.of("names")));
 
     private final String botId;
     private final Actions actions;
@@ -242,6 +327,15 @@ public final class BotChatTools implements WorkspaceTools {
                 case "create_routine" -> createRoutine(args);
                 case "toggle_routine" -> toggleRoutine(args);
                 case "delete_routine" -> deleteRoutine(args);
+                case "set_routine_flow" -> setRoutineFlow(args);
+                case "remember" -> remember(args);
+                case "forget" -> forget(args);
+                case "stop_task" -> stopTask(args);
+                case "update_my_name" -> updateMyName(args);
+                case "update_my_instructions" -> updateMyInstructions(args);
+                case "list_bot_levels" -> new Result(true, actions.listBotLevelsFromTool());
+                case "install_skill" -> installSkill(args);
+                case "remove_skill" -> removeSkill(args);
                 default -> new Result(false, "未知工具：" + call.name());
             };
         } catch (Exception error) {
@@ -260,6 +354,7 @@ public final class BotChatTools implements WorkspaceTools {
                 instruction,
                 args.path("playbook_id").asText("").strip(),
                 args.path("model_profile_id").asText("").strip(),
+                args.path("mini_app_id").asText("").strip(),
                 false);
         return new Result(true, "已启动后台任务「" + task.title() + "」（task_id=" + task.id() + "），完成后结论会自动回到本聊天。");
     }
@@ -480,6 +575,76 @@ public final class BotChatTools implements WorkspaceTools {
         String id = args.path("id").asText("").strip();
         actions.deleteRoutineFromTool(botId, id);
         return new Result(true, "已删除例行任务：" + id);
+    }
+
+    private Result setRoutineFlow(JsonNode args) {
+        String id = args.path("id").asText("").strip();
+        String playbookId = args.path("playbook_id").asText("").strip();
+        Routine updated = actions.setRoutinePlaybookFromTool(botId, id, playbookId);
+        return new Result(
+                true,
+                playbookId.isEmpty()
+                        ? "已取消例行任务「" + updated.name() + "」的做法绑定。"
+                        : "已将例行任务「" + updated.name() + "」绑定到做法 " + playbookId + "。");
+    }
+
+    private Result remember(JsonNode args) {
+        String scope = args.path("scope").asText("bot").strip();
+        String text = args.path("text").asText("").strip();
+        if (text.isEmpty()) return new Result(false, "记忆内容不能为空");
+        Fact saved = actions.rememberFromTool(botId, scope, text);
+        return new Result(
+                true,
+                "已记住（id=" + saved.id() + "，范围=" + ("USER".equals(saved.scope()) ? "用户全局" : "Bot 专属") + "）："
+                        + saved.content());
+    }
+
+    private Result forget(JsonNode args) {
+        String id = args.path("id").asText("").strip();
+        if (id.isEmpty()) return new Result(false, "请提供要遗忘的记忆 id");
+        actions.forgetFromTool(botId, id);
+        return new Result(true, "已遗忘记忆：" + id);
+    }
+
+    private Result stopTask(JsonNode args) {
+        String taskId = args.path("task_id").asText("").strip();
+        if (taskId.isEmpty()) return new Result(false, "请提供要停止的 task_id");
+        Task stopped = actions.stopTaskFromTool(botId, taskId);
+        return new Result(true, "已停止后台任务「" + stopped.title() + "」（状态=" + stopped.status() + "）。");
+    }
+
+    private Result updateMyName(JsonNode args) {
+        String name = args.path("name").asText("").strip();
+        if (name.isEmpty()) return new Result(false, "name 不能为空");
+        Bot updated = actions.updateBotFromTool(botId, name, null, null, null, null);
+        return new Result(true, "已将名称更新为：[" + updated.name() + "](bot:" + updated.id() + ")");
+    }
+
+    private Result updateMyInstructions(JsonNode args) {
+        String instructions = args.path("instructions").asText("").strip();
+        if (instructions.isEmpty()) return new Result(false, "instructions 不能为空");
+        actions.updateBotFromTool(botId, null, null, instructions, null, null);
+        return new Result(true, "已更新我的角色职责说明。");
+    }
+
+    private Result installSkill(JsonNode args) {
+        String source = args.path("source").asText("").strip();
+        String target = args.path("bot").asText("").strip();
+        if (source.isEmpty()) return new Result(false, "source 不能为空");
+        return new Result(true, actions.installSkillFromTool(botId, target, source));
+    }
+
+    private Result removeSkill(JsonNode args) {
+        JsonNode arr = args.path("names");
+        var names = new java.util.ArrayList<String>();
+        if (arr.isArray()) {
+            for (JsonNode item : arr) {
+                if (item.isTextual() && !item.asText().isBlank()) names.add(item.asText().strip());
+            }
+        }
+        if (names.isEmpty()) return new Result(false, "names 不能为空");
+        String target = args.path("bot").asText("").strip();
+        return new Result(true, actions.removeSkillFromTool(botId, target, names));
     }
 
     private static String textOrNull(JsonNode node, String field) {

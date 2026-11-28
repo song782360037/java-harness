@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { ApprovalMode, ModelProfile, Workspace } from '../api'
+import MarkdownContent from '../MarkdownContent.vue'
 import UiIcon from '../UiIcon.vue'
 import BotAvatarPicker from './BotAvatarPicker.vue'
 import BotChatPane from './BotChatPane.vue'
@@ -8,6 +9,7 @@ import BotDetailPanel from './BotDetailPanel.vue'
 import BotOnboardingModal from './BotOnboardingModal.vue'
 import BotShareCard from './BotShareCard.vue'
 import BotSidebar from './BotSidebar.vue'
+import BotSkillFilesModal from './BotSkillFilesModal.vue'
 import MiniAppDock from './MiniAppDock.vue'
 import MiniAppWindow from './MiniAppWindow.vue'
 import {
@@ -23,6 +25,8 @@ import {
   type BotRoutineDraft,
   type BotSection,
   type BotShape,
+  type BotSkillFileContent,
+  type BotSkillFileView,
   type BotSkillSummary,
   type BotTaskDetail,
   type BotThreadSnapshot,
@@ -76,6 +80,51 @@ const recentNotices = ref<IslandNotice[]>([])
 let noticeTimer: number | undefined
 let eventSource: EventSource | null = null
 let reconnectTimer: number | undefined
+let refreshing = false
+let refreshPending = false
+const detailPanelRef = ref<InstanceType<typeof BotDetailPanel>>()
+const chatPaneRef = ref<InstanceType<typeof BotChatPane>>()
+const backJumpStack = ref<{ botId: string; botName: string; scrollTop: number }[]>([])
+const currentBackJump = computed(() => backJumpStack.value.at(-1) || null)
+
+const SIDEBAR_W_KEY = 'harness.bots.sidebarWidth'
+const DETAIL_W_KEY = 'harness.bots.detailWidth'
+function loadStoredWidth(key: string, fallback: number, min: number, max: number): number {
+  if (typeof window === 'undefined') return fallback
+  const n = Number(window.localStorage.getItem(key))
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback
+}
+const sidebarWidth = ref(loadStoredWidth(SIDEBAR_W_KEY, 256, 210, 360))
+const detailWidth = ref(loadStoredWidth(DETAIL_W_KEY, 336, 280, 460))
+const resizingPane = ref<'sidebar' | 'detail' | null>(null)
+let resizeStart = { x: 0, width: 0 }
+
+function startPaneResize(which: 'sidebar' | 'detail', event: PointerEvent) {
+  event.preventDefault()
+  resizingPane.value = which
+  resizeStart = { x: event.clientX, width: which === 'sidebar' ? sidebarWidth.value : detailWidth.value }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+
+function onPaneResizeMove(event: PointerEvent) {
+  if (!resizingPane.value) return
+  const dx = event.clientX - resizeStart.x
+  if (resizingPane.value === 'sidebar') {
+    sidebarWidth.value = Math.max(210, Math.min(360, resizeStart.width + dx))
+  } else {
+    detailWidth.value = Math.max(280, Math.min(460, resizeStart.width - dx))
+  }
+}
+
+function endPaneResize(event: PointerEvent) {
+  if (!resizingPane.value) return
+  try {
+    window.localStorage.setItem(SIDEBAR_W_KEY, String(sidebarWidth.value))
+    window.localStorage.setItem(DETAIL_W_KEY, String(detailWidth.value))
+  } catch { /* ignore */ }
+  resizingPane.value = null
+  try { (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId) } catch { /* ignore */ }
+}
 
 const showCreateDialog = ref(false)
 const createForm = reactive({
@@ -94,19 +143,36 @@ const taskForm = reactive({ title: '', instruction: '', playbookId: '' })
 const inspectingTask = ref<BotTaskDetail | null>(null)
 const skills = ref<BotSkillSummary[]>([])
 const externalAgents = ref<BotExternalAgent[]>([])
-const previewingFile = ref<BotFileContent | null>(null)
+const previewingFile = ref<(BotFileContent & { botId: string; isImage: boolean; isMarkdown: boolean; rawMode: boolean }) | null>(null)
+const fileCopyFlash = ref(false)
 const sharingEntries = ref<BotEntry[] | null>(null)
+const answeringOfferId = ref('')
+const skillFilesModal = ref<{
+  title: string
+  subtitle: string
+  loadFiles: () => Promise<BotSkillFileView[]>
+  loadFile: (path: string) => Promise<BotSkillFileContent>
+} | null>(null)
 
 interface MountedMiniApp {
   bundle: BotMiniAppBundle
   minimized: boolean
+  closed: boolean
   hot: boolean
+  zIndex: number
   suspendTimer?: number
 }
 const openMiniApps = ref<MountedMiniApp[]>([])
+let nextMiniAppZ = 60
 const dockedApps = computed(() =>
-  openMiniApps.value.filter(item => item.minimized).map(item => ({ app: item.bundle.app, hot: item.hot })),
+  openMiniApps.value.filter(item => item.minimized && !item.closed).map(item => ({ app: item.bundle.app, hot: item.hot })),
 )
+const viewingApp = computed(() => {
+  const visible = openMiniApps.value.filter(item => !item.minimized && !item.closed)
+  if (!visible.length) return null
+  visible.sort((a, b) => b.zIndex - a.zIndex)
+  return visible[0].bundle.app
+})
 
 const showOnboarding = computed(() => !!workspace.value && (!workspace.value.meta.onboarded || showGuideModal.value))
 
@@ -135,13 +201,37 @@ async function loadThread(botId: string) {
   }
 }
 
-async function selectBot(botId: string) {
+async function selectBot(botId: string, clearBackStack = true) {
+  if (clearBackStack && botId !== selectedBotId.value) {
+    backJumpStack.value = []
+  }
   selectedBotId.value = botId
   if (compactRosterMode.value) rosterDrawerOpen.value = false
   await loadThread(botId)
   try {
     await botApi.markSeen(botId)
   } catch { /* ignore */ }
+}
+
+async function jumpToMention(targetBotId: string, scrollTop: number) {
+  const current = thread.value?.card.bot
+  if (current && current.id !== targetBotId) {
+    backJumpStack.value = [...backJumpStack.value, { botId: current.id, botName: current.name, scrollTop }]
+  }
+  await selectBot(targetBotId, false)
+}
+
+async function jumpBack() {
+  const top = backJumpStack.value.at(-1)
+  if (!top) return
+  backJumpStack.value = backJumpStack.value.slice(0, -1)
+  await selectBot(top.botId, false)
+  chatPaneRef.value?.setScrollTop(top.scrollTop)
+}
+
+function dismissIslandNotice() {
+  activeNotice.value = null
+  clearTimeout(noticeTimer)
 }
 
 function showIslandNotice(notice: IslandNotice) {
@@ -157,6 +247,22 @@ function connectEvents() {
   clearTimeout(reconnectTimer)
   const source = new EventSource('/api/bots/events')
   eventSource = source
+  source.addEventListener('bot-stream', event => {
+    try {
+      const payload = JSON.parse((event as MessageEvent).data) as {
+        botId: string
+        runId: string
+        status: string
+        output: string
+      }
+      if (thread.value && payload.botId === selectedBotId.value) {
+        thread.value = {
+          ...thread.value,
+          streaming: { runId: payload.runId, status: payload.status, output: payload.output },
+        }
+      }
+    } catch { /* ignore */ }
+  })
   source.addEventListener('bot-event', event => {
     try {
       const payload = JSON.parse((event as MessageEvent).data) as { version: string; notices?: IslandNotice[] }
@@ -174,6 +280,11 @@ function connectEvents() {
 }
 
 async function refreshLive() {
+  if (refreshing) {
+    refreshPending = true
+    return
+  }
+  refreshing = true
   try {
     const snap = await botApi.workspace()
     workspace.value = snap
@@ -191,9 +302,21 @@ async function refreshLive() {
       }
     }
   } catch { /* retry on next event */ }
+  finally {
+    refreshing = false
+    if (refreshPending) {
+      refreshPending = false
+      void refreshLive()
+    }
+  }
 }
 
-async function sendMessage(payload: { content: string; quoteSeq: number | null }) {
+async function sendMessage(payload: {
+  content: string
+  quoteSeq: number | null
+  attachmentIds?: string[]
+  viewingMiniAppId?: string
+}) {
   if (!selectedBotId.value) return
   sending.value = true
   error.value = ''
@@ -202,12 +325,120 @@ async function sendMessage(payload: { content: string; quoteSeq: number | null }
       requestId: crypto.randomUUID(),
       content: payload.content,
       quoteSeq: payload.quoteSeq,
+      attachmentIds: payload.attachmentIds?.length ? payload.attachmentIds : undefined,
+      viewingMiniAppId: payload.viewingMiniAppId || undefined,
     })
     await refreshLive()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '发送消息失败'
   } finally {
     sending.value = false
+  }
+}
+
+async function approveCommand(commandId: string) {
+  error.value = ''
+  try {
+    await botApi.approveCommand(commandId)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '批准命令失败'
+  }
+}
+
+async function rejectCommand(commandId: string) {
+  error.value = ''
+  try {
+    await botApi.rejectCommand(commandId)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '拒绝命令失败'
+  }
+}
+
+async function addFact(botId: string, scope: 'USER' | 'BOT', content: string) {
+  error.value = ''
+  try {
+    await botApi.addFact(botId, { scope, content })
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '新增记忆失败'
+  }
+}
+
+async function deleteFact(factId: string) {
+  error.value = ''
+  try {
+    await botApi.deleteFact(factId)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '删除记忆失败'
+  }
+}
+
+function openPlaybookInPanel(playbookId: string) {
+  detailOpen.value = true
+  window.setTimeout(() => detailPanelRef.value?.focusPlaybook(playbookId), 0)
+}
+
+function openSkillInPanel(target: string) {
+  detailOpen.value = true
+  const trimmed = target.trim()
+  const slash = trimmed.indexOf('/')
+  const ownerId = slash > 0 ? trimmed.slice(0, slash) : selectedBotId.value
+  const skillName = slash > 0 ? trimmed.slice(slash + 1) : trimmed
+  window.setTimeout(() => detailPanelRef.value?.focusSkill(ownerId, skillName), 0)
+}
+
+async function markAllSeen() {
+  error.value = ''
+  try {
+    await botApi.markAllSeen()
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '全部标为已读失败'
+  }
+}
+
+async function answerChatSkillOffer(offerId: string, names: string[]) {
+  if (!selectedBotId.value) return
+  answeringOfferId.value = offerId
+  error.value = ''
+  try {
+    await botApi.answerSkillOffer(selectedBotId.value, offerId, names)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '处理技能安装确认失败'
+  } finally {
+    if (answeringOfferId.value === offerId) answeringOfferId.value = ''
+  }
+}
+
+async function removeBotSkills(callerBotId: string, names: string[], targetBotId: string) {
+  error.value = ''
+  try {
+    await botApi.removeBotSkills(callerBotId, names, targetBotId)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '卸载技能失败'
+  }
+}
+
+function openOfferSkillFiles(offerId: string, skillName: string) {
+  skillFilesModal.value = {
+    title: skillName,
+    subtitle: '待安装技能包 · 只读预览',
+    loadFiles: () => botApi.offerSkillFiles(offerId, skillName),
+    loadFile: path => botApi.offerSkillFile(offerId, skillName, path),
+  }
+}
+
+function openInstalledSkillFiles(botId: string, skillName: string) {
+  skillFilesModal.value = {
+    title: skillName,
+    subtitle: '已安装技能包文件',
+    loadFiles: () => botApi.installedSkillFiles(botId, skillName),
+    loadFile: path => botApi.installedSkillFile(botId, skillName, path),
   }
 }
 
@@ -284,6 +515,69 @@ async function deleteSection(sectionId: string) {
 async function togglePin(card: BotCard) {
   await botApi.updateBot(card.bot.id, { pinned: !card.bot.pinned, revision: card.bot.revision })
   await refreshLive()
+}
+
+async function renameBot(botId: string, name: string) {
+  const card = workspace.value?.bots.find(b => b.bot.id === botId)
+  if (!card) return
+  await updateBot(botId, { name, revision: card.bot.revision })
+}
+
+async function markBotUnread(botId: string) {
+  error.value = ''
+  try {
+    await botApi.markUnread(botId)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '标记未读失败'
+  }
+}
+
+async function markBotSeen(botId: string) {
+  try {
+    await botApi.markSeen(botId)
+    await refreshLive()
+  } catch { /* ignore */ }
+}
+
+async function moveBotToSection(botId: string, sectionId: string) {
+  const card = workspace.value?.bots.find(b => b.bot.id === botId)
+  if (!card) return
+  await updateBot(botId, { sectionId, pinned: false, revision: card.bot.revision })
+}
+
+async function createSectionAndMove(botId: string, sectionName: string) {
+  error.value = ''
+  try {
+    const sec = await botApi.createSection(sectionName)
+    await moveBotToSection(botId, sec.id)
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '新建分组失败'
+  }
+}
+
+async function toggleHide(card: BotCard) {
+  await updateBot(card.bot.id, { hidden: !card.bot.hidden, revision: card.bot.revision })
+}
+
+async function uploadBotAvatar(botId: string, blob: Blob, filename: string) {
+  error.value = ''
+  try {
+    await botApi.uploadAvatar(botId, blob, filename)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '上传头像失败'
+  }
+}
+
+async function deleteBotAvatar(botId: string) {
+  error.value = ''
+  try {
+    await botApi.deleteAvatar(botId)
+    await refreshLive()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '移除头像失败'
+  }
 }
 
 async function reorder(items: BotLayoutItem[]) {
@@ -388,11 +682,36 @@ async function deleteRoutine(routineId: string) {
 
 async function previewFile(botId: string, relativePath: string) {
   error.value = ''
+  const isImage = /\.(png|jpe?g|webp|gif)$/i.test(relativePath)
+  const isMarkdown = /\.(md|markdown)$/i.test(relativePath)
+  if (isImage) {
+    previewingFile.value = {
+      botId,
+      relativePath,
+      sizeBytes: 0,
+      content: '',
+      truncated: false,
+      isImage: true,
+      isMarkdown: false,
+      rawMode: false,
+    }
+    return
+  }
   try {
-    previewingFile.value = await botApi.fileContent(botId, relativePath)
+    const content = await botApi.fileContent(botId, relativePath)
+    previewingFile.value = { ...content, botId, isImage: false, isMarkdown, rawMode: !isMarkdown }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '读取资料库文件失败'
   }
+}
+
+async function copyPreviewFile() {
+  if (!previewingFile.value?.content) return
+  try {
+    await navigator.clipboard.writeText(previewingFile.value.content)
+    fileCopyFlash.value = true
+    window.setTimeout(() => { fileCopyFlash.value = false }, 1500)
+  } catch { /* ignore */ }
 }
 
 async function openMiniApp(appId: string) {
@@ -401,6 +720,8 @@ async function openMiniApp(appId: string) {
   if (existing) {
     clearTimeout(existing.suspendTimer)
     existing.minimized = false
+    existing.closed = false
+    existing.zIndex = ++nextMiniAppZ
     if (!existing.hot) {
       try { existing.bundle = await botApi.miniApp(appId) } catch { /* ignore */ }
       existing.hot = true
@@ -409,10 +730,18 @@ async function openMiniApp(appId: string) {
   }
   try {
     const bundle = await botApi.miniApp(appId)
-    openMiniApps.value = [...openMiniApps.value, { bundle, minimized: false, hot: true }]
+    openMiniApps.value = [
+      ...openMiniApps.value,
+      { bundle, minimized: false, closed: false, hot: true, zIndex: ++nextMiniAppZ },
+    ]
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '打开小程序失败'
   }
+}
+
+function focusMiniApp(appId: string) {
+  const target = openMiniApps.value.find(item => item.bundle.app.id === appId)
+  if (target) target.zIndex = ++nextMiniAppZ
 }
 
 function minimizeMiniApp(appId: string) {
@@ -426,16 +755,42 @@ function minimizeMiniApp(appId: string) {
   }, 5 * 60_000)
 }
 
-function closeMiniApp(appId: string) {
+function closeMiniApp(appId: string, immediate = false) {
   const target = openMiniApps.value.find(item => item.bundle.app.id === appId)
-  if (target) clearTimeout(target.suspendTimer)
-  openMiniApps.value = openMiniApps.value.filter(item => item.bundle.app.id !== appId)
+  if (!target) return
+  clearTimeout(target.suspendTimer)
+  if (immediate) {
+    openMiniApps.value = openMiniApps.value.filter(item => item.bundle.app.id !== appId)
+    return
+  }
+  // 关闭后保留 30 分钟热恢复缓存（不在 Dock 显示，重新打开秒恢复状态），超时自动销毁
+  target.closed = true
+  target.minimized = true
+  target.suspendTimer = window.setTimeout(() => {
+    openMiniApps.value = openMiniApps.value.filter(item => item.bundle.app.id !== appId)
+  }, 30 * 60_000)
+}
+
+async function refreshMiniAppBundle(appId: string) {
+  const target = openMiniApps.value.find(item => item.bundle.app.id === appId)
+  if (target) {
+    try { target.bundle = await botApi.miniApp(appId) } catch { /* ignore */ }
+  }
+  await refreshLive()
+}
+
+function editMiniAppInChat(appId: string) {
+  const target = openMiniApps.value.find(item => item.bundle.app.id === appId)
+  if (target && target.bundle.app.botId !== selectedBotId.value) {
+    void selectBot(target.bundle.app.botId)
+  }
+  chatPaneRef.value?.focusComposer()
 }
 
 async function deleteMiniApp(appId: string) {
   error.value = ''
   try {
-    closeMiniApp(appId)
+    closeMiniApp(appId, true)
     await botApi.deleteMiniApp(appId)
     await refreshLive()
   } catch (cause) {
@@ -443,9 +798,14 @@ async function deleteMiniApp(appId: string) {
   }
 }
 
-async function sendFromMiniApp(botId: string, text: string) {
+async function sendFromMiniApp(botId: string, text: string, appId?: string) {
   try {
-    await botApi.postMessage(botId, { requestId: crypto.randomUUID(), content: text })
+    await botApi.postMessage(botId, {
+      requestId: crypto.randomUUID(),
+      content: text,
+      viewingMiniAppId: appId || undefined,
+      fromMiniApp: true,
+    })
     await refreshLive()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '小程序发送消息失败'
@@ -552,6 +912,7 @@ onUnmounted(() => {
         :sections="workspace?.sections || []"
         :selected-bot-id="selectedBotId"
         :outer-sidebar-collapsed="sidebarCollapsed"
+        :width="compactRosterMode ? undefined : sidebarWidth"
         @select="selectBot"
         @create-bot="showCreateDialog = true"
         @create-section="createSection"
@@ -559,12 +920,34 @@ onUnmounted(() => {
         @delete-section="deleteSection"
         @toggle-pin="togglePin"
         @reorder="reorder"
+        @rename-bot="renameBot"
+        @mark-unread="markBotUnread"
+        @mark-seen="markBotSeen"
+        @mark-all-seen="markAllSeen"
+        @move-bot-to-section="moveBotToSection"
+        @create-section-and-move="createSectionAndMove"
+        @toggle-hide="toggleHide"
+        @archive-bot="archiveBot"
         @expand-outer-sidebar="emit('expandSidebar')"
         @open-devices="emit('openDevices')"
         @open-guide="showGuideModal = true"
       />
+      <div
+        v-if="!compactRosterMode"
+        class="bot-col-resizer"
+        :class="{ 'is-active': resizingPane === 'sidebar' }"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整左侧 Bot 列表宽度"
+        title="拖动调整左侧栏宽度"
+        @pointerdown="startPaneResize('sidebar', $event)"
+        @pointermove="onPaneResizeMove"
+        @pointerup="endPaneResize"
+        @pointercancel="endPaneResize"
+      ></div>
 
       <BotChatPane
+        ref="chatPaneRef"
         :thread="thread"
         :all-bots="workspace?.bots || []"
         :island-notice="activeNotice"
@@ -574,10 +957,16 @@ onUnmounted(() => {
         :detail-drawer-mode="detailDrawerMode"
         :compact-layout="compactRosterMode"
         :has-configured-model="hasConfiguredModel"
+        :viewing-app="viewingApp"
+        :back-jump="currentBackJump"
+        :answering-offer-id="answeringOfferId"
         @send="sendMessage"
         @stop="stopChat"
         @delete-entries="deleteEntries"
         @select-bot="selectBot"
+        @jump-to-mention="jumpToMention"
+        @jump-back="jumpBack"
+        @dismiss-notice="dismissIslandNotice"
         @open-task="inspectTask"
         @cancel-task="cancelTask"
         @toggle-detail="detailOpen = !detailOpen"
@@ -586,6 +975,15 @@ onUnmounted(() => {
         @open-models="emit('openModels')"
         @share-entries="sharingEntries = $event"
         @open-app="openMiniApp"
+        @close-viewing-app="viewingApp && closeMiniApp(viewingApp.id)"
+        @open-playbook="openPlaybookInPanel"
+        @open-skill="openSkillInPanel"
+        @open-file="previewFile"
+        @answer-skill-offer="answerChatSkillOffer"
+        @view-offer-skill-files="openOfferSkillFiles"
+        @approve-command="approveCommand"
+        @reject-command="rejectCommand"
+        @open-session="emit('openSession', $event)"
       />
 
       <div
@@ -593,23 +991,45 @@ onUnmounted(() => {
         class="bot-drawer-scrim"
         @click="detailOpen = false"
       ></div>
+      <div
+        v-if="detailOpen && !detailDrawerMode"
+        class="bot-col-resizer"
+        :class="{ 'is-active': resizingPane === 'detail' }"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整右侧详情栏宽度"
+        title="拖动调整详情栏宽度"
+        @pointerdown="startPaneResize('detail', $event)"
+        @pointermove="onPaneResizeMove"
+        @pointerup="endPaneResize"
+        @pointercancel="endPaneResize"
+      ></div>
       <BotDetailPanel
         v-if="detailOpen"
+        ref="detailPanelRef"
         :class="{ 'is-drawer': detailDrawerMode }"
         :drawer-mode="detailDrawerMode"
+        :width="detailDrawerMode ? undefined : detailWidth"
         :thread="thread"
+        :all-bots="workspace?.bots || []"
         :workspaces="workspaces"
         :profiles="profiles"
         :skills="skills"
         :external-agents="externalAgents"
         @close="detailOpen = false"
         @update-bot="updateBot"
+        @upload-avatar="uploadBotAvatar"
+        @delete-avatar="deleteBotAvatar"
         @archive-bot="archiveBot"
         @open-task="inspectTask"
         @cancel-task="cancelTask"
         @save-playbook="savePlaybook"
         @delete-playbook="deletePlaybook"
         @import-skill="importSkill"
+        @skills-changed="refreshLive()"
+        @view-offer-skill-files="openOfferSkillFiles"
+        @view-installed-skill-files="openInstalledSkillFiles"
+        @remove-bot-skills="removeBotSkills"
         @save-routine="saveRoutine"
         @toggle-routine="toggleRoutine"
         @run-routine="runRoutine"
@@ -617,6 +1037,10 @@ onUnmounted(() => {
         @preview-file="previewFile"
         @open-app="openMiniApp"
         @delete-app="deleteMiniApp"
+        @add-fact="addFact"
+        @delete-fact="deleteFact"
+        @approve-command="approveCommand"
+        @reject-command="rejectCommand"
         @open-session="emit('openSession', $event)"
       />
     </div>
@@ -713,10 +1137,32 @@ onUnmounted(() => {
           <button type="button" class="icon-button" @click="previewingFile = null"><UiIcon name="close" :size="16" /></button>
         </header>
         <div class="bot-task-detail-meta">
-          <span>大小：{{ previewingFile.sizeBytes }} bytes</span>
+          <span v-if="previewingFile.sizeBytes">大小：{{ previewingFile.sizeBytes }} bytes</span>
           <span v-if="previewingFile.truncated" class="bot-fallback-pill">文件较大，仅展示前 200 KB</span>
+          <button
+            v-if="previewingFile.isMarkdown"
+            type="button"
+            class="bot-ghost-btn"
+            @click="previewingFile.rawMode = !previewingFile.rawMode"
+          >
+            {{ previewingFile.rawMode ? '渲染视图' : '查看原文' }}
+          </button>
+          <button
+            v-if="!previewingFile.isImage && previewingFile.content"
+            type="button"
+            class="bot-ghost-btn"
+            @click="copyPreviewFile"
+          >
+            {{ fileCopyFlash ? '已复制' : '复制全文' }}
+          </button>
         </div>
-        <pre class="bot-task-pre is-tall">{{ previewingFile.content }}</pre>
+        <div v-if="previewingFile.isImage" class="bot-file-image-preview">
+          <img :src="botApi.rawFileUrl(previewingFile.botId, previewingFile.relativePath)" :alt="previewingFile.relativePath" />
+        </div>
+        <div v-else-if="previewingFile.isMarkdown && !previewingFile.rawMode" class="bot-file-md-preview">
+          <MarkdownContent :content="previewingFile.content" />
+        </div>
+        <pre v-else class="bot-task-pre is-tall">{{ previewingFile.content }}</pre>
       </div>
     </div>
 
@@ -727,22 +1173,38 @@ onUnmounted(() => {
       @close="sharingEntries = null"
     />
 
+    <BotSkillFilesModal
+      v-if="skillFilesModal"
+      :title="skillFilesModal.title"
+      :subtitle="skillFilesModal.subtitle"
+      :load-files="skillFilesModal.loadFiles"
+      :load-file="skillFilesModal.loadFile"
+      @close="skillFilesModal = null"
+    />
+
     <template v-for="item in openMiniApps" :key="item.bundle.app.id">
       <MiniAppWindow
         v-if="item.hot || !item.minimized"
         :bundle="item.bundle"
-        :minimized="item.minimized"
+        :minimized="item.minimized || item.closed"
+        :z-index="item.zIndex"
+        :is-editing="(workspace?.bots.find(b => b.bot.id === item.bundle.app.botId)?.activeTaskCount ?? 0) > 0"
+        :bot-name="workspace?.bots.find(b => b.bot.id === item.bundle.app.botId)?.bot.name"
+        @focus="focusMiniApp(item.bundle.app.id)"
         @minimize="minimizeMiniApp(item.bundle.app.id)"
         @close="closeMiniApp(item.bundle.app.id)"
         @send-message="sendFromMiniApp"
+        @edit-in-chat="editMiniAppInChat"
         @data-updated="refreshLive()"
+        @version-restored="refreshMiniAppBundle"
+        @delete-app="deleteMiniApp"
       />
     </template>
 
     <MiniAppDock
       :apps="dockedApps"
       @restore="openMiniApp"
-      @close="closeMiniApp"
+      @close="closeMiniApp($event, true)"
     />
   </section>
 </template>
